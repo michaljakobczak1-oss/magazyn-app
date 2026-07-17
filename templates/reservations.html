@@ -78,16 +78,17 @@
 <div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center;">
   <div class="card" style="width:min(420px, 92vw);">
     <h2 style="margin-top:0;">Przyjęcie zwrotu <span id="rm-code"></span></h2>
-    <form method="post" id="return-form">
+    <form method="post" id="return-form" novalidate>
       <div id="rm-rids"></div>
+      <div id="rm-error" class="flash error" style="display:none; margin-bottom:10px;">Wypełnij pole.</div>
       <label>Magazyn przyjęcia *</label>
-      <select name="return_warehouse_id" id="rm-warehouse" required>
+      <select name="return_warehouse_id" id="rm-warehouse">
         <option value="" disabled selected>– wybierz magazyn –</option>
         {% for w in warehouses %}
         <option value="{{ w.id }}">{{ w.name }}</option>
         {% endfor %}
       </select>
-      <label>Miejsce w magazynie (opcjonalnie)</label>
+      <label>Miejsce w magazynie *</label>
       <input name="return_location" id="rm-location" placeholder="np. Regał B2">
       <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
         <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="document.getElementById('rm-notes').style.display = this.checked ? 'block' : 'none';">
@@ -118,10 +119,25 @@ function resetReturnModal(){
   document.getElementById('rm-damage').checked = false;
   document.getElementById('rm-damage-notes').value = '';
   document.getElementById('rm-notes').style.display = 'none';
+  document.getElementById('rm-error').style.display = 'none';
 }
 function closeReturnModal(){
   document.getElementById('return-modal').style.display = 'none';
 }
+function validateReturnForm(){
+  const wh = document.getElementById('rm-warehouse').value;
+  const loc = document.getElementById('rm-location').value.trim();
+  const err = document.getElementById('rm-error');
+  if (!wh || !loc) {
+    err.style.display = 'block';
+    return false;
+  }
+  err.style.display = 'none';
+  return true;
+}
+document.getElementById('return-form').addEventListener('submit', function(e){
+  if (!validateReturnForm()) e.preventDefault();
+});
 function openReturn(rid, code){
   resetReturnModal();
   document.getElementById('rm-code').textContent = code;
