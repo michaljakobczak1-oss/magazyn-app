@@ -540,27 +540,27 @@ def _selected_reservations(con, rids):
 
 
 def _apply_return(con, r, user_id, form):
-    """Przyjmuje zwrot jednej rezerwacji (magazyn / miejsce / uszkodzenie). Zwraca True jeśli OK."""
+    """Przyjmuje zwrot jednej rezerwacji. Magazyn przyjęcia jest wymagany."""
     if r["status"] != "wydane":
         return False
+    wid = (form.get("return_warehouse_id") or "").strip()
+    if not wid.isdigit():
+        return False
+    warehouse_id = int(wid)
     damage = 1 if form.get("damage") else 0
     damage_notes = (form.get("damage_notes") or "").strip()
     now = datetime.now().isoformat(timespec="seconds")
     con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
                    returned_by=?, damage=?, damage_notes=? WHERE id=?""",
                 (now, user_id, damage, damage_notes, r["id"]))
-    wid = (form.get("return_warehouse_id") or "").strip()
     loc = (form.get("return_location") or "").strip()
     eid = r["equipment_id"]
-    if wid.isdigit():
-        if loc:
-            con.execute("UPDATE equipment SET warehouse_id=?, location=? WHERE id=?",
-                        (int(wid), loc, eid))
-        else:
-            con.execute("UPDATE equipment SET warehouse_id=? WHERE id=?",
-                        (int(wid), eid))
-    elif loc:
-        con.execute("UPDATE equipment SET location=? WHERE id=?", (loc, eid))
+    if loc:
+        con.execute("UPDATE equipment SET warehouse_id=?, location=? WHERE id=?",
+                    (warehouse_id, loc, eid))
+    else:
+        con.execute("UPDATE equipment SET warehouse_id=? WHERE id=?",
+                    (warehouse_id, eid))
     if damage:
         stamp = f"[{date.today().isoformat()}] zwrot rez. #{r['id']}: {damage_notes or 'uszkodzenie'}"
         con.execute("""UPDATE equipment SET condition='uszkodzony',
@@ -580,14 +580,17 @@ def bulk_action(action):
     rows = _selected_reservations(con, request.form.getlist("rid"))
     now = datetime.now().isoformat(timespec="seconds")
     n = 0
+    if action == "return" and not (request.form.get("return_warehouse_id") or "").strip().isdigit():
+        con.close()
+        flash("Wybierz magazyn przyjęcia zwrotu – pole jest wymagane.", "error")
+        return redirect(url_for("reservations"))
     for r in rows:
         if action == "issue" and r["status"] == "rezerwacja":
             con.execute("UPDATE reservations SET status='wydane', issued_at=?, issued_by=? WHERE id=?",
                         (now, session["user_id"], r["id"]))
             n += 1
-        elif action == "return":
-            if _apply_return(con, r, session["user_id"], request.form):
-                n += 1
+        elif action == "return" and _apply_return(con, r, session["user_id"], request.form):
+            n += 1
     con.commit()
     con.close()
     verb = "Wydano" if action == "issue" else "Przyjęto zwrot"
@@ -648,11 +651,14 @@ def return_item(rid):
     r = _get_reservation(con, rid)
     if r["status"] != "wydane":
         flash("Można zwrócić tylko wydany sprzęt.", "error")
-    else:
-        _apply_return(con, r, session["user_id"], request.form)
+    elif not (request.form.get("return_warehouse_id") or "").strip().isdigit():
+        flash("Wybierz magazyn przyjęcia zwrotu – pole jest wymagane.", "error")
+    elif _apply_return(con, r, session["user_id"], request.form):
         con.commit()
         damaged = bool(request.form.get("damage"))
         flash("Oznaczono jako zwrócone." + (" Odnotowano uszkodzenie." if damaged else ""), "ok")
+    else:
+        flash("Nie udało się przyjąć zwrotu.", "error")
     con.close()
     return redirect(request.referrer or url_for("reservations"))
 
