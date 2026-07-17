@@ -93,9 +93,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 <nav>
   <span class="brand">📦 Magazyn</span>
   {% if session.user_id %}
-  {% if session.role == 'admin' %}
-  <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dziś w magazynie</a>
-  {% endif %}
+  <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
   <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Sprzęt</a>
   <a href="{{ url_for('reservations') }}" class="{{ 'active' if request.endpoint == 'reservations' and not request.args.get('mine') }}">Rezerwacje</a>
   <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>

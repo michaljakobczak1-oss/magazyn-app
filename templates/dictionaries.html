@@ -70,5 +70,37 @@
     </table>
   </div>
 
+  <div style="flex:1; min-width:320px;">
+    <h2>Działy</h2>
+    <p style="font-size:12px; color:#666; margin-top:-6px;">Użytkownicy z tego samego działu mogą wydawać / przyjmować nawzajem swoje rezerwacje.</p>
+    <div class="card wide" style="margin-bottom:14px;">
+      <form method="post" action="{{ url_for('department_add') }}" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div><label>Nazwa *</label><input name="name" required placeholder="np. Logistyka"></div>
+        <button class="btn">Dodaj</button>
+      </form>
+    </div>
+    <table>
+      <tr><th>Nazwa</th><th>Status</th><th></th></tr>
+      {% for d in departments %}
+      <tr>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('department_edit', did=d.id) }}" style="display:inline-flex; gap:6px;">
+            <input name="name" value="{{ d.name }}" required style="width:180px; padding:4px 8px;">
+            <button class="btn small ghost">Zapisz</button>
+          </form>
+        </td>
+        <td>{{ 'aktywny' if d.active else 'nieaktywny' }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('department_toggle', did=d.id) }}">
+            <button class="btn small {{ 'danger' if d.active else 'ok' }}">{{ 'Dezaktywuj' if d.active else 'Aktywuj' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3">Brak działów – dodaj np. Logistyka, Zakupy.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
 </div>
 {% endblock %}

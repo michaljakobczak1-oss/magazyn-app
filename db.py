@@ -12,7 +12,14 @@ CREATE TABLE IF NOT EXISTS users (
     active INTEGER NOT NULL DEFAULT 1,
     first_name TEXT,
     last_name TEXT,
+    department TEXT,                             -- dział (np. Logistyka, Zakupy)
     created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS departments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS warehouses (
@@ -102,6 +109,7 @@ MIGRATIONS = {
     "users": {
         "first_name": "TEXT",
         "last_name": "TEXT",
+        "department": "TEXT",
     },
     "equipment": {
         "owner": "TEXT",
@@ -179,10 +187,16 @@ def init_db():
 
 
 def reserved_qty(con, equipment_id, date_from, date_to, exclude_id=None):
-    """Suma sztuk zajętych (rezerwacja lub wydane) w nakładającym się terminie."""
+    """Suma sztuk zajętych w terminie.
+
+    - rezerwacja: tylko gdy termin nakłada się na zapytany zakres
+    - wydane: zawsze (towar jest poza magazynem do zwrotu)
+    """
     q = """SELECT COALESCE(SUM(quantity),0) s FROM reservations
-           WHERE equipment_id=? AND status IN ('rezerwacja','wydane')
-           AND date_from <= ? AND date_to >= ?"""
+           WHERE equipment_id=? AND (
+             (status='rezerwacja' AND date_from <= ? AND date_to >= ?)
+             OR status='wydane'
+           )"""
     params = [equipment_id, date_to, date_from]
     if exclude_id:
         q += " AND id != ?"

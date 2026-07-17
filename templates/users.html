@@ -2,7 +2,7 @@
 {% block title %}Użytkownicy – Magazyn{% endblock %}
 {% block content %}
 <h1>Użytkownicy</h1>
-<p style="font-size:13px; color:#666; margin-top:-8px;">Każde konto = konkretny PM. Konta współdzielone są zabronione (rozliczalność wydań i zwrotów).</p>
+<p style="font-size:13px; color:#666; margin-top:-8px;">Każde konto = konkretny PM. Wydania/zwroty tylko w ramach tego samego działu (admin – wszystkie).</p>
 <div class="card wide" style="margin-bottom:20px;">
   <h2 style="font-size:16px; margin:0 0 6px;">Dodaj użytkownika</h2>
   <form method="post" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
@@ -10,6 +10,12 @@
     <div><label>Nazwisko *</label><input name="last_name" required></div>
     <div><label>Login</label><input name="username" required></div>
     <div><label>Hasło</label><input name="password" type="password" required minlength="6"></div>
+    <div><label>Dział</label>
+      <select name="department">
+        <option value="">– brak –</option>
+        {% for d in departments %}<option value="{{ d.name }}">{{ d.name }}</option>{% endfor %}
+      </select>
+    </div>
     <div><label>Rola</label>
       <select name="role"><option value="user">użytkownik</option><option value="admin">admin</option></select>
     </div>
@@ -17,13 +23,19 @@
   </form>
 </div>
 <table>
-  <tr><th>Imię i nazwisko</th><th>Login</th><th>Rola</th><th>Status</th><th>Akcje</th></tr>
+  <tr><th>Imię i nazwisko / dział</th><th>Login</th><th>Rola</th><th>Status</th><th>Akcje</th></tr>
   {% for u in rows %}
   <tr>
     <td>
-      <form class="inline" method="post" action="{{ url_for('user_name', uid=u.id) }}" style="display:inline-flex; gap:6px; align-items:center;">
+      <form class="inline" method="post" action="{{ url_for('user_name', uid=u.id) }}" style="display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap;">
         <input name="first_name" value="{{ u.first_name or '' }}" placeholder="imię" required style="width:110px; padding:4px 8px;">
         <input name="last_name" value="{{ u.last_name or '' }}" placeholder="nazwisko" required style="width:130px; padding:4px 8px;">
+        <select name="department" style="padding:4px 8px;">
+          <option value="">– brak działu –</option>
+          {% for d in departments %}
+          <option value="{{ d.name }}" {{ 'selected' if u.department == d.name }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
         <button class="btn small ghost">Zapisz</button>
       </form>
     </td>

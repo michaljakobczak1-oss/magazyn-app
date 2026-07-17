@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from functools import wraps
 from pathlib import Path
 
@@ -45,6 +45,26 @@ def admin_required(f):
             return redirect(url_for("index"))
         return f(*a, **kw)
     return wrapper
+
+
+def can_manage_reservation(r):
+    """Admin, własne rezerwacje, albo ten sam dział co rezerwujący."""
+    if session.get("role") == "admin":
+        return True
+    if r["user_id"] == session.get("user_id"):
+        return True
+    my_dept = (session.get("department") or "").strip()
+    if not my_dept:
+        return False
+    owner_dept = ""
+    if "owner_department" in r.keys():
+        owner_dept = (r["owner_department"] or "").strip()
+    return bool(owner_dept) and owner_dept == my_dept
+
+
+def active_departments(con):
+    return con.execute(
+        "SELECT * FROM departments WHERE active=1 ORDER BY name").fetchall()
 
 
 def save_photo(file):
@@ -103,9 +123,9 @@ def login():
         con.close()
         if u and check_password_hash(u["password_hash"], request.form["password"]):
             session.update(user_id=u["id"], username=u["username"], role=u["role"],
-                           full_name=display_name(u))
-            default = "dashboard" if u["role"] == "admin" else "index"
-            return redirect(request.args.get("next") or url_for(default))
+                           full_name=display_name(u),
+                           department=(u["department"] or "") if "department" in u.keys() else "")
+            return redirect(request.args.get("next") or url_for("dashboard"))
         flash("Błędny login lub hasło.", "error")
     return render_template("login.html")
 
@@ -133,17 +153,18 @@ def account_password():
         con.commit()
         flash("Hasło zmienione.", "ok")
     con.close()
-    default = "dashboard" if session.get("role") == "admin" else "index"
+    default = "dashboard"
     return redirect(request.referrer or url_for(default))
 
 
-# ---------- dashboard ----------
+# ---------- dashboard (tydzień w magazynie) ----------
 
 @app.route("/dashboard")
 @login_required
-@admin_required
 def dashboard():
-    today = date.today().isoformat()
+    today = date.today()
+    week_end = today + timedelta(days=6)
+    today_s, week_end_s = today.isoformat(), week_end.isoformat()
     con = get_db()
     base_sql = """SELECT r.*, u.username, u.first_name, u.last_name,
                   e.code, e.name, e.location, w.name AS warehouse_name
@@ -151,20 +172,25 @@ def dashboard():
                   JOIN users u ON u.id=r.user_id
                   JOIN equipment e ON e.id=r.equipment_id
                   LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
-    out_today = con.execute(
-        base_sql + " WHERE r.status='rezerwacja' AND r.date_from=? ORDER BY e.code",
-        (today,)).fetchall()
-    back_today = con.execute(
-        base_sql + " WHERE r.status='wydane' AND r.date_to=? ORDER BY e.code",
-        (today,)).fetchall()
+    out_week = con.execute(
+        base_sql + """ WHERE r.status='rezerwacja'
+                       AND r.date_from>=? AND r.date_from<=?
+                       ORDER BY r.date_from, e.code""",
+        (today_s, week_end_s)).fetchall()
+    back_week = con.execute(
+        base_sql + """ WHERE r.status='wydane'
+                       AND r.date_to>=? AND r.date_to<=?
+                       ORDER BY r.date_to, e.code""",
+        (today_s, week_end_s)).fetchall()
     overdue = con.execute(
         base_sql + " WHERE r.status='wydane' AND r.date_to<? ORDER BY r.date_to",
-        (today,)).fetchall()
+        (today_s,)).fetchall()
     con.close()
-    days_overdue = {r["id"]: (date.today() - date.fromisoformat(r["date_to"])).days
+    days_overdue = {r["id"]: (today - date.fromisoformat(r["date_to"])).days
                     for r in overdue}
-    return render_template("dashboard.html", out_today=out_today,
-                           back_today=back_today, overdue=overdue, today=today,
+    return render_template("dashboard.html", out_week=out_week,
+                           back_week=back_week, overdue=overdue,
+                           today=today_s, week_end=week_end_s,
                            days_overdue=days_overdue, dn=display_name)
 
 
@@ -386,8 +412,8 @@ def reservations():
     overdue = request.args.get("overdue", "")
     today = date.today().isoformat()
     con = get_db()
-    sql = """SELECT r.*, u.username, u.first_name, u.last_name, e.code, e.name, e.photo,
-                    e.location, w.name AS warehouse_name
+    sql = """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
+                    e.code, e.name, e.photo, e.location, w.name AS warehouse_name
              FROM reservations r
              JOIN users u ON u.id=r.user_id JOIN equipment e ON e.id=r.equipment_id
              LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
@@ -402,10 +428,11 @@ def reservations():
         sql += " WHERE " + " AND ".join(where)
     rows = con.execute(sql + " ORDER BY r.date_from DESC", params).fetchall()
     warehouses = active_warehouses(con)
+    manage_ids = {r["id"] for r in rows if can_manage_reservation(r)}
     con.close()
     return render_template("reservations.html", rows=rows, f=f, mine=mine,
                            overdue=overdue, today=today, dn=display_name,
-                           warehouses=warehouses)
+                           warehouses=warehouses, manage_ids=manage_ids)
 
 
 @app.route("/equipment/<int:eid>/reserve", methods=["GET", "POST"])
@@ -415,7 +442,9 @@ def reserve(eid):
     eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
     if not eq:
         abort(404)
+    form_data = None
     if request.method == "POST":
+        form_data = request.form
         d_from, d_to = request.form["date_from"], request.form["date_to"]
         qty = max(1, int(request.form.get("quantity") or 1))
         if not valid_dates(d_from, d_to):
@@ -450,7 +479,7 @@ def reserve(eid):
     recipients = recent_recipients(con)
     con.close()
     return render_template("reserve.html", eq=eq, receivers=receivers,
-                           recipients=recipients)
+                           recipients=recipients, form=form_data)
 
 
 @app.route("/reserve-multi", methods=["GET", "POST"])
@@ -472,11 +501,12 @@ def reserve_multi():
             WHERE e.id IN ({','.join('?'*len(ids))}) ORDER BY e.code""",
         ids).fetchall()
 
-    # ostrzeżenie: pozycje z różnych magazynów (odbiór z więcej niż jednego miejsca)
     wh_names = {it["warehouse_name"] for it in items if it["warehouse_name"]}
     multi_warehouse = len(wh_names) > 1
+    form_data = None
 
     if request.method == "POST" and "date_from" in request.form:
+        form_data = request.form
         d_from, d_to = request.form["date_from"], request.form["date_to"]
         if not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
@@ -484,17 +514,27 @@ def reserve_multi():
             errors = []
             wanted = {}
             for it in items:
-                qty = max(1, int(request.form.get(f"qty_{it['id']}") or 1))
+                raw = (request.form.get(f"qty_{it['id']}") or "0").strip()
+                try:
+                    qty = int(raw)
+                except ValueError:
+                    qty = 0
+                if qty <= 0:
+                    continue  # pomiń pozycję (usunięta / ilość 0)
                 free = it["quantity"] - reserved_qty(con, it["id"], d_from, d_to)
                 if qty > free:
                     errors.append(f"{it['code']}: wolne {free} z {it['quantity']} szt.")
                 wanted[it["id"]] = qty
-            if errors:
+            if not wanted:
+                flash("Zostaw przynajmniej jedną pozycję z ilością > 0.", "error")
+            elif errors:
                 flash("Brak dostępności – " + "; ".join(errors), "error")
             else:
                 rec = recipient_form_fields(request.form)
                 gid = uuid.uuid4().hex[:8]
                 for it in items:
+                    if it["id"] not in wanted:
+                        continue
                     con.execute(
                         """INSERT INTO reservations (equipment_id, user_id, client,
                            date_from, date_to, quantity, notes, group_id, receiver,
@@ -513,14 +553,14 @@ def reserve_multi():
                                  rec["recipient_email"])
                 con.commit()
                 con.close()
-                flash(f"Utworzono wspólną rezerwację ({len(items)} pozycji).", "ok")
+                flash(f"Utworzono wspólną rezerwację ({len(wanted)} pozycji).", "ok")
                 return redirect(url_for("reservations"))
     receivers = active_partners(con)
     recipients = recent_recipients(con)
     con.close()
     return render_template("reserve_multi.html", items=items, receivers=receivers,
                            recipients=recipients, multi_warehouse=multi_warehouse,
-                           wh_names=sorted(wh_names))
+                           wh_names=sorted(wh_names), form=form_data)
 
 
 def _selected_reservations(con, rids):
@@ -528,7 +568,7 @@ def _selected_reservations(con, rids):
     if not rids:
         return []
     return con.execute(
-        f"""SELECT r.*, u.username, u.first_name, u.last_name,
+        f"""SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
             e.code, e.name, e.location, e.owner, e.brand,
             e.photo, e.dimensions, e.project_number, e.storage_instructions,
             w.name AS warehouse_name, w.address AS warehouse_address
@@ -540,14 +580,28 @@ def _selected_reservations(con, rids):
 
 
 def _return_form_valid(form):
-    """Magazyn i miejsce są wymagane przy zwrocie."""
+    """Magazyn przyjęcia jest wymagany; miejsce opcjonalne."""
     wid = (form.get("return_warehouse_id") or "").strip()
-    loc = (form.get("return_location") or "").strip()
-    return wid.isdigit() and bool(loc)
+    return wid.isdigit()
+
+
+def _apply_issue(con, r, user_id):
+    """Oznacza rezerwację jako wydaną. Przy wcześniejszym wydaniu przesuwa date_from."""
+    if r["status"] != "rezerwacja":
+        return False
+    now = datetime.now()
+    today = now.date().isoformat()
+    date_from = r["date_from"]
+    if date_from > today:
+        date_from = today
+    con.execute("""UPDATE reservations SET status='wydane', issued_at=?, issued_by=?,
+                   date_from=? WHERE id=?""",
+                (now.isoformat(timespec="seconds"), user_id, date_from, r["id"]))
+    return True
 
 
 def _apply_return(con, r, user_id, form):
-    """Przyjmuje zwrot jednej rezerwacji. Magazyn i miejsce są wymagane."""
+    """Przyjmuje zwrot. Magazyn wymagany, miejsce opcjonalne."""
     if r["status"] != "wydane":
         return False
     if not _return_form_valid(form):
@@ -561,8 +615,11 @@ def _apply_return(con, r, user_id, form):
                    returned_by=?, damage=?, damage_notes=? WHERE id=?""",
                 (now, user_id, damage, damage_notes, r["id"]))
     eid = r["equipment_id"]
-    con.execute("UPDATE equipment SET warehouse_id=?, location=? WHERE id=?",
-                (wid, loc, eid))
+    if loc:
+        con.execute("UPDATE equipment SET warehouse_id=?, location=? WHERE id=?",
+                    (wid, loc, eid))
+    else:
+        con.execute("UPDATE equipment SET warehouse_id=? WHERE id=?", (wid, eid))
     if damage:
         stamp = f"[{date.today().isoformat()}] zwrot rez. #{r['id']}: {damage_notes or 'uszkodzenie'}"
         con.execute("""UPDATE equipment SET condition='uszkodzony',
@@ -572,32 +629,67 @@ def _apply_return(con, r, user_id, form):
     return True
 
 
+def _pdf_for_rids(con, kind, rids):
+    rows = _selected_reservations(con, rids)
+    if not rows:
+        return None
+    if len(rows) == 1:
+        r = rows[0]
+        eq = con.execute("SELECT * FROM equipment WHERE id=?", (r["equipment_id"],)).fetchone()
+        op = None
+        if kind == "wydanie" and r["issued_by"]:
+            op = con.execute("SELECT * FROM users WHERE id=?", (r["issued_by"],)).fetchone()
+        elif kind == "przyjecie" and r["returned_by"]:
+            op = con.execute("SELECT * FROM users WHERE id=?", (r["returned_by"],)).fetchone()
+        photos = equipment_photo_list(con, r["equipment_id"])
+        if not photos and eq["photo"]:
+            photos = [eq["photo"]]
+        buf = protocol_pdf(kind, r, eq, display_name(r),
+                           display_name(op) if op else None, photos=photos)
+        prefix = "WZ" if kind == "wydanie" else "PZ"
+        name = f"{prefix}_{r['code']}_{datetime.now():%Y%m%d_%H%M}.pdf"
+    else:
+        buf = group_pdf(kind, rows)
+        prefix = "WZ" if kind == "wydanie" else "PZ"
+        name = f"{prefix}_zbiorczy_{datetime.now():%Y%m%d_%H%M}.pdf"
+    return buf, name
+
+
 @app.route("/reservations/bulk/<action>", methods=["POST"])
 @login_required
-@admin_required
 def bulk_action(action):
     if action not in ("issue", "return"):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
-    now = datetime.now().isoformat(timespec="seconds")
-    n = 0
     if action == "return" and not _return_form_valid(request.form):
         con.close()
         flash("Wypełnij pole.", "error")
         return redirect(url_for("reservations"))
+    done_ids = []
+    denied = 0
     for r in rows:
-        if action == "issue" and r["status"] == "rezerwacja":
-            con.execute("UPDATE reservations SET status='wydane', issued_at=?, issued_by=? WHERE id=?",
-                        (now, session["user_id"], r["id"]))
-            n += 1
+        if not can_manage_reservation(r):
+            denied += 1
+            continue
+        if action == "issue" and _apply_issue(con, r, session["user_id"]):
+            done_ids.append(r["id"])
         elif action == "return" and _apply_return(con, r, session["user_id"], request.form):
-            n += 1
+            done_ids.append(r["id"])
     con.commit()
+    if denied and not done_ids:
+        con.close()
+        flash("Brak uprawnień do rezerwacji spoza Twojego działu.", "error")
+        return redirect(url_for("reservations"))
+    if not done_ids:
+        con.close()
+        flash("Brak pozycji o odpowiednim statusie.", "error")
+        return redirect(url_for("reservations"))
     con.close()
+    kind = "wydanie" if action == "issue" else "przyjecie"
     verb = "Wydano" if action == "issue" else "Przyjęto zwrot"
-    flash(f"{verb}: {n} pozycji." if n else "Brak pozycji o odpowiednim statusie.", "ok" if n else "error")
-    return redirect(url_for("reservations"))
+    flash(f"{verb}: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
+    return redirect(url_for("reservations", auto_pdf=kind, rid=done_ids))
 
 
 @app.route("/reservations/pdf-group/<kind>")
@@ -619,7 +711,8 @@ def pdf_group(kind):
 
 def _get_reservation(con, rid):
     r = con.execute(
-        """SELECT r.*, u.username, u.first_name, u.last_name, e.code, e.name
+        """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
+                  e.code, e.name
            FROM reservations r
            JOIN users u ON u.id=r.user_id JOIN equipment e ON e.id=r.equipment_id
            WHERE r.id=?""", (rid,)).fetchone()
@@ -630,39 +723,68 @@ def _get_reservation(con, rid):
 
 @app.route("/reservations/<int:rid>/issue", methods=["POST"])
 @login_required
-@admin_required
 def issue(rid):
     con = get_db()
     r = _get_reservation(con, rid)
+    if not can_manage_reservation(r):
+        con.close()
+        flash("Możesz zarządzać tylko rezerwacjami swojego działu.", "error")
+        return redirect(request.referrer or url_for("reservations"))
     if r["status"] != "rezerwacja":
+        con.close()
         flash("Można wydać tylko aktywną rezerwację.", "error")
-    else:
-        con.execute("UPDATE reservations SET status='wydane', issued_at=?, issued_by=? WHERE id=?",
-                    (datetime.now().isoformat(timespec="seconds"), session["user_id"], rid))
-        con.commit()
-        flash("Oznaczono jako wydane.", "ok")
+        return redirect(request.referrer or url_for("reservations"))
+    _apply_issue(con, r, session["user_id"])
+    con.commit()
     con.close()
-    return redirect(request.referrer or url_for("reservations"))
+    flash("Oznaczono jako wydane. Pobieranie PDF…", "ok")
+    return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
 
 
 @app.route("/reservations/<int:rid>/return", methods=["POST"])
 @login_required
-@admin_required
 def return_item(rid):
     con = get_db()
     r = _get_reservation(con, rid)
+    if not can_manage_reservation(r):
+        con.close()
+        flash("Możesz zarządzać tylko rezerwacjami swojego działu.", "error")
+        return redirect(request.referrer or url_for("reservations"))
     if r["status"] != "wydane":
         flash("Można zwrócić tylko wydany sprzęt.", "error")
-    elif not _return_form_valid(request.form):
+        con.close()
+        return redirect(request.referrer or url_for("reservations"))
+    if not _return_form_valid(request.form):
         flash("Wypełnij pole.", "error")
-    elif _apply_return(con, r, session["user_id"], request.form):
+        con.close()
+        return redirect(request.referrer or url_for("reservations"))
+    if _apply_return(con, r, session["user_id"], request.form):
         con.commit()
+        con.close()
         damaged = bool(request.form.get("damage"))
-        flash("Oznaczono jako zwrócone." + (" Odnotowano uszkodzenie." if damaged else ""), "ok")
-    else:
-        flash("Nie udało się przyjąć zwrotu.", "error")
+        flash("Oznaczono jako zwrócone." + (" Odnotowano uszkodzenie." if damaged else "")
+              + " Pobieranie PDF…", "ok")
+        return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid))
     con.close()
+    flash("Nie udało się przyjąć zwrotu.", "error")
     return redirect(request.referrer or url_for("reservations"))
+
+
+@app.route("/reservations/auto-pdf/<kind>")
+@login_required
+def auto_pdf(kind):
+    """Pobiera WZ/PZ po wydaniu/zwrocie (wywoływane automatycznie z listy)."""
+    if kind not in ("wydanie", "przyjecie"):
+        abort(404)
+    con = get_db()
+    result = _pdf_for_rids(con, kind, request.args.getlist("rid"))
+    con.close()
+    if not result:
+        flash("Brak danych do PDF.", "error")
+        return redirect(url_for("reservations"))
+    buf, name = result
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                     download_name=name)
 
 
 @app.route("/reservations/<int:rid>/cancel", methods=["POST"])
@@ -727,8 +849,10 @@ def dictionaries():
     con = get_db()
     warehouses = con.execute("SELECT * FROM warehouses ORDER BY name").fetchall()
     partners = con.execute("SELECT * FROM logistics_partners ORDER BY name").fetchall()
+    departments = con.execute("SELECT * FROM departments ORDER BY name").fetchall()
     con.close()
-    return render_template("dictionaries.html", warehouses=warehouses, partners=partners)
+    return render_template("dictionaries.html", warehouses=warehouses, partners=partners,
+                           departments=departments)
 
 
 @app.route("/warehouses/add", methods=["POST"])
@@ -819,6 +943,52 @@ def partner_edit(pid):
     return redirect(url_for("dictionaries"))
 
 
+@app.route("/departments/add", methods=["POST"])
+@login_required
+@admin_required
+def department_add():
+    con = get_db()
+    try:
+        con.execute("INSERT INTO departments (name) VALUES (?)",
+                    (request.form["name"].strip(),))
+        con.commit()
+        flash("Dział dodany.", "ok")
+    except Exception:
+        flash("Dział o tej nazwie już istnieje.", "error")
+    con.close()
+    return redirect(url_for("dictionaries"))
+
+
+@app.route("/departments/<int:did>/toggle", methods=["POST"])
+@login_required
+@admin_required
+def department_toggle(did):
+    con = get_db()
+    con.execute("UPDATE departments SET active = 1 - active WHERE id=?", (did,))
+    con.commit()
+    con.close()
+    return redirect(url_for("dictionaries"))
+
+
+@app.route("/departments/<int:did>/edit", methods=["POST"])
+@login_required
+@admin_required
+def department_edit(did):
+    con = get_db()
+    name = request.form["name"].strip()
+    old = con.execute("SELECT name FROM departments WHERE id=?", (did,)).fetchone()
+    try:
+        con.execute("UPDATE departments SET name=? WHERE id=?", (name, did))
+        if old and old["name"] != name:
+            con.execute("UPDATE users SET department=? WHERE department=?", (name, old["name"]))
+        con.commit()
+        flash("Dział zaktualizowany.", "ok")
+    except Exception:
+        flash("Dział o tej nazwie już istnieje.", "error")
+    con.close()
+    return redirect(url_for("dictionaries"))
+
+
 # ---------- użytkownicy (admin) ----------
 
 @app.route("/users", methods=["GET", "POST"])
@@ -829,22 +999,24 @@ def users():
     if request.method == "POST":
         fn = request.form.get("first_name", "").strip()
         ln = request.form.get("last_name", "").strip()
+        dept = request.form.get("department", "").strip()
         if not fn or not ln:
             flash("Imię i nazwisko są wymagane – każde konto to konkretny PM.", "error")
         else:
             try:
                 con.execute("""INSERT INTO users (username, password_hash, role,
-                               first_name, last_name) VALUES (?,?,?,?,?)""",
+                               first_name, last_name, department) VALUES (?,?,?,?,?,?)""",
                             (request.form["username"].strip(),
                              generate_password_hash(request.form["password"], method="pbkdf2:sha256"),
-                             request.form.get("role", "user"), fn, ln))
+                             request.form.get("role", "user"), fn, ln, dept or None))
                 con.commit()
                 flash("Użytkownik dodany.", "ok")
             except Exception:
                 flash("Taki login już istnieje.", "error")
     rows = con.execute("SELECT * FROM users ORDER BY last_name, username").fetchall()
+    departments = active_departments(con)
     con.close()
-    return render_template("users.html", rows=rows, dn=display_name)
+    return render_template("users.html", rows=rows, dn=display_name, departments=departments)
 
 
 @app.route("/users/<int:uid>/toggle", methods=["POST"])
@@ -884,13 +1056,18 @@ def user_password(uid):
 def user_name(uid):
     fn = request.form.get("first_name", "").strip()
     ln = request.form.get("last_name", "").strip()
+    dept = request.form.get("department", "").strip()
     if not fn or not ln:
         flash("Imię i nazwisko są wymagane.", "error")
     else:
         con = get_db()
-        con.execute("UPDATE users SET first_name=?, last_name=? WHERE id=?", (fn, ln, uid))
+        con.execute("UPDATE users SET first_name=?, last_name=?, department=? WHERE id=?",
+                    (fn, ln, dept or None, uid))
         con.commit()
         con.close()
+        if uid == session["user_id"]:
+            session["department"] = dept
+            session["full_name"] = f"{fn} {ln}".strip()
         flash("Dane zaktualizowane.", "ok")
     return redirect(url_for("users"))
 

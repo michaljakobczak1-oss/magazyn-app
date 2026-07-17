@@ -21,10 +21,8 @@
 <form method="post" id="bulk">
 <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <span style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
-  {% if session.role == 'admin' %}
   <button class="btn small ok" formaction="{{ url_for('bulk_action', action='issue') }}">Wydaj</button>
   <button type="button" class="btn small ok" onclick="openReturnBulk()">Przyjmij zwrot</button>
-  {% endif %}
   <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='wydanie') }}" formmethod="get">Zbiorczy PDF wydania</button>
   <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='przyjecie') }}" formmethod="get">Zbiorczy PDF przyjęcia</button>
 </div>
@@ -32,6 +30,7 @@
   <tr><th></th><th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
   {% for r in rows %}
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
+  {% set can_m = r.id in manage_ids %}
   <tr class="{{ 'overdue' if is_overdue }}">
     <td><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"></td>
     <td>{{ thumb(r.photo) }}</td>
@@ -44,22 +43,21 @@
     <td>{{ r.client or '–' }}</td>
     <td>{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
     <td>{{ r.receiver or '–' }}</td>
-    <td>{{ dn(r) }}</td>
+    <td>{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
     <td><span class="badge {{ r.status }}">{{ r.status }}</span>
       {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}
       {% if r.issued_at %}<br><span style="font-size:11px;color:#666;">wyd. {{ r.issued_at[:16].replace('T',' ') }}</span>{% endif %}
       {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">zwr. {{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
     </td>
     <td>
-      {% if session.role == 'admin' %}
-      {% if r.status == 'rezerwacja' %}
+      {% if can_m and r.status == 'rezerwacja' %}
       <button class="btn small ok" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post">Wydaj</button>
-      <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
-      {% elif r.status == 'wydane' %}
-      <button type="button" class="btn small ok" onclick="openReturn({{ r.id }}, '{{ r.code }}')">Przyjmij zwrot</button>
       {% endif %}
-      {% elif r.status == 'rezerwacja' %}
+      {% if r.status == 'rezerwacja' and (r.user_id == session.user_id or session.role == 'admin') %}
       <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
+      {% endif %}
+      {% if can_m and r.status == 'wydane' %}
+      <button type="button" class="btn small ok" onclick="openReturn({{ r.id }}, '{{ r.code }}')">Przyjmij zwrot</button>
       {% endif %}
     </td>
     <td>
@@ -73,8 +71,6 @@
 </table>
 </form>
 
-{# przyjęcie zwrotu – tylko admin #}
-{% if session.role == 'admin' %}
 <div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center;">
   <div class="card" style="width:min(420px, 92vw);">
     <h2 style="margin-top:0;">Przyjęcie zwrotu <span id="rm-code"></span></h2>
@@ -88,7 +84,7 @@
         <option value="{{ w.id }}">{{ w.name }}</option>
         {% endfor %}
       </select>
-      <label>Miejsce w magazynie *</label>
+      <label>Miejsce w magazynie (opcjonalnie)</label>
       <input name="return_location" id="rm-location" placeholder="np. Regał B2">
       <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
         <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="document.getElementById('rm-notes').style.display = this.checked ? 'block' : 'none';">
@@ -105,10 +101,8 @@
     </form>
   </div>
 </div>
-{% endif %}
 {% endblock %}
 {% block scripts %}
-{% if session.role == 'admin' %}
 <script>
 function resetReturnModal(){
   document.getElementById('rm-rids').innerHTML = '';
@@ -126,9 +120,8 @@ function closeReturnModal(){
 }
 function validateReturnForm(){
   const wh = document.getElementById('rm-warehouse').value;
-  const loc = document.getElementById('rm-location').value.trim();
   const err = document.getElementById('rm-error');
-  if (!wh || !loc) {
+  if (!wh) {
     err.style.display = 'block';
     return false;
   }
@@ -163,6 +156,20 @@ function openReturnBulk(){
   document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';
   document.getElementById('return-modal').style.display = 'flex';
 }
-</script>
+{% if request.args.get('auto_pdf') and request.args.getlist('rid') %}
+(function(){
+  const kind = {{ request.args.get('auto_pdf')|tojson }};
+  const rids = {{ request.args.getlist('rid')|tojson }};
+  const q = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); }).join('&');
+  const a = document.createElement('a');
+  a.href = '/reservations/auto-pdf/' + kind + '?' + q;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  if (window.history && history.replaceState) {
+    history.replaceState(null, '', '{{ url_for("reservations") }}');
+  }
+})();
 {% endif %}
+</script>
 {% endblock %}

@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Dziś w magazynie – Magazyn{% endblock %}
+{% block title %}Tydzień w magazynie – Magazyn{% endblock %}
 {% block content %}
-<h1>Dziś w magazynie <span style="font-weight:400; color:#666; font-size:16px;">({{ today }})</span></h1>
+<h1>Tydzień w magazynie <span style="font-weight:400; color:#666; font-size:16px;">({{ today }} – {{ week_end }})</span></h1>
+<p style="color:#555; margin-top:-8px; font-size:14px;">Zaplanowane transporty w najbliższych 7 dniach – możesz sprawdzić, czy da się podłączyć ze swoją wysyłką.</p>
 
 <div class="stat-cards">
-  <div class="stat"><div class="num">{{ out_today|length }}</div><div class="lbl">pozycji wychodzi dziś</div></div>
-  <div class="stat green"><div class="num">{{ back_today|length }}</div><div class="lbl">pozycji wraca dziś</div></div>
+  <div class="stat"><div class="num">{{ out_week|length }}</div><div class="lbl">pozycji wychodzi w tym tygodniu</div></div>
+  <div class="stat green"><div class="num">{{ back_week|length }}</div><div class="lbl">pozycji wraca w tym tygodniu</div></div>
   <div class="stat red"><div class="num">{{ overdue|length }}</div><div class="lbl">pozycji po terminie zwrotu</div></div>
 </div>
 
 {% macro res_table(rows, empty_msg) %}
 <table style="margin-bottom:24px;">
-  <tr><th>Kod</th><th>Nazwa</th><th>Magazyn / miejsce</th><th>Szt.</th><th>Termin</th><th>Klient / cel</th><th>PM</th><th></th></tr>
+  <tr><th>Kod</th><th>Nazwa</th><th>Magazyn / miejsce</th><th>Szt.</th><th>Termin</th><th>Klient / cel</th><th>Odbiera (podwykonawca)</th><th>PM</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
@@ -20,25 +21,26 @@
     <td>{{ r.quantity }}</td>
     <td>{{ r.date_from }} – {{ r.date_to }}</td>
     <td>{{ r.client or '–' }}</td>
+    <td>{{ r.receiver or '–' }}</td>
     <td>{{ dn(r) }}</td>
     <td><a class="btn small ghost" href="{{ url_for('reservations') }}">przejdź</a></td>
   </tr>
   {% else %}
-  <tr><td colspan="8">{{ empty_msg }}</td></tr>
+  <tr><td colspan="9">{{ empty_msg }}</td></tr>
   {% endfor %}
 </table>
 {% endmacro %}
 
-<h2>Wychodzi dziś (rezerwacje od {{ today }})</h2>
-{{ res_table(out_today, 'Nic nie wychodzi dziś z magazynu.') }}
+<h2>Wychodzi w tym tygodniu (rezerwacje od {{ today }} do {{ week_end }})</h2>
+{{ res_table(out_week, 'Brak planowanych wydań w tym tygodniu.') }}
 
-<h2>Wraca dziś (wydane, termin do {{ today }})</h2>
-{{ res_table(back_today, 'Nic nie wraca dziś do magazynu.') }}
+<h2>Wraca w tym tygodniu (wydane, termin zwrotu {{ today }} – {{ week_end }})</h2>
+{{ res_table(back_week, 'Brak planowanych zwrotów w tym tygodniu.') }}
 
 <h2 style="color:var(--err);">Po terminie zwrotu</h2>
 {% if overdue %}
 <table>
-  <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>PM</th><th></th></tr>
+  <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>Odbiera</th><th>PM</th><th></th></tr>
   {% for r in overdue %}
   <tr class="overdue">
     <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
@@ -47,12 +49,13 @@
     <td>{{ r.date_to }}</td>
     <td><span class="badge overdue">{{ days_overdue[r.id] }} dni</span></td>
     <td>{{ r.client or '–' }}</td>
+    <td>{{ r.receiver or '–' }}</td>
     <td>{{ dn(r) }}</td>
     <td><a class="btn small ghost" href="{{ url_for('reservations', overdue=1) }}">wszystkie po terminie</a></td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
-<p style="color:#666;">Brak przetrzymanych pozycji. 🎉</p>
+<p style="color:#666;">Brak przetrzymanych pozycji.</p>
 {% endif %}
 {% endblock %}
