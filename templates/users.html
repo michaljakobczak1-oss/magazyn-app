@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Użytkownicy – Magazyn{% endblock %}
+{% block content %}
+<h1>Użytkownicy</h1>
+<p style="font-size:13px; color:#666; margin-top:-8px;">Każde konto = konkretny PM. Konta współdzielone są zabronione (rozliczalność wydań i zwrotów).</p>
+<div class="card wide" style="margin-bottom:20px;">
+  <h2 style="font-size:16px; margin:0 0 6px;">Dodaj użytkownika</h2>
+  <form method="post" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+    <div><label>Imię *</label><input name="first_name" required></div>
+    <div><label>Nazwisko *</label><input name="last_name" required></div>
+    <div><label>Login</label><input name="username" required></div>
+    <div><label>Hasło</label><input name="password" type="password" required minlength="6"></div>
+    <div><label>Rola</label>
+      <select name="role"><option value="user">użytkownik</option><option value="admin">admin</option></select>
+    </div>
+    <button class="btn">Dodaj</button>
+  </form>
+</div>
+<table>
+  <tr><th>Imię i nazwisko</th><th>Login</th><th>Rola</th><th>Status</th><th>Akcje</th></tr>
+  {% for u in rows %}
+  <tr>
+    <td>
+      <form class="inline" method="post" action="{{ url_for('user_name', uid=u.id) }}" style="display:inline-flex; gap:6px; align-items:center;">
+        <input name="first_name" value="{{ u.first_name or '' }}" placeholder="imię" required style="width:110px; padding:4px 8px;">
+        <input name="last_name" value="{{ u.last_name or '' }}" placeholder="nazwisko" required style="width:130px; padding:4px 8px;">
+        <button class="btn small ghost">Zapisz</button>
+      </form>
+    </td>
+    <td><strong>{{ u.username }}</strong></td>
+    <td>{{ u.role }}</td>
+    <td>{{ 'aktywny' if u.active else 'nieaktywny' }}</td>
+    <td>
+      {% if u.id != session.user_id %}
+      <form class="inline" method="post" action="{{ url_for('user_toggle', uid=u.id) }}">
+        <button class="btn small {{ 'danger' if u.active else 'ok' }}">{{ 'Dezaktywuj' if u.active else 'Aktywuj' }}</button>
+      </form>
+      {% endif %}
+      <form class="inline" method="post" action="{{ url_for('user_password', uid=u.id) }}" style="display:inline-flex; gap:6px;">
+        <input name="password" type="password" placeholder="nowe hasło" minlength="6" required style="width:140px; padding:4px 8px;">
+        <button class="btn small ghost">Zmień hasło</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

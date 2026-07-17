@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_recipient_fields.html" import recipient_fields %}
+{% from "_thumb.html" import thumb %}
+{% block title %}Wspólna rezerwacja – Magazyn{% endblock %}
+{% block content %}
+<h1>Wspólna rezerwacja ({{ items|length }} pozycji)</h1>
+{% if multi_warehouse %}
+<div class="flash warn"><strong>Uwaga:</strong> zaznaczone pozycje znajdują się w więcej niż jednym magazynie ({{ wh_names|join(', ') }}) – odbiór z kilku miejsc.</div>
+{% endif %}
+{% set client_items = items | selectattr('material_type', 'equalto', 'klient') | list %}
+{% if client_items %}
+<div class="flash warn">Wśród pozycji są materiały klienta ({{ client_items | map(attribute='code') | join(', ') }}) – wypożyczenie wyłącznie na potrzeby tego klienta.</div>
+{% endif %}
+<form method="post">
+  {% for it in items %}<input type="hidden" name="eid" value="{{ it.id }}">{% endfor %}
+  <table style="margin-bottom:20px;">
+    <tr><th></th><th>Kod</th><th>Nazwa</th><th>Magazyn</th><th>Miejsce</th><th>Stan</th><th style="width:110px;">Ilość szt.</th></tr>
+    {% for it in items %}
+    <tr>
+      <td>{{ thumb(it.photo) }}</td>
+      <td><strong>{{ it.code }}</strong></td>
+      <td>{{ it.name }}</td>
+      <td>{{ it.warehouse_name or '–' }}</td>
+      <td>{{ it.location or '–' }}</td>
+      <td>{{ it.quantity }} szt.</td>
+      <td><input name="qty_{{ it.id }}" type="number" min="1" max="{{ it.quantity }}" value="1"></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="card">
+    <label>Od *</label>
+    <input name="date_from" type="date" required>
+    <label>Do *</label>
+    <input name="date_to" type="date" required>
+    <label>Kto odbiera towar (podwykonawca) *</label>
+    <select name="receiver" required>
+      <option value="" disabled selected>– wybierz –</option>
+      {% for p in receivers %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+    </select>
+    <label>Klient / cel</label>
+    <input name="client" placeholder="np. Targi XYZ">
+    <label>Uwagi</label>
+    <textarea name="notes" rows="2"></textarea>
+    {{ recipient_fields(recipients) }}
+    <div style="margin-top:16px; display:flex; gap:10px;">
+      <button class="btn">Zarezerwuj wszystko</button>
+      <a class="btn ghost" href="{{ url_for('index') }}">Anuluj</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

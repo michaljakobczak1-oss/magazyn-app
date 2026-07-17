@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Logowanie – Magazyn{% endblock %}
+{% block content %}
+<div class="card" style="margin:60px auto;">
+  <h1>Logowanie</h1>
+  <form method="post">
+    <label>Login</label>
+    <input name="username" required autofocus>
+    <label>Hasło</label>
+    <input name="password" type="password" required>
+    <div style="margin-top:16px;"><button class="btn">Zaloguj</button></div>
+  </form>
+</div>
+{% endblock %}

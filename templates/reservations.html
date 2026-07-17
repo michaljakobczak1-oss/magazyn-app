@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "_thumb.html" import thumb %}
+{% block title %}Rezerwacje – Magazyn{% endblock %}
+{% block content %}
+<h1>{{ 'Moje rezerwacje' if mine == '1' else 'Rezerwacje' }}{% if overdue == '1' %} – po terminie{% endif %}</h1>
+<div class="toolbar">
+  <form method="get" style="display:flex; gap:8px; align-items:center;">
+    {% if mine == '1' %}<input type="hidden" name="mine" value="1">{% endif %}
+    <select name="status" onchange="this.form.submit()">
+      <option value="">Wszystkie statusy</option>
+      {% for s in ['rezerwacja','wydane','zwrócone','anulowana'] %}
+      <option value="{{ s }}" {{ 'selected' if f == s }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <label class="chk" style="display:flex; align-items:center; gap:6px; margin:0; font-weight:400;">
+      <input type="checkbox" name="overdue" value="1" style="width:auto;" {{ 'checked' if overdue == '1' }} onchange="this.form.submit()">
+      tylko po terminie
+    </label>
+  </form>
+</div>
+<form method="post" id="bulk">
+<div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <span style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
+  {% if session.role == 'admin' %}
+  <button class="btn small ok" formaction="{{ url_for('bulk_action', action='issue') }}">Wydaj</button>
+  <button type="button" class="btn small ok" onclick="openReturnBulk()">Przyjmij zwrot</button>
+  {% endif %}
+  <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='wydanie') }}" formmethod="get">Zbiorczy PDF wydania</button>
+  <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='przyjecie') }}" formmethod="get">Zbiorczy PDF przyjęcia</button>
+</div>
+<table>
+  <tr><th></th><th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
+  {% for r in rows %}
+  {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
+  <tr class="{{ 'overdue' if is_overdue }}">
+    <td><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"></td>
+    <td>{{ thumb(r.photo) }}</td>
+    <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
+      {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
+      {% if r.group_id %}<br><span class="badge" style="background:#e3ecf7;color:#1e3a5f;" title="wspólna rezerwacja">grupa {{ r.group_id[:4] }}</span>{% endif %}</td>
+    <td>{{ r.date_from }} – {{ r.date_to }}
+      {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
+    <td>{{ r.quantity }}</td>
+    <td>{{ r.client or '–' }}</td>
+    <td>{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
+    <td>{{ r.receiver or '–' }}</td>
+    <td>{{ dn(r) }}</td>
+    <td><span class="badge {{ r.status }}">{{ r.status }}</span>
+      {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}
+      {% if r.issued_at %}<br><span style="font-size:11px;color:#666;">wyd. {{ r.issued_at[:16].replace('T',' ') }}</span>{% endif %}
+      {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">zwr. {{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
+    </td>
+    <td>
+      {% if session.role == 'admin' %}
+      {% if r.status == 'rezerwacja' %}
+      <button class="btn small ok" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post">Wydaj</button>
+      <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
+      {% elif r.status == 'wydane' %}
+      <button type="button" class="btn small ok" onclick="openReturn({{ r.id }}, '{{ r.code }}')">Przyjmij zwrot</button>
+      {% endif %}
+      {% elif r.status == 'rezerwacja' %}
+      <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
+      {% endif %}
+    </td>
+    <td>
+      {% if r.status in ('wydane', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="12">Brak rezerwacji.</td></tr>
+  {% endfor %}
+</table>
+</form>
+
+{# przyjęcie zwrotu – tylko admin #}
+{% if session.role == 'admin' %}
+<div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center;">
+  <div class="card" style="width:min(420px, 92vw);">
+    <h2 style="margin-top:0;">Przyjęcie zwrotu <span id="rm-code"></span></h2>
+    <form method="post" id="return-form">
+      <div id="rm-rids"></div>
+      <label>Magazyn przyjęcia</label>
+      <select name="return_warehouse_id" id="rm-warehouse">
+        <option value="">– bez zmiany magazynu –</option>
+        {% for w in warehouses %}
+        <option value="{{ w.id }}">{{ w.name }}</option>
+        {% endfor %}
+      </select>
+      <label>Miejsce w magazynie (opcjonalnie)</label>
+      <input name="return_location" id="rm-location" placeholder="np. Regał B2 – zostaw puste, aby nie zmieniać">
+      <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
+        <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="document.getElementById('rm-notes').style.display = this.checked ? 'block' : 'none';">
+        towar wrócił uszkodzony
+      </label>
+      <div id="rm-notes" style="display:none;">
+        <label>Opis uszkodzenia</label>
+        <textarea name="damage_notes" id="rm-damage-notes" rows="3" placeholder="np. pęknięta ścianka skrzyni, brak 2 śrub"></textarea>
+      </div>
+      <div style="margin-top:16px; display:flex; gap:10px;">
+        <button class="btn ok">Przyjmij zwrot</button>
+        <a class="btn ghost" href="#" onclick="closeReturnModal(); return false;">Anuluj</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if session.role == 'admin' %}
+<script>
+function resetReturnModal(){
+  document.getElementById('rm-rids').innerHTML = '';
+  document.getElementById('rm-warehouse').value = '';
+  document.getElementById('rm-location').value = '';
+  document.getElementById('rm-damage').checked = false;
+  document.getElementById('rm-damage-notes').value = '';
+  document.getElementById('rm-notes').style.display = 'none';
+}
+function closeReturnModal(){
+  document.getElementById('return-modal').style.display = 'none';
+}
+function openReturn(rid, code){
+  resetReturnModal();
+  document.getElementById('rm-code').textContent = code;
+  document.getElementById('return-form').action = '/reservations/' + rid + '/return';
+  document.getElementById('return-modal').style.display = 'flex';
+}
+function openReturnBulk(){
+  const checked = Array.from(document.querySelectorAll('#bulk input[name="rid"]:checked'));
+  if (!checked.length){
+    alert('Zaznacz przynajmniej jedną rezerwację.');
+    return;
+  }
+  resetReturnModal();
+  document.getElementById('rm-code').textContent = '(' + checked.length + ' pozycji)';
+  const box = document.getElementById('rm-rids');
+  checked.forEach(function(cb){
+    const h = document.createElement('input');
+    h.type = 'hidden';
+    h.name = 'rid';
+    h.value = cb.value;
+    box.appendChild(h);
+  });
+  document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';
+  document.getElementById('return-modal').style.display = 'flex';
+}
+</script>
+{% endif %}
+{% endblock %}

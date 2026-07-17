@@ -1,0 +1,42 @@
+{# 1.2 – pola adresata towaru + słownik ostatnich adresatów (autouzupełnianie) #}
+{% macro recipient_fields(recipients) -%}
+<fieldset style="border:1px solid #cbd5e1; border-radius:8px; padding:4px 14px 14px; margin-top:16px;">
+  <legend style="font-weight:700; font-size:13px; padding:0 6px;">Adresat towaru (dostawa)</legend>
+  {% if recipients %}
+  <label>Wybierz z ostatnio używanych</label>
+  <select id="recipient-picker" onchange="fillRecipient(this)">
+    <option value="">– nowy adresat / wpisz ręcznie –</option>
+    {% for rc in recipients %}
+    <option value="{{ rc.id }}"
+      data-name="{{ rc.name }}" data-contact="{{ rc.contact_person or '' }}"
+      data-phone="{{ rc.phone or '' }}" data-address="{{ rc.address or '' }}"
+      data-email="{{ rc.email or '' }}">
+      {{ rc.name }}{% if rc.address %} – {{ rc.address }}{% endif %}
+    </option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <label>Firma / miejsce / osoba</label>
+  <input name="recipient_name" id="recipient_name" placeholder="np. Hala EXPO XXI">
+  <label>Osoba kontaktowa</label>
+  <input name="recipient_contact" id="recipient_contact">
+  <label>Telefon</label>
+  <input name="recipient_phone" id="recipient_phone" type="tel">
+  <label>Adres dostawy</label>
+  <input name="recipient_address" id="recipient_address">
+  <label>E-mail (opcjonalnie)</label>
+  <input name="recipient_email" id="recipient_email" type="email">
+</fieldset>
+<script>
+function fillRecipient(sel){
+  const o = sel.selectedOptions[0];
+  const set = (id, v) => document.getElementById(id).value = v || '';
+  if (!o.value) { ['recipient_name','recipient_contact','recipient_phone','recipient_address','recipient_email'].forEach(i=>set(i,'')); return; }
+  set('recipient_name', o.dataset.name);
+  set('recipient_contact', o.dataset.contact);
+  set('recipient_phone', o.dataset.phone);
+  set('recipient_address', o.dataset.address);
+  set('recipient_email', o.dataset.email);
+}
+</script>
+{%- endmacro %}

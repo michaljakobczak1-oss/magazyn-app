@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Słowniki – Magazyn{% endblock %}
+{% block content %}
+<h1>Słowniki</h1>
+<div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+
+  <div style="flex:1; min-width:420px;">
+    <h2>Magazyny</h2>
+    <div class="card wide" style="margin-bottom:14px;">
+      <form method="post" action="{{ url_for('warehouse_add') }}" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div><label>Nazwa *</label><input name="name" required></div>
+        <div style="flex:1; min-width:180px;"><label>Adres</label><input name="address"></div>
+        <button class="btn">Dodaj</button>
+      </form>
+    </div>
+    <table>
+      <tr><th>Nazwa</th><th>Adres</th><th>Status</th><th></th></tr>
+      {% for w in warehouses %}
+      <tr>
+        <td colspan="2">
+          <form class="inline" method="post" action="{{ url_for('warehouse_edit', wid=w.id) }}" style="display:inline-flex; gap:6px; width:100%;">
+            <input name="name" value="{{ w.name }}" required style="width:150px; padding:4px 8px;">
+            <input name="address" value="{{ w.address or '' }}" placeholder="adres" style="flex:1; padding:4px 8px;">
+            <button class="btn small ghost">Zapisz</button>
+          </form>
+        </td>
+        <td>{{ 'aktywny' if w.active else 'nieaktywny' }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('warehouse_toggle', wid=w.id) }}">
+            <button class="btn small {{ 'danger' if w.active else 'ok' }}">{{ 'Dezaktywuj' if w.active else 'Aktywuj' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Brak magazynów – dodaj pierwszy powyżej.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div style="flex:1; min-width:420px;">
+    <h2>Podwykonawcy logistyczni</h2>
+    <div class="card wide" style="margin-bottom:14px;">
+      <form method="post" action="{{ url_for('partner_add') }}" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div><label>Nazwa *</label><input name="name" required></div>
+        <div><label>Telefon</label><input name="phone"></div>
+        <div><label>E-mail</label><input name="email" type="email"></div>
+        <button class="btn">Dodaj</button>
+      </form>
+    </div>
+    <table>
+      <tr><th>Dane</th><th>Status</th><th></th></tr>
+      {% for p in partners %}
+      <tr>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('partner_edit', pid=p.id) }}" style="display:inline-flex; gap:6px; width:100%;">
+            <input name="name" value="{{ p.name }}" required style="width:130px; padding:4px 8px;">
+            <input name="phone" value="{{ p.phone or '' }}" placeholder="telefon" style="width:120px; padding:4px 8px;">
+            <input name="email" value="{{ p.email or '' }}" placeholder="e-mail" style="flex:1; padding:4px 8px;">
+            <button class="btn small ghost">Zapisz</button>
+          </form>
+        </td>
+        <td>{{ 'aktywny' if p.active else 'nieaktywny' }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('partner_toggle', pid=p.id) }}">
+            <button class="btn small {{ 'danger' if p.active else 'ok' }}">{{ 'Dezaktywuj' if p.active else 'Aktywuj' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+</div>
+{% endblock %}

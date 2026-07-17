@@ -1,0 +1,9 @@
+{# makro: miniaturka z podglądem po najechaniu (pozycjonowany fixed przy kursorze) #}
+{% macro thumb(photo) -%}
+{% if photo %}
+<span class="zoomable">
+  <img class="thumb" src="{{ url_for('static', filename='uploads/' + photo) }}"
+       data-full="{{ url_for('static', filename='uploads/' + photo) }}" alt="">
+</span>
+{% endif %}
+{%- endmacro %}

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Magazyn{% endblock %}</title>
+<style>
+:root { --p:#1e3a5f; --p2:#2d5a8e; --ok:#1a7f37; --err:#b42318; --bg:#f4f6f8; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:#1a1a2e; }
+nav { background:var(--p); color:#fff; display:flex; align-items:center; gap:18px; padding:0 20px; height:52px; flex-wrap:wrap; }
+nav a { color:#dfe8f2; text-decoration:none; padding:6px 4px; font-size:15px; }
+nav a:hover, nav a.active { color:#fff; border-bottom:2px solid #fff; }
+nav .brand { font-weight:700; font-size:17px; color:#fff; }
+nav .right { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:14px; }
+.wrap { max-width:1200px; margin:24px auto; padding:0 16px; }
+h1 { font-size:22px; margin:0 0 16px; }
+h2 { font-size:17px; }
+table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #eef1f4; font-size:14px; vertical-align:middle; }
+th { background:#eaeef3; font-weight:600; }
+tr:hover td { background:#f8fafc; }
+tr.overdue td { background:#fde8e8; }
+tr.overdue:hover td { background:#fbd9d9; }
+.btn { display:inline-block; background:var(--p2); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; text-decoration:none; }
+.btn:hover { background:var(--p); }
+.btn.small { padding:4px 10px; font-size:13px; }
+.btn.ghost { background:#fff; color:var(--p2); border:1px solid var(--p2); }
+.btn.danger { background:var(--err); }
+.btn.ok { background:var(--ok); }
+form.inline { display:inline; }
+input, select, textarea { width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px; font-family:inherit; }
+label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
+.card { background:#fff; border-radius:8px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); max-width:560px; }
+.card.wide { max-width:none; }
+.flash { padding:10px 14px; border-radius:6px; margin-bottom:14px; font-size:14px; }
+.flash.ok { background:#e6f4ea; color:var(--ok); }
+.flash.error { background:#fde8e8; color:var(--err); }
+.flash.warn { background:#fff3cd; color:#8a6d00; }
+.badge { padding:2px 8px; border-radius:10px; font-size:12px; font-weight:600; }
+.badge.rezerwacja { background:#fff3cd; color:#8a6d00; }
+.badge.wydane { background:#fde8e8; color:var(--err); }
+.badge.zwrócone { background:#e6f4ea; color:var(--ok); }
+.badge.anulowana { background:#eee; color:#666; }
+.badge.avail-ok { background:#e6f4ea; color:var(--ok); }
+.badge.avail-no { background:#fde8e8; color:var(--err); }
+.badge.overdue { background:var(--err); color:#fff; }
+.badge.damaged { background:#fde8e8; color:var(--err); border:1px solid var(--err); }
+.badge.own { background:#e3ecf7; color:var(--p); }
+.thumb { width:48px; height:48px; object-fit:cover; border-radius:6px; cursor:zoom-in; }
+.zoomable { display:inline-block; line-height:0; }
+/* podgląd poza tabelą – fixed, całe zdjęcie (object-fit:contain), ~450 px */
+#thumb-preview {
+  display:none; position:fixed; z-index:200; pointer-events:none;
+  max-width:450px; max-height:70vh;
+  padding:8px; background:#fff; border-radius:10px;
+  box-shadow:0 8px 28px rgba(0,0,0,.35);
+}
+#thumb-preview img {
+  display:block; max-width:434px; max-height:calc(70vh - 16px);
+  width:auto; height:auto; object-fit:contain; border-radius:6px; background:#f8fafc;
+}
+#thumb-preview.visible { display:block; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 24px; font-size:14px; }
+.grid dt { font-weight:600; color:#555; }
+.grid dd { margin:0 0 8px; }
+.toolbar { display:flex; gap:10px; margin-bottom:16px; align-items:center; flex-wrap:wrap; }
+.toolbar input[type=text] { width:220px; }
+.filters { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; background:#fff; padding:12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:16px; }
+.filters label { margin:0 0 3px; font-size:12px; }
+.filters select, .filters input { width:auto; min-width:130px; }
+.filters .chk { display:flex; align-items:center; gap:6px; padding:8px 0; }
+.filters .chk input { width:auto; min-width:0; }
+.stat-cards { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+.stat { flex:1; min-width:200px; background:#fff; border-radius:8px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.08); border-top:4px solid var(--p2); }
+.stat.red { border-top-color:var(--err); }
+.stat.green { border-top-color:var(--ok); }
+.stat .num { font-size:28px; font-weight:700; }
+.stat .lbl { font-size:13px; color:#666; }
+.photo-lg { max-width:320px; max-height:240px; border-radius:8px; object-fit:contain; background:#f8fafc; }
+.photo-gallery { display:flex; flex-wrap:wrap; gap:10px; }
+.photo-gallery .photo-lg { max-width:200px; max-height:160px; }
+.photo-keep { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 4px; }
+.photo-keep label { font-weight:400; display:flex; flex-direction:column; align-items:center; gap:4px; margin:0; font-size:12px; }
+.photo-keep img { width:96px; height:72px; object-fit:contain; border-radius:6px; background:#f8fafc; border:1px solid #e2e8f0; }
+/* lightbox (dotyk / klik gdy brak hovera) */
+#lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:100;
+  align-items:center; justify-content:center; }
+#lightbox img { max-width:92vw; max-height:88vh; border-radius:10px; object-fit:contain; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="brand">📦 Magazyn</span>
+  {% if session.user_id %}
+  {% if session.role == 'admin' %}
+  <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dziś w magazynie</a>
+  {% endif %}
+  <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Sprzęt</a>
+  <a href="{{ url_for('reservations') }}" class="{{ 'active' if request.endpoint == 'reservations' and not request.args.get('mine') }}">Rezerwacje</a>
+  <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>
+  {% if session.role == 'admin' %}
+  <a href="{{ url_for('dictionaries') }}" class="{{ 'active' if request.endpoint == 'dictionaries' }}">Słowniki</a>
+  <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Użytkownicy</a>
+  {% endif %}
+  <span class="right">
+    {{ session.full_name or session.username }}
+    <a href="#" onclick="document.getElementById('pwd-modal').style.display='flex'; return false;">Zmień hasło</a>
+    <a href="{{ url_for('logout') }}">Wyloguj</a>
+  </span>
+  {% endif %}
+</nav>
+<div class="wrap">
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+{% endwith %}
+{% block content %}{% endblock %}
+</div>
+
+{% if session.user_id %}
+<!-- zmiana własnego hasła -->
+<div id="pwd-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center;">
+  <div class="card" style="width:360px;">
+    <h2 style="margin-top:0;">Zmień hasło</h2>
+    <form method="post" action="{{ url_for('account_password') }}">
+      <label>Obecne hasło</label>
+      <input name="current_password" type="password" required>
+      <label>Nowe hasło (min. 6 znaków)</label>
+      <input name="new_password" type="password" required minlength="6">
+      <div style="margin-top:16px; display:flex; gap:10px;">
+        <button class="btn">Zapisz</button>
+        <a class="btn ghost" href="#" onclick="document.getElementById('pwd-modal').style.display='none'; return false;">Anuluj</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- podgląd miniaturki przy kursorze (całe zdjęcie) -->
+<div id="thumb-preview"><img src="" alt=""></div>
+<!-- lightbox dla urządzeń dotykowych -->
+<div id="lightbox" onclick="this.style.display='none'"><img src="" alt=""></div>
+<script>
+(function(){
+  const preview = document.getElementById('thumb-preview');
+  const pimg = preview.querySelector('img');
+  const gap = 16;
+  const size = 450;
+
+  function place(e){
+    let x = e.clientX + gap;
+    let y = e.clientY + gap;
+    const pw = preview.offsetWidth || size;
+    const ph = preview.offsetHeight || size;
+    if (x + pw > window.innerWidth - 8) x = e.clientX - pw - gap;
+    if (y + ph > window.innerHeight - 8) y = e.clientY - ph - gap;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
+    preview.style.left = x + 'px';
+    preview.style.top = y + 'px';
+  }
+
+  document.addEventListener('mouseover', function(e){
+    const t = e.target.closest && e.target.closest('.thumb');
+    if (!t || !window.matchMedia('(hover:hover)').matches) return;
+    const full = t.dataset.full || t.src;
+    if (pimg.src !== full && !pimg.src.endsWith(full)) pimg.src = full;
+    preview.classList.add('visible');
+    place(e);
+  });
+  document.addEventListener('mousemove', function(e){
+    if (!preview.classList.contains('visible')) return;
+    if (!e.target.closest || !e.target.closest('.zoomable, .thumb')) {
+      preview.classList.remove('visible');
+      return;
+    }
+    place(e);
+  });
+  document.addEventListener('mouseout', function(e){
+    const t = e.target.closest && e.target.closest('.thumb, .zoomable');
+    if (!t) return;
+    const to = e.relatedTarget;
+    if (to && (to === t || t.contains(to) || (to.closest && to.closest('.zoomable') === t.closest('.zoomable')))) return;
+    preview.classList.remove('visible');
+  });
+
+  // tap / klik na urządzeniach bez hovera → lightbox
+  document.addEventListener('click', function(e){
+    const t = e.target.closest('.thumb');
+    if (!t) return;
+    if (window.matchMedia('(hover:hover)').matches) return;
+    e.preventDefault();
+    const full = t.dataset.full || t.src;
+    const lb = document.getElementById('lightbox');
+    lb.querySelector('img').src = full;
+    lb.style.display = 'flex';
+  });
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

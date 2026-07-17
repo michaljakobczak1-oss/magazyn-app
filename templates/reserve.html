@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_recipient_fields.html" import recipient_fields %}
+{% block title %}Rezerwacja – {{ eq.code }}{% endblock %}
+{% block content %}
+<h1>Rezerwacja: {{ eq.code }} – {{ eq.name }}</h1>
+{% if eq.material_type == 'klient' %}
+<div class="flash warn">Materiał klienta ({{ eq.owner or 'brak nazwy' }}) – wypożyczenie wyłącznie na potrzeby tego klienta. Tworząc rezerwację potwierdzasz zgodność z tym warunkiem.</div>
+{% endif %}
+<div class="card">
+  <p style="font-size:14px; color:#555;">Stan magazynowy: <strong>{{ eq.quantity }} szt.</strong>
+  {% if eq.location %} · Miejsce: {{ eq.location }}{% endif %}</p>
+  <form method="post">
+    <label>Od *</label>
+    <input name="date_from" type="date" required>
+    <label>Do *</label>
+    <input name="date_to" type="date" required>
+    <label>Ilość sztuk *</label>
+    <input name="quantity" type="number" min="1" max="{{ eq.quantity }}" value="1" required>
+    <label>Kto odbiera towar (podwykonawca) *</label>
+    <select name="receiver" required>
+      <option value="" disabled selected>– wybierz –</option>
+      {% for p in receivers %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+    </select>
+    <label>Klient / cel</label>
+    <input name="client" placeholder="np. Targi XYZ, projekt 2026/07">
+    <label>Uwagi</label>
+    <textarea name="notes" rows="2"></textarea>
+    {{ recipient_fields(recipients) }}
+    <div style="margin-top:16px; display:flex; gap:10px;">
+      <button class="btn">Zarezerwuj</button>
+      <a class="btn ghost" href="{{ url_for('equipment_detail', eid=eq.id) }}">Anuluj</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

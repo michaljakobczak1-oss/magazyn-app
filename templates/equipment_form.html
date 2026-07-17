@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edycja' if eq else 'Nowy sprzęt' }} – Magazyn{% endblock %}
+{% block content %}
+<h1>{{ 'Edycja: ' + eq.code if eq else 'Nowy sprzęt' }}</h1>
+<div class="card">
+  <form method="post" enctype="multipart/form-data">
+    <label>Kod w aplikacji *</label>
+    <input name="code" required value="{{ eq.code if eq else '' }}">
+    <label>Rodzaj materiału *</label>
+    <select name="material_type" required>
+      <option value="klient" {{ 'selected' if eq and eq.material_type == 'klient' }}>materiał klienta</option>
+      <option value="wlasny" {{ 'selected' if eq and eq.material_type == 'wlasny' }}>materiał własny agencji (00)</option>
+    </select>
+    <label>Numer projektu</label>
+    <input name="project_number" value="{{ eq.project_number if eq else '' }}">
+    <label>Nazwa sprzętu *</label>
+    <input name="name" required value="{{ eq.name if eq else '' }}">
+    <label>Wymiary</label>
+    <input name="dimensions" placeholder="np. 120 × 80 × 200 cm" value="{{ eq.dimensions if eq else '' }}">
+    <label>Magazyn</label>
+    <select name="warehouse_id">
+      <option value="">– brak przypisania –</option>
+      {% for w in warehouses %}
+      <option value="{{ w.id }}" {{ 'selected' if eq and eq.warehouse_id == w.id }}>{{ w.name }}</option>
+      {% endfor %}
+    </select>
+    <label>Miejsce w magazynie</label>
+    <input name="location" placeholder="np. Regał A3, półka 2" value="{{ eq.location if eq else '' }}">
+    <label>Własność (czyj majątek)</label>
+    <input name="owner" placeholder="np. COCA-COLA" value="{{ eq.owner if eq else '' }}">
+    <label>Brand (jakiej marki dotyczy materiał)</label>
+    <input name="brand" placeholder="np. Kinley" value="{{ eq.brand if eq else '' }}">
+    <label>Stan techniczny</label>
+    <select name="condition">
+      {% for c in ['sprawny','uszkodzony','do utylizacji'] %}
+      <option value="{{ c }}" {{ 'selected' if eq and eq.condition == c }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <label>Notatka o stanie / uszkodzeniach</label>
+    <textarea name="condition_notes" rows="2">{{ eq.condition_notes if eq else '' }}</textarea>
+    <label>Stan magazynowy (ilość sztuk) *</label>
+    <input name="quantity" type="number" min="1" required value="{{ eq.quantity if eq else 1 }}">
+    <label>Instrukcje składowania / pakowania (dla logistyki)</label>
+    <textarea name="storage_instructions" rows="3" placeholder="np. zawsze na palecie, folia stretch, nie kłaść poziomo">{{ eq.storage_instructions if eq else '' }}</textarea>
+    <label>Zdjęcia sprzętu (max 5)</label>
+    {% if photos %}
+    <div class="photo-keep">
+      {% for fn in photos %}
+      <label>
+        <img src="{{ url_for('static', filename='uploads/' + fn) }}" alt="">
+        <span><input type="checkbox" name="keep_photo" value="{{ fn }}" checked style="width:auto;"> zachowaj</span>
+      </label>
+      {% endfor %}
+    </div>
+    <p style="font-size:12px; color:#666; margin:0 0 6px;">Odznacz, aby usunąć. Możesz dodać nowe poniżej (łącznie max 5).</p>
+    {% endif %}
+    <input name="photos" type="file" accept="image/*" multiple>
+    <label>Zdjęcie opakowania / sposobu pakowania {% if eq and eq.packaging_photo %}(zostaw puste, aby zachować obecne){% endif %}</label>
+    <input name="packaging_photo" type="file" accept="image/*">
+    {% if eq and eq.packaging_photo %}<img class="photo-lg" style="margin-top:8px;" src="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}">{% endif %}
+    <label>Uwagi</label>
+    <textarea name="notes" rows="2">{{ eq.notes if eq else '' }}</textarea>
+    <div style="margin-top:16px; display:flex; gap:10px;">
+      <button class="btn">Zapisz</button>
+      <a class="btn ghost" href="{{ url_for('index') }}">Anuluj</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

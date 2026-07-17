@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ eq.code }} – Magazyn{% endblock %}
+{% block content %}
+<h1>{{ eq.code }} – {{ eq.name }}
+  {% if eq.material_type == 'wlasny' %}<span class="badge own">materiał własny</span>{% endif %}
+  {% if eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
+</h1>
+<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:20px;">
+  <div class="card" style="flex:1; min-width:300px;">
+    <dl class="grid">
+      <dt>Numer projektu</dt><dd>{{ eq.project_number or '–' }}</dd>
+      <dt>Wymiary</dt><dd>{{ eq.dimensions or '–' }}</dd>
+      <dt>Magazyn</dt><dd>{{ eq.warehouse_name or '–' }}{% if eq.warehouse_address %}<br><span style="font-size:12px;color:#666;">{{ eq.warehouse_address }}</span>{% endif %}</dd>
+      <dt>Miejsce w magazynie</dt><dd>{{ eq.location or '–' }}</dd>
+      <dt>Własność</dt><dd>{{ eq.owner or '–' }}</dd>
+      <dt>Brand</dt><dd>{{ eq.brand or '–' }}</dd>
+      <dt>Rodzaj materiału</dt><dd>{{ 'własny agencji (00)' if eq.material_type == 'wlasny' else 'materiał klienta' }}</dd>
+      <dt>Stan techniczny</dt><dd>{{ eq.condition }}</dd>
+      {% if eq.condition_notes %}<dt>Notatka o stanie</dt><dd style="white-space:pre-line;">{{ eq.condition_notes }}</dd>{% endif %}
+      <dt>Stan magazynowy</dt><dd>{{ eq.quantity }} szt.</dd>
+      <dt>Dostępne dziś</dt><dd><span class="badge {{ 'avail-ok' if avail_today > 0 else 'avail-no' }}">{{ avail_today }} szt.</span></dd>
+      {% if eq.storage_instructions %}<dt>Składowanie / pakowanie</dt><dd style="white-space:pre-line;">{{ eq.storage_instructions }}</dd>{% endif %}
+      {% if eq.notes %}<dt>Uwagi</dt><dd>{{ eq.notes }}</dd>{% endif %}
+    </dl>
+    <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+      <a class="btn" href="{{ url_for('reserve', eid=eq.id) }}">Rezerwuj</a>
+      {% if session.role == 'admin' %}
+      <a class="btn ghost" href="{{ url_for('equipment_edit', eid=eq.id) }}">Edytuj</a>
+      <form class="inline" method="post" action="{{ url_for('equipment_delete', eid=eq.id) }}"
+            onsubmit="return confirm('Usunąć ten sprzęt i historię jego rezerwacji?');">
+        <button class="btn danger">Usuń</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:12px; max-width:640px;">
+    {% if photos %}
+    <div class="photo-gallery">
+      {% for fn in photos %}
+      <img class="photo-lg" src="{{ url_for('static', filename='uploads/' + fn) }}" alt="">
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if eq.packaging_photo %}
+    <div><img class="photo-lg" src="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}">
+      <div style="font-size:12px; color:#666;">Opakowanie / sposób pakowania</div></div>
+    {% endif %}
+  </div>
+</div>
+
+<h1 style="font-size:18px;">Rezerwacje i wypożyczenia</h1>
+<table>
+  <tr><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
+  {% for r in reservations %}
+  {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
+  <tr class="{{ 'overdue' if is_overdue }}">
+    <td>{{ r.date_from }} – {{ r.date_to }}
+      {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
+    <td>{{ r.quantity }}</td>
+    <td>{{ r.client or '–' }}</td>
+    <td>{{ r.recipient_name or '–' }}</td>
+    <td>{{ dn(r) }}</td>
+    <td><span class="badge {{ r.status }}">{{ r.status }}</span>
+      {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}</td>
+    <td>
+      {% if session.role == 'admin' and r.status == 'rezerwacja' %}
+      <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"><button class="btn small ok">Wydaj</button></form>
+      {% endif %}
+      {% if r.status == 'rezerwacja' %}
+      <form class="inline" method="post" action="{{ url_for('cancel', rid=r.id) }}"><button class="btn small ghost">Anuluj</button></form>
+      {% elif session.role == 'admin' and r.status == 'wydane' %}
+      <a class="btn small ok" href="{{ url_for('reservations') }}">Przyjmij zwrot →</a>
+      {% endif %}
+    </td>
+    <td>
+      {% if r.status in ('wydane', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8">Brak rezerwacji.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

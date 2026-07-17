@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_thumb.html" import thumb %}
+{% block title %}Sprzęt – Magazyn{% endblock %}
+{% block content %}
+<h1>Rejestr sprzętu</h1>
+
+{# 1.1 – filtry łączone, zachowywane w URL #}
+<form method="get" class="filters">
+  <div>
+    <label>Nazwa / kod / miejsce</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Szukaj…">
+  </div>
+  <div>
+    <label>Numer projektu</label>
+    <select name="project">
+      <option value="">– wszystkie –</option>
+      {% for p in projects %}<option value="{{ p }}" {{ 'selected' if f_project == p }}>{{ p }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Własność</label>
+    <select name="owner">
+      <option value="">– wszystkie –</option>
+      {% for o in owners %}<option value="{{ o }}" {{ 'selected' if f_owner == o }}>{{ o }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Brand</label>
+    <select name="brand">
+      <option value="">– wszystkie –</option>
+      {% for b in brands %}<option value="{{ b }}" {{ 'selected' if f_brand == b }}>{{ b }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Magazyn</label>
+    <select name="warehouse">
+      <option value="">– wszystkie –</option>
+      {% for w in warehouses %}<option value="{{ w.id }}" {{ 'selected' if f_warehouse == w.id|string }}>{{ w.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Stan techniczny</label>
+    <select name="condition">
+      <option value="">– wszystkie –</option>
+      {% for c in ['sprawny','uszkodzony','do utylizacji'] %}
+      <option value="{{ c }}" {{ 'selected' if f_condition == c }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="chk">
+    <input type="checkbox" name="own" value="1" id="own" {{ 'checked' if f_own == '1' }}>
+    <label for="own" style="margin:0;">tylko materiały własne</label>
+  </div>
+  <button class="btn">Filtruj</button>
+  <a class="btn ghost" href="{{ url_for('index') }}">Wyczyść</a>
+  {% if session.role == 'admin' %}<a class="btn" style="margin-left:auto;" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>{% endif %}
+</form>
+
+<form method="get" action="{{ url_for('reserve_multi') }}">
+<div style="margin-bottom:10px;">
+  <button class="btn">Zarezerwuj zaznaczone razem</button>
+  <span style="font-size:13px; color:#666;">– zaznacz kilka pozycji, aby stworzyć wspólną rezerwację na jeden termin</span>
+</div>
+<table>
+  <tr><th></th><th></th><th>Kod</th><th>Nazwa</th><th>Nr projektu</th><th>Magazyn</th><th>Miejsce</th><th>Własność</th><th>Brand</th><th>Stan</th><th>Dostępne dziś</th><th></th></tr>
+  {% for it in items %}
+  <tr>
+    <td><input type="checkbox" name="eid" value="{{ it.id }}" style="width:auto;"></td>
+    <td>{{ thumb(it.photo) }}</td>
+    <td><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a>
+      {% if it.material_type == 'wlasny' %}<br><span class="badge own">własny</span>{% endif %}
+      {% if it.condition != 'sprawny' %}<br><span class="badge damaged">{{ it.condition }}</span>{% endif %}
+    </td>
+    <td>{{ it.name }}</td>
+    <td>{{ it.project_number or '–' }}</td>
+    <td>{{ it.warehouse_name or '–' }}</td>
+    <td>{{ it.location or '–' }}</td>
+    <td>{{ it.owner or '–' }}</td>
+    <td>{{ it.brand or '–' }}</td>
+    <td>{{ it.quantity }} szt.</td>
+    <td><span class="badge {{ 'avail-ok' if availability[it.id] > 0 else 'avail-no' }}">{{ availability[it.id] }} szt.</span></td>
+    <td><a class="btn small" href="{{ url_for('reserve', eid=it.id) }}">Rezerwuj</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="12">Brak sprzętu spełniającego kryteria.</td></tr>
+  {% endfor %}
+</table>
+</form>
+{% endblock %}
