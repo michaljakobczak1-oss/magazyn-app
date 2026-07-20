@@ -10,7 +10,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
-                equipment_photo_list, local_now, local_today)
+                equipment_photo_list, local_now, local_today, handoff_conflict,
+                next_free_after_return)
 from pdf_gen import protocol_pdf, group_pdf
 
 BASE = Path(__file__).parent
@@ -449,6 +450,18 @@ def reserve(eid):
         qty = max(1, int(request.form.get("quantity") or 1))
         if not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
+        elif handoff_conflict(con, eid, d_from, d_to):
+            # znajdź konflikt, żeby podać konkretną datę
+            row = con.execute(
+                """SELECT date_to FROM reservations
+                   WHERE equipment_id=? AND status IN ('rezerwacja','wydane')
+                   AND date_to=? LIMIT 1""", (eid, d_from)).fetchone()
+            if row:
+                flash(f"W dniu zwrotu ({row['date_to']}) sprzęt jest jeszcze zajęty – "
+                      f"wypożyczenie możliwe od {next_free_after_return(row['date_to'])}.", "error")
+            else:
+                flash(f"Termin styka się z inną rezerwacją (zwrot i wydanie tego samego dnia). "
+                      f"Ustaw start najwcześniej na dzień po zwrocie.", "error")
         else:
             taken = reserved_qty(con, eid, d_from, d_to)
             free = eq["quantity"] - taken
@@ -522,12 +535,26 @@ def reserve_multi():
                     qty = 0
                 if qty <= 0:
                     continue  # pomiń pozycję (usunięta / ilość 0)
+                if handoff_conflict(con, it["id"], d_from, d_to):
+                    row = con.execute(
+                        """SELECT date_to FROM reservations
+                           WHERE equipment_id=? AND status IN ('rezerwacja','wydane')
+                           AND date_to=? LIMIT 1""", (it["id"], d_from)).fetchone()
+                    if row:
+                        errors.append(
+                            f"{it['code']}: zwrot {row['date_to']} – wolne od "
+                            f"{next_free_after_return(row['date_to'])}")
+                    else:
+                        errors.append(f"{it['code']}: termin styka się z inną rezerwacją "
+                                      f"(zwrot i wydanie tego samego dnia)")
+                    continue
                 free = it["quantity"] - reserved_qty(con, it["id"], d_from, d_to)
                 if qty > free:
                     errors.append(f"{it['code']}: wolne {free} z {it['quantity']} szt.")
                 wanted[it["id"]] = qty
             if not wanted:
-                flash("Zostaw przynajmniej jedną pozycję z ilością > 0.", "error")
+                flash("Zostaw przynajmniej jedną pozycję z ilością > 0."
+                      + ((" " + "; ".join(errors)) if errors else ""), "error")
             elif errors:
                 flash("Brak dostępności – " + "; ".join(errors), "error")
             else:

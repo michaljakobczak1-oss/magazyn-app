@@ -203,9 +203,8 @@ def init_db():
 def reserved_qty(con, equipment_id, date_from, date_to, exclude_id=None):
     """Suma sztuk zajętych w zapytanym terminie.
 
-    - rezerwacja / wydane: gdy termin nakłada się na zakres
+    - rezerwacja / wydane: gdy termin nakłada się na zakres (włącznie z dniem zwrotu)
     - wydane po terminie zwrotu (przetrzymane): zawsze, do czasu przyjęcia
-      (nie wolno planować kolejnych wydań, póki towar fizycznie nie wróci)
     """
     today = local_today().isoformat()
     q = """SELECT COALESCE(SUM(quantity),0) s FROM reservations
@@ -218,6 +217,27 @@ def reserved_qty(con, equipment_id, date_from, date_to, exclude_id=None):
         q += " AND id != ?"
         params.append(exclude_id)
     return con.execute(q, params).fetchone()["s"]
+
+
+def handoff_conflict(con, equipment_id, date_from, date_to, exclude_id=None):
+    """True, gdy w dniu zwrotu innej rezerwacji próbuje się zacząć nowa (lub odwrotnie).
+
+    Zwrot 21. → kolejne wypożyczenie dopiero od 22. (bez stykania terminów).
+    """
+    q = """SELECT date_from, date_to, quantity FROM reservations
+           WHERE equipment_id=? AND status IN ('rezerwacja','wydane')
+           AND (date_to = ? OR date_from = ?)"""
+    params = [equipment_id, date_from, date_to]
+    if exclude_id:
+        q += " AND id != ?"
+        params.append(exclude_id)
+    return con.execute(q, params).fetchone() is not None
+
+
+def next_free_after_return(date_to):
+    """Pierwszy dzień, w którym wolno zacząć wypożyczenie po zwrocie w date_to."""
+    from datetime import timedelta
+    return (date.fromisoformat(str(date_to)[:10]) + timedelta(days=1)).isoformat()
 
 
 def display_name(row):
