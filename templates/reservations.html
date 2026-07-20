@@ -130,8 +130,8 @@
             <textarea id="rm-damage-notes-dispose" rows="2" placeholder="np. zniszczone na evencie"></textarea>
           </div>
         </div>
-        <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="display:none;">
-        <textarea name="damage_notes" id="rm-damage-notes" style="display:none;" aria-hidden="true"></textarea>
+        <input type="hidden" name="dispose" id="rm-dispose" value="">
+        <input type="hidden" name="damage_notes" id="rm-damage-notes" value="">
       </div>
 
       <div id="rm-return-fields" style="display:none;">
@@ -200,7 +200,7 @@ function syncReturnModalUI(){
   }
 
   const dispose = document.getElementById('rm-action-dispose').checked;
-  document.getElementById('rm-dispose').checked = dispose;
+  document.getElementById('rm-dispose').value = dispose ? '1' : '';
   document.getElementById('rm-return-body').style.display = dispose ? 'none' : 'block';
   document.getElementById('rm-dispose-body').style.display = dispose ? 'block' : 'none';
   document.getElementById('rm-card-return').style.opacity = dispose ? '0.55' : '1';
@@ -224,17 +224,24 @@ function syncReturnModalUI(){
 
 function prepareSingleSubmit(){
   const dispose = document.getElementById('rm-action-dispose').checked;
-  document.getElementById('rm-dispose').checked = dispose;
+  const disposeFlag = document.getElementById('rm-dispose');
+  disposeFlag.disabled = false;
+  disposeFlag.value = dispose ? '1' : '';
+
   const qtyMain = document.getElementById('rm-qty');
+  qtyMain.disabled = false;
   if (dispose) {
     qtyMain.value = document.getElementById('rm-qty-dispose').value;
-    document.getElementById('rm-damage-notes').value =
-      document.getElementById('rm-damage-notes-dispose').value;
+  }
+
+  const notes = document.getElementById('rm-damage-notes');
+  notes.disabled = false;
+  if (dispose) {
+    notes.value = (document.getElementById('rm-damage-notes-dispose').value || '').trim();
+  } else if (document.getElementById('rm-damage').checked) {
+    notes.value = (document.getElementById('rm-damage-notes-return').value || '').trim();
   } else {
-    document.getElementById('rm-damage-notes').value =
-      document.getElementById('rm-damage').checked
-        ? document.getElementById('rm-damage-notes-return').value
-        : '';
+    notes.value = '';
   }
 }
 
@@ -245,13 +252,17 @@ function prepareBulkSubmit(){
     i.type = 'hidden'; i.name = name; i.value = value; i.className = 'rm-bulk-sync';
     document.getElementById('return-form').appendChild(i);
   }
+  // wyłącz pola z trybu pojedynczego, żeby puste nie nadpisywały POST
+  ['rm-dispose', 'rm-damage-notes', 'rm-qty', 'rm-warehouse', 'rm-location', 'rm-damage'].forEach(function(id){
+    const el = document.getElementById(id);
+    if (el) el.disabled = true;
+  });
   const wh = document.getElementById('rm-warehouse-bulk');
   const loc = document.getElementById('rm-location-bulk');
   if (wh.value) addHidden('return_warehouse_id', wh.value);
   if (loc.value) addHidden('return_location', loc.value);
   if (document.getElementById('rm-damage-bulk').checked) addHidden('damage', '1');
-  const notes = document.getElementById('rm-damage-notes-bulk').value;
-  if (notes) addHidden('damage_notes', notes);
+  addHidden('damage_notes', (document.getElementById('rm-damage-notes-bulk').value || '').trim());
 }
 
 function setSingleQty(maxQty){
@@ -263,8 +274,9 @@ function setSingleQty(maxQty){
 }
 
 function setSingleFormEnabled(on){
-  ['rm-qty', 'rm-warehouse', 'rm-location', 'rm-damage', 'rm-dispose'].forEach(function(id){
-    document.getElementById(id).disabled = !on;
+  ['rm-qty', 'rm-warehouse', 'rm-location', 'rm-damage', 'rm-dispose', 'rm-damage-notes'].forEach(function(id){
+    const el = document.getElementById(id);
+    if (el) el.disabled = !on;
   });
 }
 
@@ -279,7 +291,7 @@ function resetReturnModal(){
   setSingleFormEnabled(true);
   document.getElementById('rm-action-return').checked = true;
   document.getElementById('rm-action-dispose').checked = false;
-  document.getElementById('rm-dispose').checked = false;
+  document.getElementById('rm-dispose').value = '';
   const wh = document.getElementById('rm-warehouse');
   wh.selectedIndex = 0; wh.value = '';
   document.getElementById('rm-location').value = '';
