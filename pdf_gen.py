@@ -309,8 +309,12 @@ def group_pdf(kind, rows):
     users = sorted({f"{(_get(r,'first_name') or '').strip()} {(_get(r,'last_name') or '').strip()}".strip()
                     or r["username"] for r in rows})
     receivers = sorted({r["receiver"] for r in rows if r["receiver"]})
+    if len(terms) == 1:
+        termin_txt = f"{terms[0][0]} – {terms[0][1]}"
+    else:
+        termin_txt = "różne – szczegóły przy pozycjach"
     common = [
-        ("Termin", ", ".join(f"{a} – {b}" for a, b in terms)),
+        ("Termin", termin_txt),
         ("Klient / cel", ", ".join(clients) or "-"),
         ("Odbiera towar", ", ".join(receivers) or "-"),
         ("Rezerwujący", ", ".join(users)),
@@ -348,13 +352,15 @@ def group_pdf(kind, rows):
     if rec_rows:
         y = _boxed_section(c, m, y, w - 2 * m, "ADRESAT TOWARU (dostawa)", rec_rows, font_size=9)
 
-    row_h = 26 * mm
-    col_x = [m, m + 24 * mm, m + 46 * mm, m + 94 * mm, m + 128 * mm, m + 139 * mm, w - m]
+    row_h = 28 * mm
+    # Zdjęcie | Kod | Nazwa | Termin | Magazyn | Szt. | Własność
+    col_x = [m, m + 20 * mm, m + 38 * mm, m + 78 * mm, m + 118 * mm, m + 148 * mm, m + 158 * mm, w - m]
 
     def table_head(y):
-        c.setFont(FONT_B, 9)
-        for x, t in zip(col_x, ["Zdjęcie", "Kod", "Nazwa", "Magazyn / miejsce", "Szt.", "Własność / brand"]):
-            c.drawString(x + 1 * mm, y, t)
+        c.setFont(FONT_B, 8)
+        headers = ["Zdjęcie", "Kod", "Nazwa", "Termin", "Magazyn / miejsce", "Szt.", "Własność / brand"]
+        for x, t in zip(col_x, headers):
+            c.drawString(x + 0.5 * mm, y, t)
         y -= 2 * mm
         c.line(m, y, w - m, y)
         return y
@@ -372,47 +378,58 @@ def group_pdf(kind, rows):
                 try:
                     img = ImageReader(str(p))
                     iw, ih = img.getSize()
-                    s = min(22 * mm / iw, (row_h - 4 * mm) / ih)
+                    s = min(18 * mm / iw, (row_h - 4 * mm) / ih)
                     c.drawImage(img, col_x[0], yr + 2 * mm, iw * s, ih * s,
                                 preserveAspectRatio=True, anchor="sw")
                 except Exception:
                     pass
-        c.setFont(FONT, 9)
-        ty = y - 6 * mm
-        c.drawString(col_x[1] + 1 * mm, ty, r["code"])
+        c.setFont(FONT, 8)
+        ty = y - 5 * mm
+        c.drawString(col_x[1] + 0.5 * mm, ty, r["code"])
         name = r["name"]
-        max_chars = 22
-        c.drawString(col_x[2] + 1 * mm, ty, name[:max_chars])
+        max_chars = 18
+        c.drawString(col_x[2] + 0.5 * mm, ty, name[:max_chars])
         if len(name) > max_chars:
-            c.drawString(col_x[2] + 1 * mm, ty - 4 * mm, name[max_chars:max_chars * 2])
+            c.drawString(col_x[2] + 0.5 * mm, ty - 3.5 * mm, name[max_chars:max_chars * 2])
+        # termin przy pozycji
+        c.setFont(FONT_B, 7.5)
+        c.drawString(col_x[3] + 0.5 * mm, ty, str(r["date_from"]))
+        c.setFont(FONT, 7.5)
+        c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, "– " + str(r["date_to"]))
+        if _get(r, "client"):
+            c.setFillColor(colors.HexColor("#444444"))
+            cl = str(r["client"])[:20]
+            c.drawString(col_x[3] + 0.5 * mm, ty - 7 * mm, cl)
+            c.setFillColor(colors.black)
+        c.setFont(FONT, 8)
         wh_name = _get(r, "warehouse_name") or "-"
-        c.drawString(col_x[3] + 1 * mm, ty, wh_name[:18])
-        c.drawString(col_x[3] + 1 * mm, ty - 4 * mm, (r["location"] or "-")[:18])
-        c.drawString(col_x[4] + 1 * mm, ty, str(r["quantity"]))
-        c.drawString(col_x[5] + 1 * mm, ty, (r["owner"] or "-")[:16])
+        c.drawString(col_x[4] + 0.5 * mm, ty, wh_name[:16])
+        c.drawString(col_x[4] + 0.5 * mm, ty - 3.5 * mm, (r["location"] or "-")[:16])
+        c.drawString(col_x[5] + 0.5 * mm, ty, str(r["quantity"]))
+        c.drawString(col_x[6] + 0.5 * mm, ty, (r["owner"] or "-")[:14])
         if _get(r, "brand"):
-            c.drawString(col_x[5] + 1 * mm, ty - 4 * mm, r["brand"][:16])
-        extra_y = ty - 9 * mm
+            c.drawString(col_x[6] + 0.5 * mm, ty - 3.5 * mm, r["brand"][:14])
+        extra_y = ty - 11 * mm
         if kind == "przyjecie" and _get(r, "damage"):
-            c.setFont(FONT_B, 7.5)
+            c.setFont(FONT_B, 7)
             c.setFillColor(colors.HexColor("#b42318"))
             note = "USZKODZONY"
             if _get(r, "damage_notes"):
                 note += ": " + str(r["damage_notes"])
-            for wl in _wrap(note, 90)[:2]:
-                c.drawString(col_x[1] + 1 * mm, extra_y, wl)
-                extra_y -= 3.5 * mm
+            for wl in _wrap(note, 85)[:2]:
+                c.drawString(col_x[1] + 0.5 * mm, extra_y, wl)
+                extra_y -= 3.2 * mm
             c.setFillColor(colors.black)
-            c.setFont(FONT, 9)
+            c.setFont(FONT, 8)
         if _get(r, "storage_instructions"):
-            c.setFont(FONT, 7.5)
+            c.setFont(FONT, 7)
             c.setFillColor(colors.HexColor("#444444"))
-            si = _wrap("Pakowanie: " + r["storage_instructions"], 90)[:2]
+            si = _wrap("Pakowanie: " + r["storage_instructions"], 85)[:2]
             for wl in si:
-                c.drawString(col_x[1] + 1 * mm, extra_y, wl)
-                extra_y -= 3.5 * mm
+                c.drawString(col_x[1] + 0.5 * mm, extra_y, wl)
+                extra_y -= 3.2 * mm
             c.setFillColor(colors.black)
-            c.setFont(FONT, 9)
+            c.setFont(FONT, 8)
         y = yr
         c.setStrokeColor(colors.grey)
         c.line(m, y, w - m, y)
