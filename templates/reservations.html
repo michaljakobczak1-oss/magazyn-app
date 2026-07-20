@@ -31,7 +31,7 @@
   {% set can_m = r.id in manage_ids %}
   <tr class="{{ 'overdue' if is_overdue }}">
     <td><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"
-               data-code="{{ r.code }}" data-name="{{ r.name|e }}"></td>
+               data-code="{{ r.code }}" data-name="{{ r.name|e }}" data-qty="{{ r.quantity }}"></td>
     <td>{{ thumb(r.photo) }}</td>
     <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
@@ -61,7 +61,7 @@
       <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
       {% endif %}
       {% if can_m and r.status == 'wydane' %}
-      <button type="button" class="btn small ok" onclick="openReturn({{ r.id }}, '{{ r.code }}')">Przyjmij zwrot</button>
+      <button type="button" class="btn small ok" onclick="openReturn({{ r.id }}, '{{ r.code }}', {{ r.quantity }})">Przyjmij zwrot</button>
       {% endif %}
     </td>
     <td>
@@ -91,6 +91,12 @@
           <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
           <span><strong>Towar nie wraca (utylizacja)</strong> – np. zniszczony na evencie. Zostanie odjęty ze stanu; bez przyjęcia na magazyn.</span>
         </label>
+      </div>
+
+      <div id="rm-qty-block" style="margin-bottom:14px;">
+        <label>Liczba sztuk *</label>
+        <input type="number" name="return_qty" id="rm-qty" min="1" value="1" required style="max-width:120px;">
+        <p id="rm-qty-hint" style="font-size:12px;color:#666;margin:4px 0 0;">Z wydanych <span id="rm-qty-max">1</span> szt. – niewybrane zostają jako wydane.</p>
       </div>
 
       <div id="rm-return-fields">
@@ -125,7 +131,7 @@
 let rmBulkMode = false;
 
 function syncReturnModalUI(){
-  const items = document.querySelectorAll('#rm-items .rm-item-action');
+  const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
   let anyReturn = false, anyDispose = false;
   if (rmBulkMode && items.length) {
     items.forEach(function(sel){
@@ -153,12 +159,23 @@ function syncReturnModalUI(){
   document.getElementById('rm-error').style.display = 'none';
 }
 
+function setSingleQty(maxQty){
+  const inp = document.getElementById('rm-qty');
+  inp.max = maxQty;
+  inp.value = maxQty;
+  inp.disabled = false;
+  document.getElementById('rm-qty-max').textContent = maxQty;
+  document.getElementById('rm-qty-block').style.display = 'block';
+}
+
 function resetReturnModal(){
   rmBulkMode = false;
   document.getElementById('rm-rids').innerHTML = '';
   document.getElementById('rm-items').innerHTML = '';
   document.getElementById('rm-items').style.display = 'none';
   document.getElementById('rm-single-dispose').style.display = 'block';
+  document.getElementById('rm-qty-block').style.display = 'block';
+  document.getElementById('rm-qty').disabled = false;
   const wh = document.getElementById('rm-warehouse');
   wh.selectedIndex = 0;
   wh.value = '';
@@ -172,18 +189,39 @@ function resetReturnModal(){
 function closeReturnModal(){
   document.getElementById('return-modal').style.display = 'none';
 }
+function validateQtyInput(inp, maxQty){
+  const v = parseInt(inp.value, 10);
+  return !isNaN(v) && v >= 1 && v <= maxQty;
+}
 function validateReturnForm(){
   const err = document.getElementById('rm-error');
-  const items = document.querySelectorAll('#rm-items .rm-item-action');
+  const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
   let anyReturn = false, anyDispose = false;
   if (rmBulkMode && items.length) {
     items.forEach(function(sel){
       if (sel.value === 'dispose') anyDispose = true;
       else anyReturn = true;
     });
+    const qtyInputs = document.querySelectorAll('#rm-items .rm-item-qty');
+    for (let i = 0; i < qtyInputs.length; i++) {
+      const inp = qtyInputs[i];
+      const maxQ = parseInt(inp.getAttribute('max'), 10) || 1;
+      if (!validateQtyInput(inp, maxQ)) {
+        err.textContent = 'Podaj poprawną liczbę sztuk (1–' + maxQ + ') dla każdej pozycji.';
+        err.style.display = 'block';
+        return false;
+      }
+    }
   } else {
     anyDispose = document.getElementById('rm-dispose').checked;
     anyReturn = !anyDispose;
+    const inp = document.getElementById('rm-qty');
+    const maxQ = parseInt(inp.max, 10) || 1;
+    if (!validateQtyInput(inp, maxQ)) {
+      err.textContent = 'Podaj poprawną liczbę sztuk (1–' + maxQ + ').';
+      err.style.display = 'block';
+      return false;
+    }
   }
   if (anyDispose && !document.getElementById('rm-damage-notes').value.trim()) {
     err.textContent = 'Podaj powód utylizacji.';
@@ -201,8 +239,10 @@ function validateReturnForm(){
 document.getElementById('return-form').addEventListener('submit', function(e){
   if (!validateReturnForm()) e.preventDefault();
 });
-function openReturn(rid, code){
+function openReturn(rid, code, qty){
   resetReturnModal();
+  qty = parseInt(qty, 10) || 1;
+  setSingleQty(qty);
   document.getElementById('rm-code').textContent = code;
   const h = document.createElement('input');
   h.type = 'hidden'; h.name = 'rid'; h.value = rid;
@@ -219,22 +259,29 @@ function openReturnBulk(){
   resetReturnModal();
   rmBulkMode = true;
   document.getElementById('rm-single-dispose').style.display = 'none';
+  document.getElementById('rm-qty-block').style.display = 'none';
+  document.getElementById('rm-qty').disabled = true;
   document.getElementById('rm-code').textContent = '(' + checked.length + ' pozycji)';
   const box = document.getElementById('rm-rids');
   const itemsBox = document.getElementById('rm-items');
   itemsBox.style.display = 'block';
-  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji wybierz: <strong>zwrot</strong> albo <strong>utylizacja</strong> (tylko utylizacja schodzi ze stanu).</p>';
+  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: liczba sztuk + <strong>zwrot</strong> albo <strong>utylizacja</strong> (utylizacja schodzi ze stanu; niewybrane sztuki zostają wydane).</p>';
   checked.forEach(function(cb){
     const h = document.createElement('input');
     h.type = 'hidden'; h.name = 'rid'; h.value = cb.value;
     box.appendChild(h);
     const code = cb.getAttribute('data-code') || ('#' + cb.value);
     const name = cb.getAttribute('data-name') || '';
+    const maxQty = parseInt(cb.getAttribute('data-qty'), 10) || 1;
     const row = document.createElement('div');
     row.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:8px;';
     row.innerHTML =
       '<div style="font-weight:700;margin-bottom:6px;">' + code +
       (name ? ' <span style="font-weight:400;color:#666;">– ' + name + '</span>' : '') + '</div>' +
+      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;">Sztuk ' +
+      '<input type="number" name="item_qty_' + cb.value + '" class="rm-item-qty" min="1" max="' + maxQty +
+      '" value="' + maxQty + '" required style="width:72px;margin:0;"></label>' +
+      '<span style="font-size:12px;color:#666;margin-left:6px;">z ' + maxQty + '</span><br>' +
       '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;margin-right:14px;">' +
       '<input type="radio" name="item_action_' + cb.value + '" value="return" class="rm-item-action" checked style="width:auto;" onchange="syncReturnModalUI()"> Zwrot na magazyn</label>' +
       '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +

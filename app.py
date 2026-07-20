@@ -616,6 +616,55 @@ def _return_form_valid(form):
     return wid.isdigit()
 
 
+def _process_qty_from_form(form, r):
+    """Ile sztuk z rezerwacji obejmuje ta operacja (zwrot / utylizacja)."""
+    rid = r["id"]
+    raw = form.get(f"item_qty_{rid}")
+    if raw in (None, ""):
+        raw = form.get("return_qty") or form.get("qty")
+    try:
+        qty = int(raw) if raw not in (None, "") else int(r["quantity"])
+    except (TypeError, ValueError):
+        return None
+    total = int(r["quantity"])
+    if qty < 1 or qty > total:
+        return None
+    return qty
+
+
+def _split_partial(con, r, process_qty):
+    """Częściowy zwrot/utylizacja: reszta sztuk zostaje osobną rezerwacją „wydane”."""
+    total = int(r["quantity"])
+    if process_qty >= total:
+        return r
+    remaining = total - process_qty
+
+    def g(key, default=None):
+        try:
+            return r[key]
+        except (KeyError, IndexError):
+            return default
+
+    con.execute(
+        """INSERT INTO reservations (
+            equipment_id, user_id, client, date_from, date_to, quantity, status,
+            group_id, receiver, permanent, recipient_name, recipient_contact,
+            recipient_phone, recipient_address, recipient_email, notes,
+            issued_at, issued_by
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            r["equipment_id"], r["user_id"], g("client"), r["date_from"], r["date_to"],
+            remaining, "wydane", g("group_id"), g("receiver"),
+            1 if g("permanent") else 0,
+            g("recipient_name"), g("recipient_contact"), g("recipient_phone"),
+            g("recipient_address"), g("recipient_email"), g("notes"),
+            g("issued_at"), g("issued_by"),
+        ),
+    )
+    con.execute("UPDATE reservations SET quantity=? WHERE id=?", (process_qty, r["id"]))
+    return con.execute("SELECT * FROM reservations WHERE id=?", (r["id"],)).fetchone()
+
+
 def _apply_issue(con, r, user_id, permanent=None):
     """Oznacza rezerwację jako wydaną.
 
@@ -649,11 +698,15 @@ def _apply_issue(con, r, user_id, permanent=None):
 
 
 def _apply_return(con, r, user_id, form):
-    """Przyjmuje zwrot. Magazyn wymagany, miejsce opcjonalne."""
+    """Przyjmuje zwrot (możliwa częściowa liczba sztuk). Magazyn wymagany, miejsce opcjonalne."""
     if r["status"] != "wydane":
         return False
     if not _return_form_valid(form):
         return False
+    qty = _process_qty_from_form(form, r)
+    if qty is None:
+        return False
+    r = _split_partial(con, r, qty)
     wid = int((form.get("return_warehouse_id") or "").strip())
     loc = (form.get("return_location") or "").strip()
     damage = 1 if form.get("damage") else 0
@@ -680,6 +733,7 @@ def _apply_return(con, r, user_id, form):
 def _apply_dispose(con, r, user_id, form):
     """Towar wydany nie wraca (utylizacja / zniszczenie). Schodzi ze stanu magazynowego.
 
+    Możliwa częściowa liczba sztuk – reszta zostaje jako „wydane”.
     Status „do utylizacji” na karcie sprzętu tylko gdy po odjęciu nie zostaje żadna sztuka.
     """
     if r["status"] != "wydane":
@@ -687,6 +741,10 @@ def _apply_dispose(con, r, user_id, form):
     notes = (form.get("damage_notes") or form.get("dispose_notes") or "").strip()
     if not notes:
         return False
+    qty = _process_qty_from_form(form, r)
+    if qty is None:
+        return False
+    r = _split_partial(con, r, qty)
     eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
                      (r["equipment_id"],)).fetchone()
     if not eq or eq["quantity"] < r["quantity"]:
@@ -906,6 +964,10 @@ def return_item(rid):
             flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
             con.close()
             return redirect(request.referrer or url_for("reservations"))
+        if _process_qty_from_form(request.form, r) is None:
+            flash(f"Podaj poprawną liczbę sztuk (1–{r['quantity']}).", "error")
+            con.close()
+            return redirect(request.referrer or url_for("reservations"))
         if _apply_dispose(con, r, session["user_id"], request.form):
             con.commit()
             con.close()
@@ -916,6 +978,10 @@ def return_item(rid):
         return redirect(request.referrer or url_for("reservations"))
     if not _return_form_valid(request.form):
         flash("Wypełnij pole.", "error")
+        con.close()
+        return redirect(request.referrer or url_for("reservations"))
+    if _process_qty_from_form(request.form, r) is None:
+        flash(f"Podaj poprawną liczbę sztuk (1–{r['quantity']}).", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
     if _apply_return(con, r, session["user_id"], request.form):
