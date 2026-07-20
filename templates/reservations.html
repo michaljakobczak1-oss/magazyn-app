@@ -45,7 +45,8 @@
     <td>{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
     <td><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else ('utylizacja' if r.status == 'utylizacja' else r.status) }}">{{ r.status }}</span>
       {% if r.permanent and r.status == 'rezerwacja' %}<br><span class="badge wydane-trwale" style="font-size:10px;">do wydania trwałego</span>{% endif %}
-      {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">{{ 'utylizacja' if r.status == 'utylizacja' else 'uszkodzenie' }}</span>{% endif %}
+      {% if r.damage and r.status != 'utylizacja' %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}
+      {% if r.status == 'utylizacja' and r.damage_notes %}<br><span style="font-size:11px;color:#666;" title="{{ r.damage_notes }}">{{ r.damage_notes[:40] }}{% if r.damage_notes|length > 40 %}…{% endif %}</span>{% endif %}
       {% if r.issued_at %}<br><span style="font-size:11px;color:#666;">wyd. {{ r.issued_at[:16].replace('T',' ') }}</span>{% endif %}
       {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">{{ 'utyl. ' if r.status == 'utylizacja' else 'zwr. ' }}{{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
     </td>

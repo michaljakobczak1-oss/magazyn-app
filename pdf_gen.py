@@ -47,6 +47,29 @@ def _get(row, key):
         return None
 
 
+def _fmt_ts(val):
+    """2026-07-20T16:45:00 → '2026-07-20 16:45' (jak w tabeli)."""
+    if not val:
+        return None
+    return str(val)[:16].replace("T", " ")
+
+
+def _fmt_day(val):
+    if not val:
+        return None
+    return str(val)[:10]
+
+
+def _actual_period(r, kind):
+    """Rzeczywisty okres jak w statusach: wydanie → zwrot/utylizacja."""
+    start = _fmt_day(_get(r, "issued_at")) or r["date_from"]
+    if kind == "przyjecie":
+        end = _fmt_day(_get(r, "returned_at")) or r["date_to"]
+    else:
+        end = r["date_to"]
+    return start, end
+
+
 def _recipient_lines(res):
     """Sekcja adresata towaru z pełnymi danymi kontaktowymi."""
     out = []
@@ -190,27 +213,37 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
     ]
     right = [
         ("Ilość sztuk", str(res["quantity"])),
-        ("Termin", f"{res['date_from']} – {res['date_to']}"),
+        ("Termin planowany", f"{res['date_from']} – {res['date_to']}"),
         ("Klient / cel", res["client"] or "-"),
         ("Odbiera towar", res["receiver"] or "-"),
         ("Rezerwujący", user_name),
     ]
     if operator_name:
         right.append(("Obsługa magazynu", operator_name))
+    issued = _fmt_ts(_get(res, "issued_at"))
+    if issued:
+        right.append(("Data wydania", issued))
+    if kind == "wydanie":
+        start, end = _actual_period(res, kind)
+        right[1] = ("Termin", f"{start} – {end}")
     if kind == "przyjecie":
+        start, end = _actual_period(res, kind)
+        right[1] = ("Termin (wydanie – zwrot)", f"{start} – {end}")
         if res["status"] == "utylizacja":
             right.append(("Rozstrzygnięcie", "UTYLIZACJA – towar nie wraca"))
             if _get(res, "damage_notes"):
                 right.append(("Powód", res["damage_notes"]))
-            if _get(res, "returned_at"):
-                right.append(("Data utylizacji", str(res["returned_at"])[:16].replace("T", " ")))
+            ret = _fmt_ts(_get(res, "returned_at"))
+            if ret:
+                right.append(("Data utylizacji", ret))
         else:
             damaged = bool(_get(res, "damage"))
             right.append(("Stan przy zwrocie", "uszkodzony" if damaged else "sprawny"))
             if damaged and _get(res, "damage_notes"):
                 right.append(("Opis uszkodzenia", res["damage_notes"]))
-            if _get(res, "returned_at"):
-                right.append(("Data zwrotu", str(res["returned_at"])[:16].replace("T", " ")))
+            ret = _fmt_ts(_get(res, "returned_at"))
+            if ret:
+                right.append(("Data zwrotu", ret))
 
     col_gap = 6 * mm
     col_w = (w - 2 * m - col_gap) / 2
@@ -320,7 +353,7 @@ def group_pdf(kind, rows):
 
     y = header()
 
-    terms = sorted({(r["date_from"], r["date_to"]) for r in rows})
+    terms = sorted({_actual_period(r, kind) for r in rows})
     clients = sorted({r["client"] for r in rows if r["client"]})
     users = sorted({f"{(_get(r,'first_name') or '').strip()} {(_get(r,'last_name') or '').strip()}".strip()
                     or r["username"] for r in rows})
@@ -329,8 +362,9 @@ def group_pdf(kind, rows):
         termin_txt = f"{terms[0][0]} – {terms[0][1]}"
     else:
         termin_txt = "różne – szczegóły przy pozycjach"
+    termin_label = "Termin (wydanie – zwrot)" if kind == "przyjecie" else "Termin"
     common = [
-        ("Termin", termin_txt),
+        (termin_label, termin_txt),
         ("Klient / cel", ", ".join(clients) or "-"),
         ("Odbiera towar", ", ".join(receivers) or "-"),
         ("Rezerwujący", ", ".join(users)),
@@ -407,11 +441,30 @@ def group_pdf(kind, rows):
         c.drawString(col_x[2] + 0.5 * mm, ty, name[:max_chars])
         if len(name) > max_chars:
             c.drawString(col_x[2] + 0.5 * mm, ty - 3.5 * mm, name[max_chars:max_chars * 2])
-        # termin przy pozycji
+        # termin: rzeczywiste daty jak w statusach tabeli
         c.setFont(FONT_B, 7.5)
-        c.drawString(col_x[3] + 0.5 * mm, ty, str(r["date_from"]))
-        c.setFont(FONT, 7.5)
-        c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, "– " + str(r["date_to"]))
+        start, end = _actual_period(r, kind)
+        issued_ts = _fmt_ts(_get(r, "issued_at"))
+        returned_ts = _fmt_ts(_get(r, "returned_at"))
+        if kind == "przyjecie" and (issued_ts or returned_ts):
+            line1 = ("wyd. " + issued_ts) if issued_ts else start
+            if r["status"] == "utylizacja" and returned_ts:
+                line2 = "utyl. " + returned_ts
+            elif returned_ts:
+                line2 = "zwr. " + returned_ts
+            else:
+                line2 = "– " + end
+            c.drawString(col_x[3] + 0.5 * mm, ty, line1[:22])
+            c.setFont(FONT, 7.5)
+            c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, line2[:22])
+        elif kind == "wydanie" and issued_ts:
+            c.drawString(col_x[3] + 0.5 * mm, ty, ("wyd. " + issued_ts)[:22])
+            c.setFont(FONT, 7.5)
+            c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, ("do " + end)[:22])
+        else:
+            c.drawString(col_x[3] + 0.5 * mm, ty, str(start))
+            c.setFont(FONT, 7.5)
+            c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, "– " + str(end))
         if _get(r, "client"):
             c.setFillColor(colors.HexColor("#444444"))
             cl = str(r["client"])[:20]
