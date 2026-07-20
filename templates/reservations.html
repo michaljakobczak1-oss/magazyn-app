@@ -82,41 +82,76 @@
       <div id="rm-rids"></div>
       <div id="rm-error" class="flash error" style="display:none; margin-bottom:10px;">Wypełnij pole.</div>
 
-      {# lista pozycji przy zbiorczym – wybór zwrot / utylizacja per pozycja #}
       <div id="rm-items" style="display:none; margin-bottom:14px;"></div>
 
-      {# pojedyncza pozycja – globalny checkbox utylizacji #}
-      <div id="rm-single-dispose">
-        <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-bottom:12px; padding:10px; background:#fef3c7; border-radius:8px;">
-          <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
-          <span><strong>Towar nie wraca (utylizacja)</strong> – np. zniszczony na evencie. Zostanie odjęty ze stanu; bez przyjęcia na magazyn.</span>
-        </label>
+      <div id="rm-single-panel">
+        <p style="font-size:13px;color:#555;margin:0 0 12px;">
+          Wydano <strong><span id="rm-qty-max">1</span></strong> szt. Wybierz opcję – niewybrane sztuki zostają jako wydane.
+        </p>
+
+        <div id="rm-card-return" style="border:2px solid #86efac; background:#f0fdf4; border-radius:10px; padding:12px; margin-bottom:10px;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:700; margin:0 0 10px; cursor:pointer;">
+            <input type="radio" name="rm_action" value="return" id="rm-action-return" checked style="width:auto;" onchange="syncReturnModalUI()">
+            Zwrot na magazyn
+          </label>
+          <div id="rm-return-body">
+            <label style="margin-top:0;">Ile sztuk wraca *</label>
+            <input type="number" name="return_qty" id="rm-qty" min="1" value="1" required style="max-width:120px;">
+            <label>Magazyn przyjęcia *</label>
+            <select name="return_warehouse_id" id="rm-warehouse">
+              <option value="" disabled selected>– wybierz magazyn –</option>
+              {% for w in warehouses %}
+              <option value="{{ w.id }}">{{ w.name }}</option>
+              {% endfor %}
+            </select>
+            <label>Miejsce w magazynie (opcjonalnie)</label>
+            <input name="return_location" id="rm-location" placeholder="np. Regał B2">
+            <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
+              <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="syncReturnModalUI()">
+              towar wrócił uszkodzony
+            </label>
+            <div id="rm-damage-notes-wrap" style="display:none; margin-top:8px;">
+              <label>Opis uszkodzenia</label>
+              <textarea id="rm-damage-notes-return" rows="2" placeholder="np. pęknięta ścianka skrzyni"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div id="rm-card-dispose" style="border:1px solid #fcd34d; background:#fffbeb; border-radius:10px; padding:12px; opacity:0.55;">
+          <label style="display:flex; align-items:flex-start; gap:8px; font-weight:700; margin:0 0 6px; cursor:pointer;">
+            <input type="radio" name="rm_action" value="dispose" id="rm-action-dispose" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
+            <span>Towar nie wraca (utylizacja)</span>
+          </label>
+          <p style="font-size:12px; color:#92400e; margin:0 0 0 24px;">Zniszczony / zużyty – schodzi ze stanu, bez przyjęcia na magazyn.</p>
+          <div id="rm-dispose-body" style="display:none; margin-left:24px; margin-top:10px;">
+            <label style="margin-top:0;">Ile sztuk nie wraca *</label>
+            <input type="number" id="rm-qty-dispose" min="1" value="1" style="max-width:120px;">
+            <label>Powód utylizacji *</label>
+            <textarea id="rm-damage-notes-dispose" rows="2" placeholder="np. zniszczone na evencie"></textarea>
+          </div>
+        </div>
+        <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="display:none;">
+        <textarea name="damage_notes" id="rm-damage-notes" style="display:none;" aria-hidden="true"></textarea>
       </div>
 
-      <div id="rm-qty-block" style="margin-bottom:14px;">
-        <label>Liczba sztuk *</label>
-        <input type="number" name="return_qty" id="rm-qty" min="1" value="1" required style="max-width:120px;">
-        <p id="rm-qty-hint" style="font-size:12px;color:#666;margin:4px 0 0;">Z wydanych <span id="rm-qty-max">1</span> szt. – niewybrane zostają jako wydane.</p>
-      </div>
-
-      <div id="rm-return-fields">
+      <div id="rm-return-fields" style="display:none;">
         <label>Magazyn przyjęcia *</label>
-        <select name="return_warehouse_id" id="rm-warehouse">
+        <select id="rm-warehouse-bulk">
           <option value="" disabled selected>– wybierz magazyn –</option>
           {% for w in warehouses %}
           <option value="{{ w.id }}">{{ w.name }}</option>
           {% endfor %}
         </select>
         <label>Miejsce w magazynie (opcjonalnie)</label>
-        <input name="return_location" id="rm-location" placeholder="np. Regał B2">
+        <input id="rm-location-bulk" placeholder="np. Regał B2">
         <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
-          <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="syncReturnModalUI()">
+          <input type="checkbox" id="rm-damage-bulk" style="width:auto;" onchange="syncReturnModalUI()">
           towar wrócił uszkodzony
         </label>
       </div>
       <div id="rm-notes" style="display:none;">
-        <label id="rm-notes-label">Opis uszkodzenia</label>
-        <textarea name="damage_notes" id="rm-damage-notes" rows="3" placeholder="np. pęknięta ścianka skrzyni"></textarea>
+        <label id="rm-notes-label">Opis / powód</label>
+        <textarea id="rm-damage-notes-bulk" rows="3" placeholder=""></textarea>
       </div>
       <div style="margin-top:16px; display:flex; gap:10px;">
         <button class="btn ok" id="rm-submit">Przyjmij zwrot</button>
@@ -131,41 +166,106 @@
 let rmBulkMode = false;
 
 function syncReturnModalUI(){
-  const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
-  let anyReturn = false, anyDispose = false;
-  if (rmBulkMode && items.length) {
+  document.getElementById('rm-error').style.display = 'none';
+
+  if (rmBulkMode) {
+    const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
+    let anyReturn = false, anyDispose = false;
     items.forEach(function(sel){
       if (sel.value === 'dispose') anyDispose = true;
       else anyReturn = true;
+      const row = sel.closest('.rm-item-row');
+      if (row) {
+        const isDisp = sel.value === 'dispose';
+        row.querySelector('.rm-item-return-hint').style.display = isDisp ? 'none' : 'inline';
+        row.querySelector('.rm-item-dispose-hint').style.display = isDisp ? 'inline' : 'none';
+        row.style.borderColor = isDisp ? '#fcd34d' : '#86efac';
+        row.style.background = isDisp ? '#fffbeb' : '#f0fdf4';
+      }
     });
-  } else {
-    const dispose = document.getElementById('rm-dispose').checked;
-    anyDispose = dispose;
-    anyReturn = !dispose;
+    document.getElementById('rm-return-fields').style.display = anyReturn ? 'block' : 'none';
+    const showNotes = anyDispose || (anyReturn && document.getElementById('rm-damage-bulk').checked);
+    document.getElementById('rm-notes').style.display = showNotes ? 'block' : 'none';
+    document.getElementById('rm-notes-label').textContent = anyDispose
+      ? (anyReturn ? 'Powód utylizacji / opis uszkodzenia *' : 'Powód utylizacji *')
+      : 'Opis uszkodzenia';
+    document.getElementById('rm-damage-notes-bulk').placeholder = anyDispose
+      ? 'np. zniszczone na evencie – utylizacja'
+      : 'np. pęknięta ścianka skrzyni';
+    let btn = 'Przyjmij zwrot';
+    if (anyDispose && anyReturn) btn = 'Zapisz (zwrot + utylizacja)';
+    else if (anyDispose) btn = 'Oznacz jako utylizacja';
+    document.getElementById('rm-submit').textContent = btn;
+    return;
   }
-  document.getElementById('rm-return-fields').style.display = anyReturn ? 'block' : 'none';
-  const showNotes = anyDispose || (anyReturn && document.getElementById('rm-damage').checked);
-  document.getElementById('rm-notes').style.display = showNotes ? 'block' : 'none';
-  document.getElementById('rm-notes-label').textContent = anyDispose
-    ? (anyReturn ? 'Powód utylizacji / opis uszkodzenia *' : 'Powód utylizacji *')
-    : 'Opis uszkodzenia';
-  document.getElementById('rm-damage-notes').placeholder = anyDispose
-    ? 'np. zniszczone na evencie – utylizacja'
-    : 'np. pęknięta ścianka skrzyni';
-  let btn = 'Przyjmij zwrot';
-  if (anyDispose && anyReturn) btn = 'Zapisz (zwrot + utylizacja)';
-  else if (anyDispose) btn = 'Oznacz jako utylizacja';
-  document.getElementById('rm-submit').textContent = btn;
-  document.getElementById('rm-error').style.display = 'none';
+
+  const dispose = document.getElementById('rm-action-dispose').checked;
+  document.getElementById('rm-dispose').checked = dispose;
+  document.getElementById('rm-return-body').style.display = dispose ? 'none' : 'block';
+  document.getElementById('rm-dispose-body').style.display = dispose ? 'block' : 'none';
+  document.getElementById('rm-card-return').style.opacity = dispose ? '0.55' : '1';
+  document.getElementById('rm-card-dispose').style.opacity = dispose ? '1' : '0.55';
+  document.getElementById('rm-card-return').style.borderWidth = dispose ? '1px' : '2px';
+  document.getElementById('rm-card-dispose').style.borderWidth = dispose ? '2px' : '1px';
+
+  document.getElementById('rm-damage-notes-wrap').style.display =
+    (!dispose && document.getElementById('rm-damage').checked) ? 'block' : 'none';
+
+  const qtyMain = document.getElementById('rm-qty');
+  const qtyDisp = document.getElementById('rm-qty-dispose');
+  if (dispose) {
+    qtyDisp.max = qtyMain.max;
+    qtyMain.value = qtyDisp.value || qtyMain.value;
+  } else {
+    qtyDisp.value = qtyMain.value;
+  }
+  document.getElementById('rm-submit').textContent = dispose ? 'Oznacz jako utylizacja' : 'Przyjmij zwrot';
+}
+
+function prepareSingleSubmit(){
+  const dispose = document.getElementById('rm-action-dispose').checked;
+  document.getElementById('rm-dispose').checked = dispose;
+  const qtyMain = document.getElementById('rm-qty');
+  if (dispose) {
+    qtyMain.value = document.getElementById('rm-qty-dispose').value;
+    document.getElementById('rm-damage-notes').value =
+      document.getElementById('rm-damage-notes-dispose').value;
+  } else {
+    document.getElementById('rm-damage-notes').value =
+      document.getElementById('rm-damage').checked
+        ? document.getElementById('rm-damage-notes-return').value
+        : '';
+  }
+}
+
+function prepareBulkSubmit(){
+  document.querySelectorAll('#return-form .rm-bulk-sync').forEach(function(el){ el.remove(); });
+  function addHidden(name, value){
+    const i = document.createElement('input');
+    i.type = 'hidden'; i.name = name; i.value = value; i.className = 'rm-bulk-sync';
+    document.getElementById('return-form').appendChild(i);
+  }
+  const wh = document.getElementById('rm-warehouse-bulk');
+  const loc = document.getElementById('rm-location-bulk');
+  if (wh.value) addHidden('return_warehouse_id', wh.value);
+  if (loc.value) addHidden('return_location', loc.value);
+  if (document.getElementById('rm-damage-bulk').checked) addHidden('damage', '1');
+  const notes = document.getElementById('rm-damage-notes-bulk').value;
+  if (notes) addHidden('damage_notes', notes);
 }
 
 function setSingleQty(maxQty){
   const inp = document.getElementById('rm-qty');
-  inp.max = maxQty;
-  inp.value = maxQty;
-  inp.disabled = false;
+  const disp = document.getElementById('rm-qty-dispose');
+  inp.max = maxQty; inp.value = maxQty; inp.disabled = false;
+  disp.max = maxQty; disp.value = maxQty;
   document.getElementById('rm-qty-max').textContent = maxQty;
-  document.getElementById('rm-qty-block').style.display = 'block';
+}
+
+function setSingleFormEnabled(on){
+  ['rm-qty', 'rm-warehouse', 'rm-location', 'rm-damage', 'rm-dispose'].forEach(function(id){
+    document.getElementById(id).disabled = !on;
+  });
 }
 
 function resetReturnModal(){
@@ -173,17 +273,27 @@ function resetReturnModal(){
   document.getElementById('rm-rids').innerHTML = '';
   document.getElementById('rm-items').innerHTML = '';
   document.getElementById('rm-items').style.display = 'none';
-  document.getElementById('rm-single-dispose').style.display = 'block';
-  document.getElementById('rm-qty-block').style.display = 'block';
-  document.getElementById('rm-qty').disabled = false;
+  document.getElementById('rm-single-panel').style.display = 'block';
+  document.getElementById('rm-return-fields').style.display = 'none';
+  document.getElementById('rm-notes').style.display = 'none';
+  setSingleFormEnabled(true);
+  document.getElementById('rm-action-return').checked = true;
+  document.getElementById('rm-action-dispose').checked = false;
+  document.getElementById('rm-dispose').checked = false;
   const wh = document.getElementById('rm-warehouse');
-  wh.selectedIndex = 0;
-  wh.value = '';
+  wh.selectedIndex = 0; wh.value = '';
   document.getElementById('rm-location').value = '';
   document.getElementById('rm-damage').checked = false;
-  document.getElementById('rm-dispose').checked = false;
+  document.getElementById('rm-damage-notes-return').value = '';
+  document.getElementById('rm-damage-notes-dispose').value = '';
   document.getElementById('rm-damage-notes').value = '';
+  document.getElementById('rm-warehouse-bulk').selectedIndex = 0;
+  document.getElementById('rm-warehouse-bulk').value = '';
+  document.getElementById('rm-location-bulk').value = '';
+  document.getElementById('rm-damage-bulk').checked = false;
+  document.getElementById('rm-damage-notes-bulk').value = '';
   document.getElementById('rm-error').style.display = 'none';
+  document.querySelectorAll('#return-form .rm-bulk-sync').forEach(function(el){ el.remove(); });
   syncReturnModalUI();
 }
 function closeReturnModal(){
@@ -195,10 +305,9 @@ function validateQtyInput(inp, maxQty){
 }
 function validateReturnForm(){
   const err = document.getElementById('rm-error');
-  const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
-  let anyReturn = false, anyDispose = false;
-  if (rmBulkMode && items.length) {
-    items.forEach(function(sel){
+  if (rmBulkMode) {
+    let anyReturn = false, anyDispose = false;
+    document.querySelectorAll('#rm-items .rm-item-action:checked').forEach(function(sel){
       if (sel.value === 'dispose') anyDispose = true;
       else anyReturn = true;
     });
@@ -212,37 +321,54 @@ function validateReturnForm(){
         return false;
       }
     }
-  } else {
-    anyDispose = document.getElementById('rm-dispose').checked;
-    anyReturn = !anyDispose;
-    const inp = document.getElementById('rm-qty');
-    const maxQ = parseInt(inp.max, 10) || 1;
-    if (!validateQtyInput(inp, maxQ)) {
-      err.textContent = 'Podaj poprawną liczbę sztuk (1–' + maxQ + ').';
+    if (anyDispose && !document.getElementById('rm-damage-notes-bulk').value.trim()) {
+      err.textContent = 'Podaj powód utylizacji.';
       err.style.display = 'block';
       return false;
     }
+    if (anyReturn && !document.getElementById('rm-warehouse-bulk').value) {
+      err.textContent = 'Wybierz magazyn przyjęcia dla pozycji wracających.';
+      err.style.display = 'block';
+      return false;
+    }
+    prepareBulkSubmit();
+    return true;
   }
-  if (anyDispose && !document.getElementById('rm-damage-notes').value.trim()) {
-    err.textContent = 'Podaj powód utylizacji.';
+
+  const dispose = document.getElementById('rm-action-dispose').checked;
+  const qtyInp = dispose ? document.getElementById('rm-qty-dispose') : document.getElementById('rm-qty');
+  const maxQ = parseInt(document.getElementById('rm-qty').max, 10) || 1;
+  if (!validateQtyInput(qtyInp, maxQ)) {
+    err.textContent = 'Podaj poprawną liczbę sztuk (1–' + maxQ + ').';
     err.style.display = 'block';
     return false;
   }
-  if (anyReturn && !document.getElementById('rm-warehouse').value) {
-    err.textContent = 'Wybierz magazyn przyjęcia dla pozycji wracających.';
+  if (dispose) {
+    if (!document.getElementById('rm-damage-notes-dispose').value.trim()) {
+      err.textContent = 'Podaj powód utylizacji.';
+      err.style.display = 'block';
+      return false;
+    }
+  } else if (!document.getElementById('rm-warehouse').value) {
+    err.textContent = 'Wybierz magazyn przyjęcia.';
     err.style.display = 'block';
     return false;
   }
-  err.style.display = 'none';
+  prepareSingleSubmit();
   return true;
 }
 document.getElementById('return-form').addEventListener('submit', function(e){
   if (!validateReturnForm()) e.preventDefault();
 });
+document.getElementById('rm-qty-dispose').addEventListener('input', function(){
+  document.getElementById('rm-qty').value = this.value;
+});
+document.getElementById('rm-qty').addEventListener('input', function(){
+  document.getElementById('rm-qty-dispose').value = this.value;
+});
 function openReturn(rid, code, qty){
   resetReturnModal();
-  qty = parseInt(qty, 10) || 1;
-  setSingleQty(qty);
+  setSingleQty(parseInt(qty, 10) || 1);
   document.getElementById('rm-code').textContent = code;
   const h = document.createElement('input');
   h.type = 'hidden'; h.name = 'rid'; h.value = rid;
@@ -258,14 +384,13 @@ function openReturnBulk(){
   }
   resetReturnModal();
   rmBulkMode = true;
-  document.getElementById('rm-single-dispose').style.display = 'none';
-  document.getElementById('rm-qty-block').style.display = 'none';
-  document.getElementById('rm-qty').disabled = true;
+  document.getElementById('rm-single-panel').style.display = 'none';
+  setSingleFormEnabled(false);
   document.getElementById('rm-code').textContent = '(' + checked.length + ' pozycji)';
   const box = document.getElementById('rm-rids');
   const itemsBox = document.getElementById('rm-items');
   itemsBox.style.display = 'block';
-  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: liczba sztuk + <strong>zwrot</strong> albo <strong>utylizacja</strong> (utylizacja schodzi ze stanu; niewybrane sztuki zostają wydane).</p>';
+  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: zwrot albo utylizacja + liczba sztuk. Niewybrane zostają wydane.</p>';
   checked.forEach(function(cb){
     const h = document.createElement('input');
     h.type = 'hidden'; h.name = 'rid'; h.value = cb.value;
@@ -274,18 +399,23 @@ function openReturnBulk(){
     const name = cb.getAttribute('data-name') || '';
     const maxQty = parseInt(cb.getAttribute('data-qty'), 10) || 1;
     const row = document.createElement('div');
-    row.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:8px;';
+    row.className = 'rm-item-row';
+    row.style.cssText = 'border:2px solid #86efac;background:#f0fdf4;border-radius:10px;padding:12px;margin-bottom:8px;';
     row.innerHTML =
-      '<div style="font-weight:700;margin-bottom:6px;">' + code +
-      (name ? ' <span style="font-weight:400;color:#666;">– ' + name + '</span>' : '') + '</div>' +
-      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;">Sztuk ' +
-      '<input type="number" name="item_qty_' + cb.value + '" class="rm-item-qty" min="1" max="' + maxQty +
-      '" value="' + maxQty + '" required style="width:72px;margin:0;"></label>' +
-      '<span style="font-size:12px;color:#666;margin-left:6px;">z ' + maxQty + '</span><br>' +
+      '<div style="font-weight:700;margin-bottom:8px;">' + code +
+      (name ? ' <span style="font-weight:400;color:#666;">– ' + name + '</span>' : '') +
+      ' <span style="font-weight:400;font-size:12px;color:#666;">(wydano ' + maxQty + ' szt.)</span></div>' +
       '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;margin-right:14px;">' +
       '<input type="radio" name="item_action_' + cb.value + '" value="return" class="rm-item-action" checked style="width:auto;" onchange="syncReturnModalUI()"> Zwrot na magazyn</label>' +
       '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
-      '<input type="radio" name="item_action_' + cb.value + '" value="dispose" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Utylizacja / nie wraca</label>';
+      '<input type="radio" name="item_action_' + cb.value + '" value="dispose" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Towar nie wraca</label>' +
+      '<div style="margin-top:10px;">' +
+      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:8px;margin:0;">' +
+      '<span class="rm-item-return-hint">Ile sztuk wraca</span>' +
+      '<span class="rm-item-dispose-hint" style="display:none;">Ile sztuk nie wraca</span>' +
+      '<input type="number" name="item_qty_' + cb.value + '" class="rm-item-qty" min="1" max="' + maxQty +
+      '" value="' + maxQty + '" required style="width:72px;margin:0;">' +
+      '<span style="font-size:12px;color:#666;">z ' + maxQty + '</span></label></div>';
     itemsBox.appendChild(row);
   });
   document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';
