@@ -157,6 +157,8 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
     y = h - m
 
     title = "PROTOKÓŁ WYDANIA SPRZĘTU" if kind == "wydanie" else "PROTOKÓŁ PRZYJĘCIA SPRZĘTU"
+    if kind == "przyjecie" and res["status"] == "utylizacja":
+        title = "PROTOKÓŁ UTYLIZACJI SPRZĘTU"
     doc_no = f"{'WZ' if kind == 'wydanie' else 'PZ'}/{res['id']}/{local_now():%Y}"
 
     c.setFont(FONT_B, 13)
@@ -196,12 +198,19 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
     if operator_name:
         right.append(("Obsługa magazynu", operator_name))
     if kind == "przyjecie":
-        damaged = bool(_get(res, "damage"))
-        right.append(("Stan przy zwrocie", "uszkodzony" if damaged else "sprawny"))
-        if damaged and _get(res, "damage_notes"):
-            right.append(("Opis uszkodzenia", res["damage_notes"]))
-        if _get(res, "returned_at"):
-            right.append(("Data zwrotu", str(res["returned_at"])[:16].replace("T", " ")))
+        if res["status"] == "utylizacja":
+            right.append(("Rozstrzygnięcie", "UTYLIZACJA – towar nie wraca"))
+            if _get(res, "damage_notes"):
+                right.append(("Powód", res["damage_notes"]))
+            if _get(res, "returned_at"):
+                right.append(("Data utylizacji", str(res["returned_at"])[:16].replace("T", " ")))
+        else:
+            damaged = bool(_get(res, "damage"))
+            right.append(("Stan przy zwrocie", "uszkodzony" if damaged else "sprawny"))
+            if damaged and _get(res, "damage_notes"):
+                right.append(("Opis uszkodzenia", res["damage_notes"]))
+            if _get(res, "returned_at"):
+                right.append(("Data zwrotu", str(res["returned_at"])[:16].replace("T", " ")))
 
     col_gap = 6 * mm
     col_w = (w - 2 * m - col_gap) / 2
@@ -265,7 +274,14 @@ def group_pdf(kind, rows):
     m = 18 * mm
 
     title = ("ZBIORCZY PROTOKÓŁ WYDANIA SPRZĘTU" if kind == "wydanie"
-             else "ZBIORCZY PROTOKÓŁ PRZYJĘCIA SPRZĘTU")
+             else "ZBIORCZY PROTOKÓŁ PRZYJĘCIA / UTYLIZACJI")
+    if kind == "przyjecie":
+        n_disp = sum(1 for r in rows if r["status"] == "utylizacja")
+        n_ret = len(rows) - n_disp
+        if n_disp and not n_ret:
+            title = "ZBIORCZY PROTOKÓŁ UTYLIZACJI SPRZĘTU"
+        elif n_disp and n_ret:
+            title = "ZBIORCZY PROTOKÓŁ PRZYJĘCIA I UTYLIZACJI"
     doc_no = f"{'WZ' if kind == 'wydanie' else 'PZ'}-ZB/{local_now():%Y%m%d%H%M}"
 
     wh_set = {( _get(r, "warehouse_name"), _get(r, "warehouse_address"))
@@ -410,13 +426,22 @@ def group_pdf(kind, rows):
         if _get(r, "brand"):
             c.drawString(col_x[6] + 0.5 * mm, ty - 3.5 * mm, r["brand"][:14])
         extra_y = ty - 11 * mm
-        if kind == "przyjecie" and _get(r, "damage"):
+        if kind == "przyjecie":
             c.setFont(FONT_B, 7)
-            c.setFillColor(colors.HexColor("#b42318"))
-            note = "USZKODZONY"
-            if _get(r, "damage_notes"):
-                note += ": " + str(r["damage_notes"])
-            for wl in _wrap(note, 85)[:2]:
+            if r["status"] == "utylizacja":
+                c.setFillColor(colors.HexColor("#6b21a8"))
+                note = "UTYLIZACJA / NIE WRACA"
+                if _get(r, "damage_notes"):
+                    note += ": " + str(r["damage_notes"])
+            elif _get(r, "damage"):
+                c.setFillColor(colors.HexColor("#b42318"))
+                note = "USZKODZONY (zwrot)"
+                if _get(r, "damage_notes"):
+                    note += ": " + str(r["damage_notes"])
+            else:
+                c.setFillColor(colors.HexColor("#166534"))
+                note = "ZWROT NA MAGAZYN"
+            for wl in _wrap(note, 85)[:3]:
                 c.drawString(col_x[1] + 0.5 * mm, extra_y, wl)
                 extra_y -= 3.2 * mm
             c.setFillColor(colors.black)

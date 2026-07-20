@@ -189,6 +189,11 @@ def init_db():
             con.execute("INSERT OR IGNORE INTO logistics_partners (name) VALUES (?)", (name,))
         con.commit()
 
+    # jeśli oznaczono utylizację części sztuk, a coś zostało – nie trzymaj statusu „do utylizacji” na całym kodzie
+    con.execute("""UPDATE equipment SET condition='sprawny'
+                   WHERE condition='do utylizacji' AND quantity > 0""")
+    con.commit()
+
     # pierwszy admin, jeśli brak użytkowników
     if con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
         from werkzeug.security import generate_password_hash

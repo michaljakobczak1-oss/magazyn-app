@@ -678,7 +678,10 @@ def _apply_return(con, r, user_id, form):
 
 
 def _apply_dispose(con, r, user_id, form):
-    """Towar wydany nie wraca (utylizacja / zniszczenie). Schodzi ze stanu magazynowego."""
+    """Towar wydany nie wraca (utylizacja / zniszczenie). Schodzi ze stanu magazynowego.
+
+    Status „do utylizacji” na karcie sprzętu tylko gdy po odjęciu nie zostaje żadna sztuka.
+    """
     if r["status"] != "wydane":
         return False
     notes = (form.get("damage_notes") or form.get("dispose_notes") or "").strip()
@@ -693,13 +696,19 @@ def _apply_dispose(con, r, user_id, form):
                    returned_by=?, damage=1, damage_notes=?, permanent=1 WHERE id=?""",
                 (now, user_id, notes, r["id"]))
     eid = r["equipment_id"]
-    con.execute("UPDATE equipment SET quantity = quantity - ? WHERE id=?",
-                (r["quantity"], eid))
-    stamp = f"[{local_today().isoformat()}] utylizacja rez. #{r['id']}: {notes}"
-    con.execute("""UPDATE equipment SET condition='do utylizacji',
-                   condition_notes=IFNULL(condition_notes,'') ||
-                   CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
-                   WHERE id=?""", (stamp, eid))
+    new_qty = eq["quantity"] - r["quantity"]
+    stamp = f"[{local_today().isoformat()}] utylizacja rez. #{r['id']} ({r['quantity']} szt.): {notes}"
+    if new_qty <= 0:
+        con.execute("""UPDATE equipment SET quantity=0, condition='do utylizacji',
+                       condition_notes=IFNULL(condition_notes,'') ||
+                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+                       WHERE id=?""", (stamp, eid))
+    else:
+        # pozostałe sztuki nadal sprawne – tylko notatka w historii
+        con.execute("""UPDATE equipment SET quantity=?,
+                       condition_notes=IFNULL(condition_notes,'') ||
+                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+                       WHERE id=?""", (new_qty, stamp, eid))
     return True
 
 
@@ -805,10 +814,11 @@ def bulk_action(action):
         if disposed_ids:
             parts.append(f"utylizacja: {len(disposed_ids)}")
         msg = "Zapisano (" + ", ".join(parts) + ")."
-        if returned_ids:
-            flash(msg + " Pobieranie PDF przyjęcia…", "ok")
-            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=returned_ids))
-        flash(msg + " Stan magazynowy zaktualizowany.", "ok")
+        # PDF obejmuje zwroty i utylizacje z tej operacji
+        pdf_ids = returned_ids + disposed_ids
+        flash(msg + (" Pobieranie PDF…" if pdf_ids else ""), "ok")
+        if pdf_ids:
+            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=pdf_ids))
         return redirect(url_for("reservations"))
     flash(f"Wydano: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
@@ -899,8 +909,8 @@ def return_item(rid):
         if _apply_dispose(con, r, session["user_id"], request.form):
             con.commit()
             con.close()
-            flash("Oznaczono jako utylizacja – towar nie wraca, stan magazynowy zmniejszony.", "ok")
-            return redirect(url_for("reservations"))
+            flash("Oznaczono jako utylizacja – towar nie wraca, stan magazynowy zmniejszony. Pobieranie PDF…", "ok")
+            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid))
         con.close()
         flash("Nie udało się oznaczyć utylizacji (sprawdź stan magazynowy).", "error")
         return redirect(request.referrer or url_for("reservations"))

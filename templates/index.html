@@ -67,9 +67,12 @@
   <tr>
     <td><input type="checkbox" name="eid" value="{{ it.id }}" style="width:auto;"></td>
     <td>{{ thumb(it.photo) }}</td>
-    <td><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a>
-      {% if it.material_type == 'wlasny' %}<br><span class="badge own">własny</span>{% endif %}
-      {% if it.condition != 'sprawny' %}<br><span class="badge damaged">{{ it.condition }}</span>{% endif %}
+    <td>
+      <div><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a></div>
+      <div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">
+        {% if it.material_type == 'wlasny' %}<span class="badge own">własny</span>{% endif %}
+        {% if it.condition != 'sprawny' %}<span class="badge damaged">{{ it.condition }}</span>{% endif %}
+      </div>
     </td>
     <td>{{ it.name }}</td>
     <td>{{ it.project_number or '–' }}</td>

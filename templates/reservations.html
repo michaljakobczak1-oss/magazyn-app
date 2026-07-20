@@ -66,7 +66,7 @@
     </td>
     <td>
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
-      {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
+      {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
     </td>
   </tr>
   {% else %}
