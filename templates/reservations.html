@@ -21,11 +21,8 @@
 <form method="post" id="bulk">
 <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <span style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
-  <button class="btn small ok" formaction="{{ url_for('bulk_action', action='issue') }}">Wydaj</button>
-  <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('bulk_action', action='issue_permanent') }}" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie będzie można go przyjąć z powrotem. Kontynuować?');">Wydaj trwale</button>
-  <button type="button" class="btn small ok" onclick="openReturnBulk()">Przyjmij zwrot</button>
-  <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='wydanie') }}" formmethod="get">Zbiorczy PDF wydania</button>
-  <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='przyjecie') }}" formmethod="get">Zbiorczy PDF przyjęcia</button>
+  <button class="btn small ok" formaction="{{ url_for('bulk_action', action='issue') }}">Zbiorcze wydanie</button>
+  <button type="button" class="btn small ok" onclick="openReturnBulk()">Zbiorcze przyjęcie</button>
 </div>
 <table>
   <tr><th></th><th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
@@ -54,10 +51,9 @@
     <td>
       {% if can_m and r.status == 'rezerwacja' %}
         {% if r.permanent %}
-        <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post" name="permanent" value="1" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu. Kontynuować?');">Wydaj trwale</button>
+        <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu. Kontynuować?');">Wydaj trwale</button>
         {% else %}
         <button class="btn small ok" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post">Wydaj</button>
-        <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post" name="permanent" value="1" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu. Kontynuować?');">Wydaj trwale</button>
         {% endif %}
       {% endif %}
       {% if r.status == 'rezerwacja' and (r.user_id == session.user_id or session.role == 'admin') %}

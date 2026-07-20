@@ -587,11 +587,18 @@ def _return_form_valid(form):
     return wid.isdigit()
 
 
-def _apply_issue(con, r, user_id, permanent=False):
-    """Oznacza rezerwację jako wydaną. permanent=True → wydanie trwałe (bez zwrotu, -stan)."""
+def _apply_issue(con, r, user_id, permanent=None):
+    """Oznacza rezerwację jako wydaną.
+
+    permanent=None → bierze flagę z rezerwacji (checkbox przy tworzeniu).
+    Przy permanent=True towar schodzi ze stanu i nie wraca.
+    """
     if r["status"] != "rezerwacja":
         return False
-    permanent = permanent or bool(r["permanent"]) if "permanent" in r.keys() else permanent
+    if permanent is None:
+        permanent = bool(r["permanent"]) if "permanent" in r.keys() else False
+    else:
+        permanent = bool(permanent)
     now = local_now()
     today = now.date().isoformat()
     date_from = r["date_from"]
@@ -670,7 +677,7 @@ def _pdf_for_rids(con, kind, rids):
 @app.route("/reservations/bulk/<action>", methods=["POST"])
 @login_required
 def bulk_action(action):
-    if action not in ("issue", "issue_permanent", "return"):
+    if action not in ("issue", "return"):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
@@ -685,15 +692,16 @@ def bulk_action(action):
         if not can_manage_reservation(r):
             denied += 1
             continue
-        if action in ("issue", "issue_permanent"):
-            permanent = action == "issue_permanent"
-            if permanent and r["status"] == "rezerwacja":
+        if action == "issue":
+            # flaga permanent wyłącznie z rezerwacji (checkbox przy tworzeniu)
+            is_perm = bool(r["permanent"]) if "permanent" in r.keys() else False
+            if is_perm and r["status"] == "rezerwacja":
                 eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
                                  (r["equipment_id"],)).fetchone()
                 if not eq or eq["quantity"] < r["quantity"]:
                     stock_err.append(r["code"])
                     continue
-            if _apply_issue(con, r, session["user_id"], permanent=permanent):
+            if _apply_issue(con, r, session["user_id"]):
                 done_ids.append(r["id"])
         elif action == "return" and _apply_return(con, r, session["user_id"], request.form):
             done_ids.append(r["id"])
@@ -713,14 +721,14 @@ def bulk_action(action):
     if action == "return":
         flash(f"Przyjęto zwrot: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
         return redirect(url_for("reservations", auto_pdf="przyjecie", rid=done_ids))
-    verb = "Wydano trwale" if action == "issue_permanent" else "Wydano"
-    flash(f"{verb}: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
+    flash(f"Wydano: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
 
 
 @app.route("/reservations/pdf-group/<kind>")
 @login_required
 def pdf_group(kind):
+    """Tylko ponowne pobranie PDF – bez zmiany statusu."""
     if kind not in ("wydanie", "przyjecie"):
         abort(404)
     con = get_db()
@@ -752,7 +760,6 @@ def _get_reservation(con, rid):
 def issue(rid):
     con = get_db()
     r = _get_reservation(con, rid)
-    permanent = bool(request.form.get("permanent"))
     if not can_manage_reservation(r):
         con.close()
         flash("Możesz zarządzać tylko rezerwacjami swojego działu.", "error")
@@ -761,20 +768,22 @@ def issue(rid):
         con.close()
         flash("Można wydać tylko aktywną rezerwację.", "error")
         return redirect(request.referrer or url_for("reservations"))
-    if permanent:
+    is_perm = bool(r["permanent"]) if "permanent" in r.keys() else False
+    if is_perm:
         eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
                          (r["equipment_id"],)).fetchone()
         if not eq or eq["quantity"] < r["quantity"]:
             con.close()
             flash(f"Brak stanu magazynowego ({r['quantity']} szt. wymagane).", "error")
             return redirect(request.referrer or url_for("reservations"))
-    if not _apply_issue(con, r, session["user_id"], permanent=permanent):
+    if not _apply_issue(con, r, session["user_id"]):
         con.close()
         flash("Nie udało się wydać rezerwacji.", "error")
         return redirect(request.referrer or url_for("reservations"))
     con.commit()
     con.close()
-    msg = "Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…" if permanent else "Oznaczono jako wydane. Pobieranie PDF…"
+    msg = ("Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…"
+           if is_perm else "Oznaczono jako wydane. Pobieranie PDF…")
     flash(msg, "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
 

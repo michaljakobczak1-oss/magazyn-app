@@ -64,7 +64,14 @@
       {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}</td>
     <td>
       {% if session.role == 'admin' and r.status == 'rezerwacja' %}
-      <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"><button class="btn small ok">Wydaj</button></form>
+        {% if r.permanent %}
+        <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"
+              onsubmit="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu. Kontynuować?');">
+          <button class="btn small" style="background:#3949ab;color:#fff;">Wydaj trwale</button>
+        </form>
+        {% else %}
+        <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"><button class="btn small ok">Wydaj</button></form>
+        {% endif %}
       {% endif %}
       {% if r.status == 'rezerwacja' %}
       <form class="inline" method="post" action="{{ url_for('cancel', rid=r.id) }}"><button class="btn small ghost">Anuluj</button></form>
@@ -73,7 +80,7 @@
       {% endif %}
     </td>
     <td>
-      {% if r.status in ('wydane', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
     </td>
   </tr>
