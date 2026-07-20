@@ -3,6 +3,8 @@ from io import BytesIO
 from pathlib import Path
 from datetime import datetime
 
+from db import local_now
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -155,14 +157,14 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
     y = h - m
 
     title = "PROTOKÓŁ WYDANIA SPRZĘTU" if kind == "wydanie" else "PROTOKÓŁ PRZYJĘCIA SPRZĘTU"
-    doc_no = f"{'WZ' if kind == 'wydanie' else 'PZ'}/{res['id']}/{datetime.now():%Y}"
+    doc_no = f"{'WZ' if kind == 'wydanie' else 'PZ'}/{res['id']}/{local_now():%Y}"
 
     c.setFont(FONT_B, 13)
     c.drawString(m, y, title)
     c.setFont(FONT, 8)
     c.drawRightString(w - m, y, f"Nr dokumentu: {doc_no}")
     y -= 4.5 * mm
-    c.drawRightString(w - m, y, f"Data wygenerowania: {datetime.now():%Y-%m-%d %H:%M}")
+    c.drawRightString(w - m, y, f"Data wygenerowania: {local_now():%Y-%m-%d %H:%M}")
     y -= 3 * mm
     c.setStrokeColor(colors.black)
     c.line(m, y, w - m, y)
@@ -264,7 +266,7 @@ def group_pdf(kind, rows):
 
     title = ("ZBIORCZY PROTOKÓŁ WYDANIA SPRZĘTU" if kind == "wydanie"
              else "ZBIORCZY PROTOKÓŁ PRZYJĘCIA SPRZĘTU")
-    doc_no = f"{'WZ' if kind == 'wydanie' else 'PZ'}-ZB/{datetime.now():%Y%m%d%H%M}"
+    doc_no = f"{'WZ' if kind == 'wydanie' else 'PZ'}-ZB/{local_now():%Y%m%d%H%M}"
 
     wh_set = {( _get(r, "warehouse_name"), _get(r, "warehouse_address"))
               for r in rows if _get(r, "warehouse_name")}
@@ -278,7 +280,7 @@ def group_pdf(kind, rows):
         c.setFont(FONT, 9)
         c.drawRightString(w - m, y + 1, f"Nr: {doc_no}")
         y -= 5 * mm
-        c.drawRightString(w - m, y, f"Data: {datetime.now():%Y-%m-%d %H:%M}")
+        c.drawRightString(w - m, y, f"Data: {local_now():%Y-%m-%d %H:%M}")
         if single_wh:
             c.setFont(FONT_B, 9)
             label = "Magazyn (przyjęcie)" if kind == "przyjecie" else "Magazyn (odbiór)"

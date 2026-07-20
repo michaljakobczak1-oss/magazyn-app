@@ -1,7 +1,19 @@
 import sqlite3
+from datetime import datetime, date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).parent / "data" / "magazyn.db"
+LOCAL_TZ = ZoneInfo("Europe/Warsaw")
+
+
+def local_now():
+    """Bieżąca data i godzina w Polsce (Europe/Warsaw)."""
+    return datetime.now(LOCAL_TZ).replace(tzinfo=None)
+
+
+def local_today():
+    return local_now().date()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (

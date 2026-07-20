@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
-                equipment_photo_list)
+                equipment_photo_list, local_now, local_today)
 from pdf_gen import protocol_pdf, group_pdf
 
 BASE = Path(__file__).parent
@@ -162,7 +162,7 @@ def account_password():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    today = date.today()
+    today = local_today()
     week_end = today + timedelta(days=6)
     today_s, week_end_s = today.isoformat(), week_end.isoformat()
     con = get_db()
@@ -239,7 +239,7 @@ def index():
         "SELECT DISTINCT brand FROM equipment WHERE IFNULL(brand,'')!='' ORDER BY 1")]
     warehouses = active_warehouses(con)
 
-    today = date.today().isoformat()
+    today = local_today().isoformat()
     availability = {
         it["id"]: it["quantity"] - reserved_qty(con, it["id"], today, today)
         for it in items
@@ -374,7 +374,7 @@ def equipment_detail(eid):
            JOIN users u ON u.id=r.user_id
            WHERE r.equipment_id=? AND r.status != 'anulowana'
            ORDER BY r.date_from DESC""", (eid,)).fetchall()
-    today = date.today().isoformat()
+    today = local_today().isoformat()
     avail_today = eq["quantity"] - reserved_qty(con, eid, today, today)
     con.close()
     return render_template("equipment_detail.html", eq=eq, reservations=res,
@@ -410,7 +410,7 @@ def reservations():
     f = request.args.get("status", "")
     mine = request.args.get("mine", "")
     overdue = request.args.get("overdue", "")
-    today = date.today().isoformat()
+    today = local_today().isoformat()
     con = get_db()
     sql = """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
                     e.code, e.name, e.photo, e.location, w.name AS warehouse_name
@@ -592,7 +592,7 @@ def _apply_issue(con, r, user_id, permanent=False):
     if r["status"] != "rezerwacja":
         return False
     permanent = permanent or bool(r["permanent"]) if "permanent" in r.keys() else permanent
-    now = datetime.now()
+    now = local_now()
     today = now.date().isoformat()
     date_from = r["date_from"]
     if date_from > today:
@@ -622,7 +622,7 @@ def _apply_return(con, r, user_id, form):
     loc = (form.get("return_location") or "").strip()
     damage = 1 if form.get("damage") else 0
     damage_notes = (form.get("damage_notes") or "").strip()
-    now = datetime.now().isoformat(timespec="seconds")
+    now = local_now().isoformat(timespec="seconds")
     con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
                    returned_by=?, damage=?, damage_notes=? WHERE id=?""",
                 (now, user_id, damage, damage_notes, r["id"]))
@@ -633,7 +633,7 @@ def _apply_return(con, r, user_id, form):
     else:
         con.execute("UPDATE equipment SET warehouse_id=? WHERE id=?", (wid, eid))
     if damage:
-        stamp = f"[{date.today().isoformat()}] zwrot rez. #{r['id']}: {damage_notes or 'uszkodzenie'}"
+        stamp = f"[{local_today().isoformat()}] zwrot rez. #{r['id']}: {damage_notes or 'uszkodzenie'}"
         con.execute("""UPDATE equipment SET condition='uszkodzony',
                        condition_notes=IFNULL(condition_notes,'') ||
                        CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
@@ -659,11 +659,11 @@ def _pdf_for_rids(con, kind, rids):
         buf = protocol_pdf(kind, r, eq, display_name(r),
                            display_name(op) if op else None, photos=photos)
         prefix = "WZ" if kind == "wydanie" else "PZ"
-        name = f"{prefix}_{r['code']}_{datetime.now():%Y%m%d_%H%M}.pdf"
+        name = f"{prefix}_{r['code']}_{local_now():%Y%m%d_%H%M}.pdf"
     else:
         buf = group_pdf(kind, rows)
         prefix = "WZ" if kind == "wydanie" else "PZ"
-        name = f"{prefix}_zbiorczy_{datetime.now():%Y%m%d_%H%M}.pdf"
+        name = f"{prefix}_zbiorczy_{local_now():%Y%m%d_%H%M}.pdf"
     return buf, name
 
 
@@ -732,7 +732,7 @@ def pdf_group(kind):
     buf = group_pdf(kind, rows)
     prefix = "WZ" if kind == "wydanie" else "PZ"
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                     download_name=f"{prefix}_zbiorczy_{datetime.now():%Y%m%d_%H%M}.pdf")
+                     download_name=f"{prefix}_zbiorczy_{local_now():%Y%m%d_%H%M}.pdf")
 
 
 def _get_reservation(con, rid):
