@@ -30,7 +30,8 @@
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
   {% set can_m = r.id in manage_ids %}
   <tr class="{{ 'overdue' if is_overdue }}">
-    <td><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"></td>
+    <td><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"
+               data-code="{{ r.code }}" data-name="{{ r.name|e }}"></td>
     <td>{{ thumb(r.photo) }}</td>
     <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
@@ -74,16 +75,24 @@
 </table>
 </form>
 
-<div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center;">
-  <div class="card" style="width:min(420px, 92vw);">
+<div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
+  <div class="card" style="width:min(520px, 94vw); max-height:90vh; overflow:auto;">
     <h2 style="margin-top:0;">Przyjęcie zwrotu <span id="rm-code"></span></h2>
     <form method="post" id="return-form" novalidate>
       <div id="rm-rids"></div>
       <div id="rm-error" class="flash error" style="display:none; margin-bottom:10px;">Wypełnij pole.</div>
-      <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-bottom:12px; padding:10px; background:#fef3c7; border-radius:8px;">
-        <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="width:auto; margin-top:3px;" onchange="toggleDispose()">
-        <span><strong>Towar nie wraca (utylizacja)</strong> – np. zniszczony na evencie, idzie do utylizacji. Zostanie odjęty ze stanu magazynowego; bez przyjęcia na magazyn.</span>
-      </label>
+
+      {# lista pozycji przy zbiorczym – wybór zwrot / utylizacja per pozycja #}
+      <div id="rm-items" style="display:none; margin-bottom:14px;"></div>
+
+      {# pojedyncza pozycja – globalny checkbox utylizacji #}
+      <div id="rm-single-dispose">
+        <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-bottom:12px; padding:10px; background:#fef3c7; border-radius:8px;">
+          <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
+          <span><strong>Towar nie wraca (utylizacja)</strong> – np. zniszczony na evencie. Zostanie odjęty ze stanu; bez przyjęcia na magazyn.</span>
+        </label>
+      </div>
+
       <div id="rm-return-fields">
         <label>Magazyn przyjęcia *</label>
         <select name="return_warehouse_id" id="rm-warehouse">
@@ -95,13 +104,13 @@
         <label>Miejsce w magazynie (opcjonalnie)</label>
         <input name="return_location" id="rm-location" placeholder="np. Regał B2">
         <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
-          <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="document.getElementById('rm-notes').style.display = this.checked ? 'block' : 'none';">
+          <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="syncReturnModalUI()">
           towar wrócił uszkodzony
         </label>
       </div>
       <div id="rm-notes" style="display:none;">
         <label id="rm-notes-label">Opis uszkodzenia</label>
-        <textarea name="damage_notes" id="rm-damage-notes" rows="3" placeholder="np. pęknięta ścianka skrzyni, brak 2 śrub"></textarea>
+        <textarea name="damage_notes" id="rm-damage-notes" rows="3" placeholder="np. pęknięta ścianka skrzyni"></textarea>
       </div>
       <div style="margin-top:16px; display:flex; gap:10px;">
         <button class="btn ok" id="rm-submit">Przyjmij zwrot</button>
@@ -113,20 +122,43 @@
 {% endblock %}
 {% block scripts %}
 <script>
-function toggleDispose(){
-  const dispose = document.getElementById('rm-dispose').checked;
-  document.getElementById('rm-return-fields').style.display = dispose ? 'none' : 'block';
-  document.getElementById('rm-notes').style.display = dispose || document.getElementById('rm-damage').checked ? 'block' : 'none';
-  document.getElementById('rm-notes-label').textContent = dispose ? 'Powód (wymagany) *' : 'Opis uszkodzenia';
-  document.getElementById('rm-damage-notes').placeholder = dispose
-    ? 'np. zniszczone na evencie, utylizacja'
-    : 'np. pęknięta ścianka skrzyni, brak 2 śrub';
-  document.getElementById('rm-submit').textContent = dispose ? 'Oznacz jako utylizacja' : 'Przyjmij zwrot';
-  if (dispose) document.getElementById('rm-damage').checked = false;
+let rmBulkMode = false;
+
+function syncReturnModalUI(){
+  const items = document.querySelectorAll('#rm-items .rm-item-action');
+  let anyReturn = false, anyDispose = false;
+  if (rmBulkMode && items.length) {
+    items.forEach(function(sel){
+      if (sel.value === 'dispose') anyDispose = true;
+      else anyReturn = true;
+    });
+  } else {
+    const dispose = document.getElementById('rm-dispose').checked;
+    anyDispose = dispose;
+    anyReturn = !dispose;
+  }
+  document.getElementById('rm-return-fields').style.display = anyReturn ? 'block' : 'none';
+  const showNotes = anyDispose || (anyReturn && document.getElementById('rm-damage').checked);
+  document.getElementById('rm-notes').style.display = showNotes ? 'block' : 'none';
+  document.getElementById('rm-notes-label').textContent = anyDispose
+    ? (anyReturn ? 'Powód utylizacji / opis uszkodzenia *' : 'Powód utylizacji *')
+    : 'Opis uszkodzenia';
+  document.getElementById('rm-damage-notes').placeholder = anyDispose
+    ? 'np. zniszczone na evencie – utylizacja'
+    : 'np. pęknięta ścianka skrzyni';
+  let btn = 'Przyjmij zwrot';
+  if (anyDispose && anyReturn) btn = 'Zapisz (zwrot + utylizacja)';
+  else if (anyDispose) btn = 'Oznacz jako utylizacja';
+  document.getElementById('rm-submit').textContent = btn;
   document.getElementById('rm-error').style.display = 'none';
 }
+
 function resetReturnModal(){
+  rmBulkMode = false;
   document.getElementById('rm-rids').innerHTML = '';
+  document.getElementById('rm-items').innerHTML = '';
+  document.getElementById('rm-items').style.display = 'none';
+  document.getElementById('rm-single-dispose').style.display = 'block';
   const wh = document.getElementById('rm-warehouse');
   wh.selectedIndex = 0;
   wh.value = '';
@@ -134,28 +166,32 @@ function resetReturnModal(){
   document.getElementById('rm-damage').checked = false;
   document.getElementById('rm-dispose').checked = false;
   document.getElementById('rm-damage-notes').value = '';
-  document.getElementById('rm-notes').style.display = 'none';
   document.getElementById('rm-error').style.display = 'none';
-  toggleDispose();
+  syncReturnModalUI();
 }
 function closeReturnModal(){
   document.getElementById('return-modal').style.display = 'none';
 }
 function validateReturnForm(){
-  const dispose = document.getElementById('rm-dispose').checked;
   const err = document.getElementById('rm-error');
-  if (dispose) {
-    if (!document.getElementById('rm-damage-notes').value.trim()) {
-      err.textContent = 'Podaj powód utylizacji.';
-      err.style.display = 'block';
-      return false;
-    }
-    err.style.display = 'none';
-    return true;
+  const items = document.querySelectorAll('#rm-items .rm-item-action');
+  let anyReturn = false, anyDispose = false;
+  if (rmBulkMode && items.length) {
+    items.forEach(function(sel){
+      if (sel.value === 'dispose') anyDispose = true;
+      else anyReturn = true;
+    });
+  } else {
+    anyDispose = document.getElementById('rm-dispose').checked;
+    anyReturn = !anyDispose;
   }
-  const wh = document.getElementById('rm-warehouse').value;
-  if (!wh) {
-    err.textContent = 'Wypełnij pole.';
+  if (anyDispose && !document.getElementById('rm-damage-notes').value.trim()) {
+    err.textContent = 'Podaj powód utylizacji.';
+    err.style.display = 'block';
+    return false;
+  }
+  if (anyReturn && !document.getElementById('rm-warehouse').value) {
+    err.textContent = 'Wybierz magazyn przyjęcia dla pozycji wracających.';
     err.style.display = 'block';
     return false;
   }
@@ -168,6 +204,9 @@ document.getElementById('return-form').addEventListener('submit', function(e){
 function openReturn(rid, code){
   resetReturnModal();
   document.getElementById('rm-code').textContent = code;
+  const h = document.createElement('input');
+  h.type = 'hidden'; h.name = 'rid'; h.value = rid;
+  document.getElementById('rm-rids').appendChild(h);
   document.getElementById('return-form').action = '/reservations/' + rid + '/return';
   document.getElementById('return-modal').style.display = 'flex';
 }
@@ -178,16 +217,32 @@ function openReturnBulk(){
     return;
   }
   resetReturnModal();
+  rmBulkMode = true;
+  document.getElementById('rm-single-dispose').style.display = 'none';
   document.getElementById('rm-code').textContent = '(' + checked.length + ' pozycji)';
   const box = document.getElementById('rm-rids');
+  const itemsBox = document.getElementById('rm-items');
+  itemsBox.style.display = 'block';
+  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji wybierz: <strong>zwrot</strong> albo <strong>utylizacja</strong> (tylko utylizacja schodzi ze stanu).</p>';
   checked.forEach(function(cb){
     const h = document.createElement('input');
-    h.type = 'hidden';
-    h.name = 'rid';
-    h.value = cb.value;
+    h.type = 'hidden'; h.name = 'rid'; h.value = cb.value;
     box.appendChild(h);
+    const code = cb.getAttribute('data-code') || ('#' + cb.value);
+    const name = cb.getAttribute('data-name') || '';
+    const row = document.createElement('div');
+    row.style.cssText = 'border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:8px;';
+    row.innerHTML =
+      '<div style="font-weight:700;margin-bottom:6px;">' + code +
+      (name ? ' <span style="font-weight:400;color:#666;">– ' + name + '</span>' : '') + '</div>' +
+      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;margin-right:14px;">' +
+      '<input type="radio" name="item_action_' + cb.value + '" value="return" class="rm-item-action" checked style="width:auto;" onchange="syncReturnModalUI()"> Zwrot na magazyn</label>' +
+      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
+      '<input type="radio" name="item_action_' + cb.value + '" value="dispose" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Utylizacja / nie wraca</label>';
+    itemsBox.appendChild(row);
   });
   document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';
+  syncReturnModalUI();
   document.getElementById('return-modal').style.display = 'flex';
 }
 {% if request.args.get('auto_pdf') and request.args.getlist('rid') %}

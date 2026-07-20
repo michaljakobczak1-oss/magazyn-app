@@ -736,17 +736,28 @@ def bulk_action(action):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
-    dispose = bool(request.form.get("dispose"))
-    if action == "return" and dispose:
-        if not (request.form.get("damage_notes") or "").strip():
+    # per-pozycja: item_action_<id> = return|dispose; albo globalne dispose=1
+    global_dispose = bool(request.form.get("dispose"))
+    dispose_ids = set()
+    return_ids = set()
+    if action == "return":
+        for r in rows:
+            choice = (request.form.get(f"item_action_{r['id']}") or "").strip()
+            if choice == "dispose" or (not choice and global_dispose):
+                dispose_ids.add(r["id"])
+            else:
+                return_ids.add(r["id"])
+        if dispose_ids and not (request.form.get("damage_notes") or "").strip():
             con.close()
             flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
             return redirect(url_for("reservations"))
-    elif action == "return" and not _return_form_valid(request.form):
-        con.close()
-        flash("Wypełnij pole.", "error")
-        return redirect(url_for("reservations"))
+        if return_ids and not (request.form.get("return_warehouse_id") or "").strip().isdigit():
+            con.close()
+            flash("Wybierz magazyn przyjęcia dla pozycji wracających.", "error")
+            return redirect(url_for("reservations"))
     done_ids = []
+    returned_ids = []
+    disposed_ids = []
     denied = 0
     stock_err = []
     for r in rows:
@@ -764,13 +775,16 @@ def bulk_action(action):
             if _apply_issue(con, r, session["user_id"]):
                 done_ids.append(r["id"])
         elif action == "return":
-            if dispose:
+            if r["id"] in dispose_ids:
                 if _apply_dispose(con, r, session["user_id"], request.form):
+                    disposed_ids.append(r["id"])
                     done_ids.append(r["id"])
                 elif r["status"] == "wydane":
                     stock_err.append(r["code"])
-            elif _apply_return(con, r, session["user_id"], request.form):
-                done_ids.append(r["id"])
+            else:
+                if _apply_return(con, r, session["user_id"], request.form):
+                    returned_ids.append(r["id"])
+                    done_ids.append(r["id"])
     con.commit()
     if stock_err:
         flash(f"Brak stanu magazynowego / nie udało się dla: {', '.join(stock_err)}.", "error")
@@ -784,12 +798,18 @@ def bulk_action(action):
             flash("Brak pozycji o odpowiednim statusie.", "error")
         return redirect(url_for("reservations"))
     con.close()
-    if action == "return" and dispose:
-        flash(f"Oznaczono jako utylizacja (nie wraca): {len(done_ids)} pozycji. Stan magazynowy zaktualizowany.", "ok")
-        return redirect(url_for("reservations"))
     if action == "return":
-        flash(f"Przyjęto zwrot: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
-        return redirect(url_for("reservations", auto_pdf="przyjecie", rid=done_ids))
+        parts = []
+        if returned_ids:
+            parts.append(f"zwrot: {len(returned_ids)}")
+        if disposed_ids:
+            parts.append(f"utylizacja: {len(disposed_ids)}")
+        msg = "Zapisano (" + ", ".join(parts) + ")."
+        if returned_ids:
+            flash(msg + " Pobieranie PDF przyjęcia…", "ok")
+            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=returned_ids))
+        flash(msg + " Stan magazynowy zaktualizowany.", "ok")
+        return redirect(url_for("reservations"))
     flash(f"Wydano: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
 
