@@ -8,7 +8,7 @@
     {% if mine == '1' %}<input type="hidden" name="mine" value="1">{% endif %}
     <select name="status" onchange="this.form.submit()">
       <option value="">Wszystkie statusy</option>
-      {% for s in ['rezerwacja','wydane','wydane trwale','zwrócone','anulowana'] %}
+      {% for s in ['rezerwacja','wydane','wydane trwale','zwrócone','utylizacja','anulowana'] %}
       <option value="{{ s }}" {{ 'selected' if f == s }}>{{ s }}</option>
       {% endfor %}
     </select>
@@ -42,11 +42,11 @@
     <td>{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
     <td>{{ r.receiver or '–' }}</td>
     <td>{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
-    <td><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else r.status }}">{{ r.status }}</span>
+    <td><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else ('utylizacja' if r.status == 'utylizacja' else r.status) }}">{{ r.status }}</span>
       {% if r.permanent and r.status == 'rezerwacja' %}<br><span class="badge wydane-trwale" style="font-size:10px;">do wydania trwałego</span>{% endif %}
-      {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}
+      {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">{{ 'utylizacja' if r.status == 'utylizacja' else 'uszkodzenie' }}</span>{% endif %}
       {% if r.issued_at %}<br><span style="font-size:11px;color:#666;">wyd. {{ r.issued_at[:16].replace('T',' ') }}</span>{% endif %}
-      {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">zwr. {{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
+      {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">{{ 'utyl. ' if r.status == 'utylizacja' else 'zwr. ' }}{{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
     </td>
     <td>
       {% if can_m and r.status == 'rezerwacja' %}
@@ -64,7 +64,7 @@
       {% endif %}
     </td>
     <td>
-      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
     </td>
   </tr>
@@ -80,25 +80,31 @@
     <form method="post" id="return-form" novalidate>
       <div id="rm-rids"></div>
       <div id="rm-error" class="flash error" style="display:none; margin-bottom:10px;">Wypełnij pole.</div>
-      <label>Magazyn przyjęcia *</label>
-      <select name="return_warehouse_id" id="rm-warehouse">
-        <option value="" disabled selected>– wybierz magazyn –</option>
-        {% for w in warehouses %}
-        <option value="{{ w.id }}">{{ w.name }}</option>
-        {% endfor %}
-      </select>
-      <label>Miejsce w magazynie (opcjonalnie)</label>
-      <input name="return_location" id="rm-location" placeholder="np. Regał B2">
-      <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
-        <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="document.getElementById('rm-notes').style.display = this.checked ? 'block' : 'none';">
-        towar wrócił uszkodzony
+      <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-bottom:12px; padding:10px; background:#fef3c7; border-radius:8px;">
+        <input type="checkbox" name="dispose" value="1" id="rm-dispose" style="width:auto; margin-top:3px;" onchange="toggleDispose()">
+        <span><strong>Towar nie wraca (utylizacja)</strong> – np. zniszczony na evencie, idzie do utylizacji. Zostanie odjęty ze stanu magazynowego; bez przyjęcia na magazyn.</span>
       </label>
+      <div id="rm-return-fields">
+        <label>Magazyn przyjęcia *</label>
+        <select name="return_warehouse_id" id="rm-warehouse">
+          <option value="" disabled selected>– wybierz magazyn –</option>
+          {% for w in warehouses %}
+          <option value="{{ w.id }}">{{ w.name }}</option>
+          {% endfor %}
+        </select>
+        <label>Miejsce w magazynie (opcjonalnie)</label>
+        <input name="return_location" id="rm-location" placeholder="np. Regał B2">
+        <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
+          <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="document.getElementById('rm-notes').style.display = this.checked ? 'block' : 'none';">
+          towar wrócił uszkodzony
+        </label>
+      </div>
       <div id="rm-notes" style="display:none;">
-        <label>Opis uszkodzenia</label>
+        <label id="rm-notes-label">Opis uszkodzenia</label>
         <textarea name="damage_notes" id="rm-damage-notes" rows="3" placeholder="np. pęknięta ścianka skrzyni, brak 2 śrub"></textarea>
       </div>
       <div style="margin-top:16px; display:flex; gap:10px;">
-        <button class="btn ok">Przyjmij zwrot</button>
+        <button class="btn ok" id="rm-submit">Przyjmij zwrot</button>
         <a class="btn ghost" href="#" onclick="closeReturnModal(); return false;">Anuluj</a>
       </div>
     </form>
@@ -107,6 +113,18 @@
 {% endblock %}
 {% block scripts %}
 <script>
+function toggleDispose(){
+  const dispose = document.getElementById('rm-dispose').checked;
+  document.getElementById('rm-return-fields').style.display = dispose ? 'none' : 'block';
+  document.getElementById('rm-notes').style.display = dispose || document.getElementById('rm-damage').checked ? 'block' : 'none';
+  document.getElementById('rm-notes-label').textContent = dispose ? 'Powód (wymagany) *' : 'Opis uszkodzenia';
+  document.getElementById('rm-damage-notes').placeholder = dispose
+    ? 'np. zniszczone na evencie, utylizacja'
+    : 'np. pęknięta ścianka skrzyni, brak 2 śrub';
+  document.getElementById('rm-submit').textContent = dispose ? 'Oznacz jako utylizacja' : 'Przyjmij zwrot';
+  if (dispose) document.getElementById('rm-damage').checked = false;
+  document.getElementById('rm-error').style.display = 'none';
+}
 function resetReturnModal(){
   document.getElementById('rm-rids').innerHTML = '';
   const wh = document.getElementById('rm-warehouse');
@@ -114,17 +132,30 @@ function resetReturnModal(){
   wh.value = '';
   document.getElementById('rm-location').value = '';
   document.getElementById('rm-damage').checked = false;
+  document.getElementById('rm-dispose').checked = false;
   document.getElementById('rm-damage-notes').value = '';
   document.getElementById('rm-notes').style.display = 'none';
   document.getElementById('rm-error').style.display = 'none';
+  toggleDispose();
 }
 function closeReturnModal(){
   document.getElementById('return-modal').style.display = 'none';
 }
 function validateReturnForm(){
-  const wh = document.getElementById('rm-warehouse').value;
+  const dispose = document.getElementById('rm-dispose').checked;
   const err = document.getElementById('rm-error');
+  if (dispose) {
+    if (!document.getElementById('rm-damage-notes').value.trim()) {
+      err.textContent = 'Podaj powód utylizacji.';
+      err.style.display = 'block';
+      return false;
+    }
+    err.style.display = 'none';
+    return true;
+  }
+  const wh = document.getElementById('rm-warehouse').value;
   if (!wh) {
+    err.textContent = 'Wypełnij pole.';
     err.style.display = 'block';
     return false;
   }

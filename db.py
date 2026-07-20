@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     date_from TEXT NOT NULL,                     -- YYYY-MM-DD
     date_to TEXT NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL DEFAULT 'rezerwacja',   -- rezerwacja | wydane | wydane trwale | zwrócone | anulowana
+    status TEXT NOT NULL DEFAULT 'rezerwacja',   -- rezerwacja | wydane | wydane trwale | zwrócone | utylizacja | anulowana
     group_id TEXT,
     receiver TEXT,                               -- podwykonawca logistyczny (nazwa)
     permanent INTEGER NOT NULL DEFAULT 0,        -- 1 = wydanie trwałe (towar nie wraca)

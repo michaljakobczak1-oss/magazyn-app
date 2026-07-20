@@ -609,7 +609,9 @@ def _selected_reservations(con, rids):
 
 
 def _return_form_valid(form):
-    """Magazyn przyjęcia jest wymagany; miejsce opcjonalne."""
+    """Magazyn wymagany przy zwrocie; przy utylizacji – nie."""
+    if form.get("dispose"):
+        return True
     wid = (form.get("return_warehouse_id") or "").strip()
     return wid.isdigit()
 
@@ -675,6 +677,32 @@ def _apply_return(con, r, user_id, form):
     return True
 
 
+def _apply_dispose(con, r, user_id, form):
+    """Towar wydany nie wraca (utylizacja / zniszczenie). Schodzi ze stanu magazynowego."""
+    if r["status"] != "wydane":
+        return False
+    notes = (form.get("damage_notes") or form.get("dispose_notes") or "").strip()
+    if not notes:
+        return False
+    eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
+                     (r["equipment_id"],)).fetchone()
+    if not eq or eq["quantity"] < r["quantity"]:
+        return False
+    now = local_now().isoformat(timespec="seconds")
+    con.execute("""UPDATE reservations SET status='utylizacja', returned_at=?,
+                   returned_by=?, damage=1, damage_notes=?, permanent=1 WHERE id=?""",
+                (now, user_id, notes, r["id"]))
+    eid = r["equipment_id"]
+    con.execute("UPDATE equipment SET quantity = quantity - ? WHERE id=?",
+                (r["quantity"], eid))
+    stamp = f"[{local_today().isoformat()}] utylizacja rez. #{r['id']}: {notes}"
+    con.execute("""UPDATE equipment SET condition='do utylizacji',
+                   condition_notes=IFNULL(condition_notes,'') ||
+                   CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+                   WHERE id=?""", (stamp, eid))
+    return True
+
+
 def _pdf_for_rids(con, kind, rids):
     rows = _selected_reservations(con, rids)
     if not rows:
@@ -708,7 +736,13 @@ def bulk_action(action):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
-    if action == "return" and not _return_form_valid(request.form):
+    dispose = bool(request.form.get("dispose"))
+    if action == "return" and dispose:
+        if not (request.form.get("damage_notes") or "").strip():
+            con.close()
+            flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
+            return redirect(url_for("reservations"))
+    elif action == "return" and not _return_form_valid(request.form):
         con.close()
         flash("Wypełnij pole.", "error")
         return redirect(url_for("reservations"))
@@ -720,7 +754,6 @@ def bulk_action(action):
             denied += 1
             continue
         if action == "issue":
-            # flaga permanent wyłącznie z rezerwacji (checkbox przy tworzeniu)
             is_perm = bool(r["permanent"]) if "permanent" in r.keys() else False
             if is_perm and r["status"] == "rezerwacja":
                 eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
@@ -730,11 +763,17 @@ def bulk_action(action):
                     continue
             if _apply_issue(con, r, session["user_id"]):
                 done_ids.append(r["id"])
-        elif action == "return" and _apply_return(con, r, session["user_id"], request.form):
-            done_ids.append(r["id"])
+        elif action == "return":
+            if dispose:
+                if _apply_dispose(con, r, session["user_id"], request.form):
+                    done_ids.append(r["id"])
+                elif r["status"] == "wydane":
+                    stock_err.append(r["code"])
+            elif _apply_return(con, r, session["user_id"], request.form):
+                done_ids.append(r["id"])
     con.commit()
     if stock_err:
-        flash(f"Brak stanu magazynowego dla: {', '.join(stock_err)}.", "error")
+        flash(f"Brak stanu magazynowego / nie udało się dla: {', '.join(stock_err)}.", "error")
     if denied and not done_ids:
         con.close()
         flash("Brak uprawnień do rezerwacji spoza Twojego działu.", "error")
@@ -745,6 +784,9 @@ def bulk_action(action):
             flash("Brak pozycji o odpowiednim statusie.", "error")
         return redirect(url_for("reservations"))
     con.close()
+    if action == "return" and dispose:
+        flash(f"Oznaczono jako utylizacja (nie wraca): {len(done_ids)} pozycji. Stan magazynowy zaktualizowany.", "ok")
+        return redirect(url_for("reservations"))
     if action == "return":
         flash(f"Przyjęto zwrot: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
         return redirect(url_for("reservations", auto_pdf="przyjecie", rid=done_ids))
@@ -827,6 +869,20 @@ def return_item(rid):
     if r["status"] != "wydane":
         flash("Można zwrócić tylko wydany sprzęt.", "error")
         con.close()
+        return redirect(request.referrer or url_for("reservations"))
+    dispose = bool(request.form.get("dispose"))
+    if dispose:
+        if not (request.form.get("damage_notes") or "").strip():
+            flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
+            con.close()
+            return redirect(request.referrer or url_for("reservations"))
+        if _apply_dispose(con, r, session["user_id"], request.form):
+            con.commit()
+            con.close()
+            flash("Oznaczono jako utylizacja – towar nie wraca, stan magazynowy zmniejszony.", "ok")
+            return redirect(url_for("reservations"))
+        con.close()
+        flash("Nie udało się oznaczyć utylizacji (sprawdź stan magazynowy).", "error")
         return redirect(request.referrer or url_for("reservations"))
     if not _return_form_valid(request.form):
         flash("Wypełnij pole.", "error")
