@@ -44,6 +44,10 @@
     <input name="client" placeholder="np. Targi XYZ" value="{{ form.get('client', '') }}">
     <label>Uwagi</label>
     <textarea name="notes" rows="2">{{ form.get('notes', '') }}</textarea>
+    <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-top:12px;">
+      <input type="checkbox" name="permanent" value="1" style="width:auto; margin-top:3px;" {{ 'checked' if form.get('permanent') }}>
+      <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu.</span>
+    </label>
     {{ recipient_fields(recipients, form) }}
     <div style="margin-top:16px; display:flex; gap:10px;">
       <button class="btn">Zarezerwuj wszystko</button>

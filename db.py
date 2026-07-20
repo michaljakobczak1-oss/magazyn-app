@@ -77,9 +77,10 @@ CREATE TABLE IF NOT EXISTS reservations (
     date_from TEXT NOT NULL,                     -- YYYY-MM-DD
     date_to TEXT NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL DEFAULT 'rezerwacja',   -- rezerwacja | wydane | zwrócone | anulowana
+    status TEXT NOT NULL DEFAULT 'rezerwacja',   -- rezerwacja | wydane | wydane trwale | zwrócone | anulowana
     group_id TEXT,
     receiver TEXT,                               -- podwykonawca logistyczny (nazwa)
+    permanent INTEGER NOT NULL DEFAULT 0,        -- 1 = wydanie trwałe (towar nie wraca)
     recipient_name TEXT,                         -- adresat towaru: firma / miejsce / osoba
     recipient_contact TEXT,                      -- osoba kontaktowa
     recipient_phone TEXT,
@@ -131,6 +132,7 @@ MIGRATIONS = {
         "recipient_email": "TEXT",
         "damage": "INTEGER NOT NULL DEFAULT 0",
         "damage_notes": "TEXT",
+        "permanent": "INTEGER NOT NULL DEFAULT 0",
     },
 }
 

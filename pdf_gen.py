@@ -219,6 +219,11 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
         n = _draw_label_value(c, m, y, "Uwagi", res["notes"], fs, 90)
         y -= max(1, n) * row_h + 1 * mm
 
+    if kind == "wydanie" and (_get(res, "permanent") or res["status"] == "wydane trwale"):
+        n = _draw_label_value(c, m, y, "Typ wydania",
+                              "Wydanie trwałe – towar nie wraca do magazynu", fs, 90)
+        y -= max(1, n) * row_h + 1 * mm
+
     if _get(eq, "storage_instructions"):
         n = _draw_label_value(c, m, y, "Pakowanie / transport",
                               eq["storage_instructions"], fs, 80)

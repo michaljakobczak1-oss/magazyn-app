@@ -8,7 +8,7 @@
     {% if mine == '1' %}<input type="hidden" name="mine" value="1">{% endif %}
     <select name="status" onchange="this.form.submit()">
       <option value="">Wszystkie statusy</option>
-      {% for s in ['rezerwacja','wydane','zwrócone','anulowana'] %}
+      {% for s in ['rezerwacja','wydane','wydane trwale','zwrócone','anulowana'] %}
       <option value="{{ s }}" {{ 'selected' if f == s }}>{{ s }}</option>
       {% endfor %}
     </select>
@@ -22,6 +22,7 @@
 <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <span style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
   <button class="btn small ok" formaction="{{ url_for('bulk_action', action='issue') }}">Wydaj</button>
+  <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('bulk_action', action='issue_permanent') }}" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie będzie można go przyjąć z powrotem. Kontynuować?');">Wydaj trwale</button>
   <button type="button" class="btn small ok" onclick="openReturnBulk()">Przyjmij zwrot</button>
   <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='wydanie') }}" formmethod="get">Zbiorczy PDF wydania</button>
   <button class="btn small ghost" formaction="{{ url_for('pdf_group', kind='przyjecie') }}" formmethod="get">Zbiorczy PDF przyjęcia</button>
@@ -44,14 +45,20 @@
     <td>{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
     <td>{{ r.receiver or '–' }}</td>
     <td>{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
-    <td><span class="badge {{ r.status }}">{{ r.status }}</span>
+    <td><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else r.status }}">{{ r.status }}</span>
+      {% if r.permanent and r.status == 'rezerwacja' %}<br><span class="badge wydane-trwale" style="font-size:10px;">do wydania trwałego</span>{% endif %}
       {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}
       {% if r.issued_at %}<br><span style="font-size:11px;color:#666;">wyd. {{ r.issued_at[:16].replace('T',' ') }}</span>{% endif %}
       {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">zwr. {{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
     </td>
     <td>
       {% if can_m and r.status == 'rezerwacja' %}
-      <button class="btn small ok" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post">Wydaj</button>
+        {% if r.permanent %}
+        <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post" name="permanent" value="1" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu. Kontynuować?');">Wydaj trwale</button>
+        {% else %}
+        <button class="btn small ok" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post">Wydaj</button>
+        <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post" name="permanent" value="1" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu. Kontynuować?');">Wydaj trwale</button>
+        {% endif %}
       {% endif %}
       {% if r.status == 'rezerwacja' and (r.user_id == session.user_id or session.role == 'admin') %}
       <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
@@ -61,7 +68,7 @@
       {% endif %}
     </td>
     <td>
-      {% if r.status in ('wydane', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
     </td>
   </tr>

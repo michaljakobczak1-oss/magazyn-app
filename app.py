@@ -456,15 +456,16 @@ def reserve(eid):
                 flash(f"Brak dostępności w tym terminie. Wolne sztuki: {free} z {eq['quantity']}.", "error")
             else:
                 rec = recipient_form_fields(request.form)
+                permanent = 1 if request.form.get("permanent") else 0
                 con.execute(
                     """INSERT INTO reservations (equipment_id, user_id, client,
-                       date_from, date_to, quantity, notes, receiver,
+                       date_from, date_to, quantity, notes, receiver, permanent,
                        recipient_name, recipient_contact, recipient_phone,
                        recipient_address, recipient_email)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (eid, session["user_id"], request.form["client"].strip(),
                      d_from, d_to, qty, request.form["notes"].strip(),
-                     request.form.get("receiver", ""),
+                     request.form.get("receiver", ""), permanent,
                      rec["recipient_name"], rec["recipient_contact"],
                      rec["recipient_phone"], rec["recipient_address"],
                      rec["recipient_email"]))
@@ -532,19 +533,20 @@ def reserve_multi():
             else:
                 rec = recipient_form_fields(request.form)
                 gid = uuid.uuid4().hex[:8]
+                permanent = 1 if request.form.get("permanent") else 0
                 for it in items:
                     if it["id"] not in wanted:
                         continue
                     con.execute(
                         """INSERT INTO reservations (equipment_id, user_id, client,
-                           date_from, date_to, quantity, notes, group_id, receiver,
+                           date_from, date_to, quantity, notes, group_id, receiver, permanent,
                            recipient_name, recipient_contact, recipient_phone,
                            recipient_address, recipient_email)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (it["id"], session["user_id"], request.form["client"].strip(),
                          d_from, d_to, wanted[it["id"]],
                          request.form["notes"].strip(), gid,
-                         request.form.get("receiver", ""),
+                         request.form.get("receiver", ""), permanent,
                          rec["recipient_name"], rec["recipient_contact"],
                          rec["recipient_phone"], rec["recipient_address"],
                          rec["recipient_email"]))
@@ -585,18 +587,28 @@ def _return_form_valid(form):
     return wid.isdigit()
 
 
-def _apply_issue(con, r, user_id):
-    """Oznacza rezerwację jako wydaną. Przy wcześniejszym wydaniu przesuwa date_from."""
+def _apply_issue(con, r, user_id, permanent=False):
+    """Oznacza rezerwację jako wydaną. permanent=True → wydanie trwałe (bez zwrotu, -stan)."""
     if r["status"] != "rezerwacja":
         return False
+    permanent = permanent or bool(r["permanent"]) if "permanent" in r.keys() else permanent
     now = datetime.now()
     today = now.date().isoformat()
     date_from = r["date_from"]
     if date_from > today:
         date_from = today
-    con.execute("""UPDATE reservations SET status='wydane', issued_at=?, issued_by=?,
-                   date_from=? WHERE id=?""",
-                (now.isoformat(timespec="seconds"), user_id, date_from, r["id"]))
+    status = "wydane trwale" if permanent else "wydane"
+    if permanent:
+        eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
+                         (r["equipment_id"],)).fetchone()
+        if not eq or eq["quantity"] < r["quantity"]:
+            return False
+        con.execute("UPDATE equipment SET quantity = quantity - ? WHERE id=?",
+                    (r["quantity"], r["equipment_id"]))
+    con.execute("""UPDATE reservations SET status=?, issued_at=?, issued_by=?,
+                   date_from=?, permanent=? WHERE id=?""",
+                (status, now.isoformat(timespec="seconds"), user_id, date_from,
+                 1 if permanent else 0, r["id"]))
     return True
 
 
@@ -658,7 +670,7 @@ def _pdf_for_rids(con, kind, rids):
 @app.route("/reservations/bulk/<action>", methods=["POST"])
 @login_required
 def bulk_action(action):
-    if action not in ("issue", "return"):
+    if action not in ("issue", "issue_permanent", "return"):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
@@ -668,28 +680,42 @@ def bulk_action(action):
         return redirect(url_for("reservations"))
     done_ids = []
     denied = 0
+    stock_err = []
     for r in rows:
         if not can_manage_reservation(r):
             denied += 1
             continue
-        if action == "issue" and _apply_issue(con, r, session["user_id"]):
-            done_ids.append(r["id"])
+        if action in ("issue", "issue_permanent"):
+            permanent = action == "issue_permanent"
+            if permanent and r["status"] == "rezerwacja":
+                eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
+                                 (r["equipment_id"],)).fetchone()
+                if not eq or eq["quantity"] < r["quantity"]:
+                    stock_err.append(r["code"])
+                    continue
+            if _apply_issue(con, r, session["user_id"], permanent=permanent):
+                done_ids.append(r["id"])
         elif action == "return" and _apply_return(con, r, session["user_id"], request.form):
             done_ids.append(r["id"])
     con.commit()
+    if stock_err:
+        flash(f"Brak stanu magazynowego dla: {', '.join(stock_err)}.", "error")
     if denied and not done_ids:
         con.close()
         flash("Brak uprawnień do rezerwacji spoza Twojego działu.", "error")
         return redirect(url_for("reservations"))
     if not done_ids:
         con.close()
-        flash("Brak pozycji o odpowiednim statusie.", "error")
+        if not stock_err:
+            flash("Brak pozycji o odpowiednim statusie.", "error")
         return redirect(url_for("reservations"))
     con.close()
-    kind = "wydanie" if action == "issue" else "przyjecie"
-    verb = "Wydano" if action == "issue" else "Przyjęto zwrot"
+    if action == "return":
+        flash(f"Przyjęto zwrot: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
+        return redirect(url_for("reservations", auto_pdf="przyjecie", rid=done_ids))
+    verb = "Wydano trwale" if action == "issue_permanent" else "Wydano"
     flash(f"{verb}: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
-    return redirect(url_for("reservations", auto_pdf=kind, rid=done_ids))
+    return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
 
 
 @app.route("/reservations/pdf-group/<kind>")
@@ -726,6 +752,7 @@ def _get_reservation(con, rid):
 def issue(rid):
     con = get_db()
     r = _get_reservation(con, rid)
+    permanent = bool(request.form.get("permanent"))
     if not can_manage_reservation(r):
         con.close()
         flash("Możesz zarządzać tylko rezerwacjami swojego działu.", "error")
@@ -734,10 +761,21 @@ def issue(rid):
         con.close()
         flash("Można wydać tylko aktywną rezerwację.", "error")
         return redirect(request.referrer or url_for("reservations"))
-    _apply_issue(con, r, session["user_id"])
+    if permanent:
+        eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
+                         (r["equipment_id"],)).fetchone()
+        if not eq or eq["quantity"] < r["quantity"]:
+            con.close()
+            flash(f"Brak stanu magazynowego ({r['quantity']} szt. wymagane).", "error")
+            return redirect(request.referrer or url_for("reservations"))
+    if not _apply_issue(con, r, session["user_id"], permanent=permanent):
+        con.close()
+        flash("Nie udało się wydać rezerwacji.", "error")
+        return redirect(request.referrer or url_for("reservations"))
     con.commit()
     con.close()
-    flash("Oznaczono jako wydane. Pobieranie PDF…", "ok")
+    msg = "Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…" if permanent else "Oznaczono jako wydane. Pobieranie PDF…"
+    flash(msg, "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
 
 
