@@ -18,9 +18,7 @@
       <dt>Stan techniczny</dt><dd>{{ eq.condition }}</dd>
       {% if eq.condition_notes %}<dt>Notatka o stanie</dt><dd style="white-space:pre-line;">{{ eq.condition_notes }}</dd>{% endif %}
       <dt>Stan magazynowy</dt><dd>{{ eq.quantity }} szt.</dd>
-      <dt>Dostępne dziś</dt><dd><span class="badge {{ 'avail-ok' if avail_today > 0 else 'avail-no' }}">{{ avail_today }} szt.</span>
-        <div style="font-size:12px;color:#666;font-weight:400;margin-top:4px;">Dotyczy tylko dziś – na później sprawdź dostępność przy rezerwacji (np. od sierpnia, jeśli zwrot jest pod koniec lipca).</div>
-      </dd>
+      <dt>Dostępne dziś</dt><dd><span class="badge {{ 'avail-ok' if avail_today > 0 else 'avail-no' }}">{{ avail_today }} szt.</span></dd>
       {% if eq.storage_instructions %}<dt>Składowanie / pakowanie</dt><dd style="white-space:pre-line;">{{ eq.storage_instructions }}</dd>{% endif %}
       {% if eq.notes %}<dt>Uwagi</dt><dd>{{ eq.notes }}</dd>{% endif %}
     </dl>
