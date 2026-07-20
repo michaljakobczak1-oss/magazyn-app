@@ -201,17 +201,19 @@ def init_db():
 
 
 def reserved_qty(con, equipment_id, date_from, date_to, exclude_id=None):
-    """Suma sztuk zajętych w terminie.
+    """Suma sztuk zajętych w zapytanym terminie.
 
-    - rezerwacja: tylko gdy termin nakłada się na zapytany zakres
-    - wydane: zawsze (towar jest poza magazynem do zwrotu)
+    - rezerwacja / wydane: gdy termin nakłada się na zakres
+    - wydane po terminie zwrotu (przetrzymane): zawsze, do czasu przyjęcia
+      (nie wolno planować kolejnych wydań, póki towar fizycznie nie wróci)
     """
+    today = local_today().isoformat()
     q = """SELECT COALESCE(SUM(quantity),0) s FROM reservations
            WHERE equipment_id=? AND (
-             (status='rezerwacja' AND date_from <= ? AND date_to >= ?)
-             OR status='wydane'
+             (status IN ('rezerwacja','wydane') AND date_from <= ? AND date_to >= ?)
+             OR (status='wydane' AND date_to < ?)
            )"""
-    params = [equipment_id, date_to, date_from]
+    params = [equipment_id, date_to, date_from, today]
     if exclude_id:
         q += " AND id != ?"
         params.append(exclude_id)
