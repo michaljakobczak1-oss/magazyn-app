@@ -1030,6 +1030,90 @@ def cancel(rid):
     return redirect(request.referrer or url_for("reservations"))
 
 
+def _blocking_reservations(con, equipment_id, date_from, date_to, exclude_id):
+    """Rezerwacje/wydania kolidujące z podanym terminem (do komunikatu błędu)."""
+    return con.execute(
+        """SELECT r.date_from, r.date_to, r.quantity, r.status, r.client,
+                  u.first_name, u.last_name, u.username
+           FROM reservations r JOIN users u ON u.id=r.user_id
+           WHERE r.equipment_id=? AND r.id!=?
+             AND r.status IN ('rezerwacja','wydane')
+             AND r.date_from <= ? AND r.date_to >= ?
+           ORDER BY r.date_from LIMIT 5""",
+        (equipment_id, exclude_id, date_to, date_from)).fetchall()
+
+
+@app.route("/reservations/<int:rid>/change-return", methods=["POST"])
+@login_required
+def change_return_date(rid):
+    """Zmiana terminu zwrotu po wydaniu – z kontrolą kolizji z kolejnymi rezerwacjami."""
+    con = get_db()
+    r = _get_reservation(con, rid)
+    if not can_manage_reservation(r):
+        con.close()
+        flash("Możesz zarządzać tylko rezerwacjami swojego działu.", "error")
+        return redirect(request.referrer or url_for("reservations"))
+    if r["status"] != "wydane":
+        con.close()
+        flash("Termin zwrotu można zmienić tylko dla wydanego sprzętu.", "error")
+        return redirect(request.referrer or url_for("reservations"))
+
+    new_to = (request.form.get("date_to") or "").strip()
+    if not valid_dates(r["date_from"], new_to):
+        con.close()
+        flash("Nieprawidłowa data zwrotu (musi być ≥ daty rozpoczęcia).", "error")
+        return redirect(request.referrer or url_for("reservations"))
+    if new_to == r["date_to"]:
+        con.close()
+        flash("Termin zwrotu bez zmian.", "ok")
+        return redirect(request.referrer or url_for("reservations"))
+
+    eid = r["equipment_id"]
+    eq = con.execute("SELECT quantity, code FROM equipment WHERE id=?", (eid,)).fetchone()
+    taken = reserved_qty(con, eid, r["date_from"], new_to, exclude_id=rid)
+    free = eq["quantity"] - taken
+    if r["quantity"] > free:
+        blockers = _blocking_reservations(con, eid, r["date_from"], new_to, rid)
+        details = []
+        for b in blockers:
+            who = display_name(b)
+            cel = (b["client"] or "").strip()
+            details.append(
+                f"{b['date_from']}–{b['date_to']} ({b['quantity']} szt., {b['status']}"
+                + (f", {cel}" if cel else "")
+                + f", {who})")
+        msg = (f"Nie można zmienić zwrotu na {new_to} – w tym terminie sprzęt {eq['code']} "
+               f"jest już zajęty (wolne {free} z {eq['quantity']} szt., potrzeba {r['quantity']}).")
+        if details:
+            msg += " Kolizje: " + "; ".join(details) + "."
+        con.close()
+        flash(msg, "error")
+        return redirect(request.referrer or url_for("reservations"))
+
+    if handoff_conflict(con, eid, r["date_from"], new_to, exclude_id=rid):
+        row = con.execute(
+            """SELECT date_from, date_to FROM reservations
+               WHERE equipment_id=? AND id!=? AND status IN ('rezerwacja','wydane')
+                 AND (date_to=? OR date_from=?) LIMIT 1""",
+            (eid, rid, r["date_from"], new_to)).fetchone()
+        con.close()
+        if row and row["date_from"] == new_to:
+            flash(f"Nie można ustawić zwrotu na {new_to} – tego dnia zaczyna się już "
+                  f"kolejna rezerwacja ({row['date_from']}–{row['date_to']}). "
+                  f"Zwrot musi być najpóźniej dzień wcześniej.", "error")
+        else:
+            flash("Termin styka się z inną rezerwacją (zwrot i wydanie tego samego dnia).",
+                  "error")
+        return redirect(request.referrer or url_for("reservations"))
+
+    old_to = r["date_to"]
+    con.execute("UPDATE reservations SET date_to=? WHERE id=?", (new_to, rid))
+    con.commit()
+    con.close()
+    flash(f"Zmieniono termin zwrotu {eq['code']}: {old_to} → {new_to}.", "ok")
+    return redirect(request.referrer or url_for("reservations"))
+
+
 @app.route("/reservations/<int:rid>/pdf/<kind>")
 @login_required
 def reservation_pdf(rid, kind):
