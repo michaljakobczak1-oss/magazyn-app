@@ -1030,19 +1030,6 @@ def cancel(rid):
     return redirect(request.referrer or url_for("reservations"))
 
 
-def _blocking_reservations(con, equipment_id, date_from, date_to, exclude_id):
-    """Rezerwacje/wydania kolidujące z podanym terminem (do komunikatu błędu)."""
-    return con.execute(
-        """SELECT r.date_from, r.date_to, r.quantity, r.status, r.client,
-                  u.first_name, u.last_name, u.username
-           FROM reservations r JOIN users u ON u.id=r.user_id
-           WHERE r.equipment_id=? AND r.id!=?
-             AND r.status IN ('rezerwacja','wydane')
-             AND r.date_from <= ? AND r.date_to >= ?
-           ORDER BY r.date_from LIMIT 5""",
-        (equipment_id, exclude_id, date_to, date_from)).fetchall()
-
-
 @app.route("/reservations/<int:rid>/change-return", methods=["POST"])
 @login_required
 def change_return_date(rid):
