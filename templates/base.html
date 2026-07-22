@@ -4,28 +4,62 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Magazyn{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gloock&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root { --p:#1e3a5f; --p2:#2d5a8e; --ok:#1a7f37; --err:#b42318; --bg:#f4f6f8; }
+:root {
+  --hg-black:#000000;
+  --hg-white:#ffffff;
+  --hg-lime:#DBF40C;
+  --p:#000000;
+  --p2:#1a1a1a;
+  --ok:#1a7f37;
+  --err:#b42318;
+  --bg:#f4f4f2;
+  --text:#1a1a1a;
+}
 * { box-sizing:border-box; }
-body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:#1a1a2e; }
-nav { background:var(--p); color:#fff; display:flex; align-items:center; gap:18px; padding:0 20px; height:52px; flex-wrap:wrap; }
-nav a { color:#dfe8f2; text-decoration:none; padding:6px 4px; font-size:15px; }
-nav a:hover, nav a.active { color:#fff; border-bottom:2px solid #fff; }
-nav .brand { font-weight:700; font-size:17px; color:#fff; }
-nav .right { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:14px; }
-.wrap { max-width:1200px; margin:24px auto; padding:0 16px; }
-h1 { font-size:22px; margin:0 0 16px; }
-h2 { font-size:17px; }
+body {
+  margin:0; min-height:100vh; display:flex; flex-direction:column;
+  font-family:"Montserrat", system-ui, -apple-system, sans-serif;
+  background:var(--bg); color:var(--text);
+}
+h1, h2 { font-family:"Gloock", Georgia, serif; font-weight:400; letter-spacing:0.01em; }
+nav {
+  background:var(--hg-black); color:var(--hg-white);
+  display:flex; align-items:center; gap:16px; padding:0 20px;
+  min-height:64px; flex-wrap:wrap;
+  border-bottom:3px solid var(--hg-lime);
+}
+nav a { color:rgba(255,255,255,.82); text-decoration:none; padding:8px 4px; font-size:14px; font-weight:500; }
+nav a:hover { color:var(--hg-white); }
+nav a.active { color:var(--hg-white); border-bottom:2px solid var(--hg-lime); }
+nav .brand {
+  display:flex; align-items:center; gap:12px; text-decoration:none;
+  margin-right:8px; padding:8px 0;
+}
+nav .brand img { height:40px; width:auto; display:block; }
+nav .brand-text {
+  font-family:"Gloock", Georgia, serif; font-size:22px; line-height:1;
+  color:var(--hg-lime);
+}
+nav .right { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:13px; }
+nav .right a { font-size:13px; }
+.wrap { max-width:1200px; margin:24px auto; padding:0 16px; flex:1 0 auto; width:100%; }
+h1 { font-size:26px; margin:0 0 16px; }
+h2 { font-size:18px; }
 table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #eef1f4; font-size:14px; vertical-align:middle; }
-th { background:#eaeef3; font-weight:600; }
-tr:hover td { background:#f8fafc; }
+th { background:#ececec; font-weight:600; }
+tr:hover td { background:#f8f8f6; }
 tr.overdue td { background:#fde8e8; }
 tr.overdue:hover td { background:#fbd9d9; }
-.btn { display:inline-block; background:var(--p2); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; text-decoration:none; }
-.btn:hover { background:var(--p); }
+.btn { display:inline-block; background:var(--hg-black); color:var(--hg-white); border:none; border-radius:6px; padding:8px 14px; font-size:14px; cursor:pointer; text-decoration:none; font-family:inherit; font-weight:600; }
+.btn:hover { background:#222; }
 .btn.small { padding:4px 10px; font-size:13px; }
-.btn.ghost { background:#fff; color:var(--p2); border:1px solid var(--p2); }
+.btn.ghost { background:#fff; color:var(--hg-black); border:1px solid #111; }
+.btn.ghost:hover { border-color:var(--hg-lime); box-shadow:inset 0 0 0 1px var(--hg-lime); }
 .btn.danger { background:var(--err); }
 .btn.ok { background:var(--ok); }
 form.inline { display:inline; }
@@ -48,10 +82,9 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .badge.avail-no { background:#fde8e8; color:var(--err); }
 .badge.overdue { background:var(--err); color:#fff; }
 .badge.damaged { background:#fde8e8; color:var(--err); border:1px solid var(--err); }
-.badge.own { background:#e3ecf7; color:var(--p); }
+.badge.own { background:#f0f0f0; color:#111; }
 .thumb { width:48px; height:48px; object-fit:cover; border-radius:6px; cursor:zoom-in; }
 .zoomable { display:inline-block; line-height:0; }
-/* podgląd poza tabelą – fixed, całe zdjęcie (object-fit:contain), ~450 px */
 #thumb-preview {
   display:none; position:fixed; z-index:200; pointer-events:none;
   max-width:450px; max-height:70vh;
@@ -74,10 +107,10 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .filters .chk { display:flex; align-items:center; gap:6px; padding:8px 0; }
 .filters .chk input { width:auto; min-width:0; }
 .stat-cards { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
-.stat { flex:1; min-width:200px; background:#fff; border-radius:8px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.08); border-top:4px solid var(--p2); }
+.stat { flex:1; min-width:200px; background:#fff; border-radius:8px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.08); border-top:4px solid var(--hg-lime); }
 .stat.red { border-top-color:var(--err); }
 .stat.green { border-top-color:var(--ok); }
-.stat .num { font-size:28px; font-weight:700; }
+.stat .num { font-size:28px; font-weight:700; font-family:"Gloock", Georgia, serif; }
 .stat .lbl { font-size:13px; color:#666; }
 .photo-lg { max-width:320px; max-height:240px; border-radius:8px; object-fit:contain; background:#f8fafc; }
 .photo-gallery { display:flex; flex-wrap:wrap; gap:10px; }
@@ -85,15 +118,39 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .photo-keep { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 4px; }
 .photo-keep label { font-weight:400; display:flex; flex-direction:column; align-items:center; gap:4px; margin:0; font-size:12px; }
 .photo-keep img { width:96px; height:72px; object-fit:contain; border-radius:6px; background:#f8fafc; border:1px solid #e2e8f0; }
-/* lightbox (dotyk / klik gdy brak hovera) */
 #lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:100;
   align-items:center; justify-content:center; }
 #lightbox img { max-width:92vw; max-height:88vh; border-radius:10px; object-fit:contain; }
+
+.site-footer {
+  margin-top:auto; background:var(--hg-black); color:var(--hg-white);
+  border-top:2px solid var(--hg-lime); padding:16px 20px;
+}
+.site-footer-inner { max-width:1200px; margin:0 auto; }
+.site-footer-logos {
+  display:flex; flex-wrap:wrap; justify-content:center; align-items:center;
+  gap:14px 24px;
+}
+.site-footer-logos img {
+  height:44px; width:auto; max-width:100px; object-fit:contain; display:block;
+  opacity:0.92;
+}
+.site-footer-logos img:hover { opacity:1; }
+@media (max-width:700px) {
+  nav { min-height:auto; padding:10px 14px; gap:10px; }
+  nav .brand img { height:34px; }
+  nav .brand-text { font-size:20px; }
+  nav .right { width:100%; margin-left:0; justify-content:flex-start; flex-wrap:wrap; }
+  .site-footer-logos img { height:36px; max-width:84px; }
+}
 </style>
 </head>
 <body>
 <nav>
-  <span class="brand">📦 Magazyn</span>
+  <a class="brand" href="{{ url_for('dashboard') if session.user_id else url_for('login') }}">
+    <span class="brand-text">Magazyn</span>
+    <img src="{{ url_for('static', filename='brand/holo-group.png') }}" alt="Holo Group">
+  </a>
   {% if session.user_id %}
   <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
   <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Sprzęt</a>
@@ -116,6 +173,18 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 {% endwith %}
 {% block content %}{% endblock %}
 </div>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="site-footer-logos">
+      <img src="{{ url_for('static', filename='brand/holo-group.png') }}" alt="Holo Group">
+      <img src="{{ url_for('static', filename='brand/holo.png') }}" alt="Holo">
+      <img src="{{ url_for('static', filename='brand/warrens.png') }}" alt="Warren's">
+      <img src="{{ url_for('static', filename='brand/picture-perfect.png') }}" alt="Picture Perfect">
+      <img src="{{ url_for('static', filename='brand/iskry.png') }}" alt="iskry!">
+    </div>
+  </div>
+</footer>
 
 {% if session.user_id %}
 <!-- zmiana własnego hasła -->

@@ -20,6 +20,8 @@ ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 MAX_PHOTOS = 5
 
 app = Flask(__name__)
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.auto_reload = True
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "zmien-mnie-w-produkcji")
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25 MB (do 5 zdjęć)
 
