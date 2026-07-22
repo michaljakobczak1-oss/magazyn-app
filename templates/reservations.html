@@ -199,20 +199,52 @@ function openChangeReturn(rid, code, dateFrom, dateTo){
 function closeChangeReturn(){
   document.getElementById('change-return-modal').style.display = 'none';
 }
-document.getElementById('change-return-form').addEventListener('submit', function(e){
-  const inp = document.getElementById('cr-date');
+function showChangeReturnError(msg){
   const err = document.getElementById('cr-error');
+  err.textContent = msg;
+  err.style.display = 'block';
+}
+document.getElementById('change-return-form').addEventListener('submit', function(e){
+  e.preventDefault();
+  const form = this;
+  const inp = document.getElementById('cr-date');
   if (!inp.value) {
-    e.preventDefault();
-    err.textContent = 'Podaj nowy termin zwrotu.';
-    err.style.display = 'block';
+    showChangeReturnError('Podaj nowy termin zwrotu.');
     return;
   }
   if (inp.min && inp.value < inp.min) {
-    e.preventDefault();
-    err.textContent = 'Data zwrotu nie może być wcześniejsza niż start (' + inp.min + ').';
-    err.style.display = 'block';
+    showChangeReturnError('Data zwrotu nie może być wcześniejsza niż start (' + inp.min + ').');
+    return;
   }
+  document.getElementById('cr-error').style.display = 'none';
+  const btn = form.querySelector('button.btn.ok');
+  if (btn) btn.disabled = true;
+  fetch(form.action, {
+    method: 'POST',
+    body: new FormData(form),
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json'
+    },
+    credentials: 'same-origin'
+  }).then(function(res){
+    return res.json().then(function(data){
+      return { status: res.status, data: data };
+    }).catch(function(){
+      return { status: res.status, data: { ok: false, message: 'Nie udało się zmienić terminu.' } };
+    });
+  }).then(function(result){
+    if (btn) btn.disabled = false;
+    if (result.data && result.data.ok) {
+      closeChangeReturn();
+      window.location.reload();
+      return;
+    }
+    showChangeReturnError((result.data && result.data.message) || 'Niedostępny w tych dniach – jest już rezerwacja.');
+  }).catch(function(){
+    if (btn) btn.disabled = false;
+    showChangeReturnError('Błąd połączenia – spróbuj ponownie.');
+  });
 });
 
 function syncReturnModalUI(){

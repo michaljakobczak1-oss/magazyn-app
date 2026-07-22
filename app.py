@@ -1034,26 +1034,33 @@ def cancel(rid):
 @login_required
 def change_return_date(rid):
     """Zmiana terminu zwrotu po wydaniu – z kontrolą kolizji z kolejnymi rezerwacjami."""
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept") or "")
+    )
+
+    def respond(ok, message, status=200):
+        if wants_json:
+            return jsonify(ok=ok, message=message), (status if not ok else 200)
+        flash(message, "ok" if ok else "error")
+        return redirect(request.referrer or url_for("reservations"))
+
     con = get_db()
     r = _get_reservation(con, rid)
     if not can_manage_reservation(r):
         con.close()
-        flash("Możesz zarządzać tylko rezerwacjami swojego działu.", "error")
-        return redirect(request.referrer or url_for("reservations"))
+        return respond(False, "Możesz zarządzać tylko rezerwacjami swojego działu.", 403)
     if r["status"] != "wydane":
         con.close()
-        flash("Termin zwrotu można zmienić tylko dla wydanego sprzętu.", "error")
-        return redirect(request.referrer or url_for("reservations"))
+        return respond(False, "Termin zwrotu można zmienić tylko dla wydanego sprzętu.", 400)
 
     new_to = (request.form.get("date_to") or "").strip()
     if not valid_dates(r["date_from"], new_to):
         con.close()
-        flash("Nieprawidłowa data zwrotu (musi być ≥ daty rozpoczęcia).", "error")
-        return redirect(request.referrer or url_for("reservations"))
+        return respond(False, "Nieprawidłowa data zwrotu (musi być ≥ daty rozpoczęcia).", 400)
     if new_to == r["date_to"]:
         con.close()
-        flash("Termin zwrotu bez zmian.", "ok")
-        return redirect(request.referrer or url_for("reservations"))
+        return respond(True, "Termin zwrotu bez zmian.")
 
     eid = r["equipment_id"]
     eq = con.execute("SELECT quantity, code FROM equipment WHERE id=?", (eid,)).fetchone()
@@ -1061,16 +1068,17 @@ def change_return_date(rid):
     free = eq["quantity"] - taken
     if r["quantity"] > free or handoff_conflict(con, eid, r["date_from"], new_to, exclude_id=rid):
         con.close()
-        flash(f"Niedostępny w tych dniach – jest już rezerwacja ({eq['code']}, zwrot {new_to}).",
-              "error")
-        return redirect(request.referrer or url_for("reservations"))
+        return respond(
+            False,
+            f"Niedostępny w tych dniach – jest już rezerwacja ({eq['code']}, zwrot {new_to}).",
+            409,
+        )
 
     old_to = r["date_to"]
     con.execute("UPDATE reservations SET date_to=? WHERE id=?", (new_to, rid))
     con.commit()
     con.close()
-    flash(f"Zmieniono termin zwrotu {eq['code']}: {old_to} → {new_to}.", "ok")
-    return redirect(request.referrer or url_for("reservations"))
+    return respond(True, f"Zmieniono termin zwrotu {eq['code']}: {old_to} → {new_to}.")
 
 
 @app.route("/reservations/<int:rid>/pdf/<kind>")
