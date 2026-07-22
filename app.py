@@ -1072,38 +1072,10 @@ def change_return_date(rid):
     eq = con.execute("SELECT quantity, code FROM equipment WHERE id=?", (eid,)).fetchone()
     taken = reserved_qty(con, eid, r["date_from"], new_to, exclude_id=rid)
     free = eq["quantity"] - taken
-    if r["quantity"] > free:
-        blockers = _blocking_reservations(con, eid, r["date_from"], new_to, rid)
-        details = []
-        for b in blockers:
-            who = display_name(b)
-            cel = (b["client"] or "").strip()
-            details.append(
-                f"{b['date_from']}–{b['date_to']} ({b['quantity']} szt., {b['status']}"
-                + (f", {cel}" if cel else "")
-                + f", {who})")
-        msg = (f"Nie można zmienić zwrotu na {new_to} – w tym terminie sprzęt {eq['code']} "
-               f"jest już zajęty (wolne {free} z {eq['quantity']} szt., potrzeba {r['quantity']}).")
-        if details:
-            msg += " Kolizje: " + "; ".join(details) + "."
+    if r["quantity"] > free or handoff_conflict(con, eid, r["date_from"], new_to, exclude_id=rid):
         con.close()
-        flash(msg, "error")
-        return redirect(request.referrer or url_for("reservations"))
-
-    if handoff_conflict(con, eid, r["date_from"], new_to, exclude_id=rid):
-        row = con.execute(
-            """SELECT date_from, date_to FROM reservations
-               WHERE equipment_id=? AND id!=? AND status IN ('rezerwacja','wydane')
-                 AND (date_to=? OR date_from=?) LIMIT 1""",
-            (eid, rid, r["date_from"], new_to)).fetchone()
-        con.close()
-        if row and row["date_from"] == new_to:
-            flash(f"Nie można ustawić zwrotu na {new_to} – tego dnia zaczyna się już "
-                  f"kolejna rezerwacja ({row['date_from']}–{row['date_to']}). "
-                  f"Zwrot musi być najpóźniej dzień wcześniej.", "error")
-        else:
-            flash("Termin styka się z inną rezerwacją (zwrot i wydanie tego samego dnia).",
-                  "error")
+        flash(f"Niedostępny w tych dniach – jest już rezerwacja ({eq['code']}, zwrot {new_to}).",
+              "error")
         return redirect(request.referrer or url_for("reservations"))
 
     old_to = r["date_to"]
