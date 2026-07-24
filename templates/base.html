@@ -101,7 +101,6 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>
   {% if session.role == 'admin' %}
   <a href="{{ url_for('dictionaries') }}" class="{{ 'active' if request.endpoint == 'dictionaries' }}">Słowniki</a>
-  <a href="{{ url_for('catalog_import') }}" class="{{ 'active' if request.endpoint == 'catalog_import' }}">Import katalogu</a>
   <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Użytkownicy</a>
   {% endif %}
   <span class="right">
