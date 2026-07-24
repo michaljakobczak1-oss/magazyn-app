@@ -916,6 +916,33 @@ def _get_reservation(con, rid):
     return r
 
 
+@app.route("/reservations/purge-all", methods=["POST"])
+@login_required
+@admin_required
+def purge_all_reservations():
+    """Usuwa wszystkie rezerwacje. Przy wydaniach trwałych / utylizacji oddaje sztuki na stan."""
+    if request.form.get("confirm") != "USUN":
+        flash("Potwierdzenie nieprawidłowe.", "error")
+        return redirect(url_for("reservations"))
+    con = get_db()
+    rows = con.execute(
+        """SELECT id, equipment_id, quantity, status FROM reservations
+           WHERE status IN ('wydane trwale', 'utylizacja')"""
+    ).fetchall()
+    for r in rows:
+        con.execute(
+            "UPDATE equipment SET quantity = quantity + ? WHERE id=?",
+            (r["quantity"], r["equipment_id"]),
+        )
+    n = con.execute("SELECT COUNT(*) c FROM reservations").fetchone()["c"]
+    con.execute("DELETE FROM reservations")
+    con.commit()
+    flash(f"Usunięto wszystkie rezerwacje ({n}).", "ok")
+    if request.accept_mimetypes.best == "application/json" or request.args.get("json"):
+        return jsonify(ok=True, deleted=n)
+    return redirect(url_for("reservations"))
+
+
 @app.route("/reservations/<int:rid>/issue", methods=["POST"])
 @login_required
 def issue(rid):
