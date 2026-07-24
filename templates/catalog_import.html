@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Import katalogu – Magazyn{% endblock %}
+{% block content %}
+<h1>Import katalogu produktów</h1>
+<p style="font-size:14px;color:#555;max-width:720px;">
+  Wgraj plik Excel (arkusz <strong>Import</strong>) oraz ZIP ze zdjęciami.
+  Nazwy plików w kolumnie „Plik zdjęcia” muszą być takie jak w ZIP.
+  Import może potrwać kilka minut (setki zdjęć).
+</p>
+
+<div class="card" style="max-width:640px;">
+  <form method="post" enctype="multipart/form-data">
+    <label>Plik Excel (.xlsx) *</label>
+    <input type="file" name="xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+
+    <label>ZIP ze zdjęciami (folder <code>zdjecia</code>)</label>
+    <input type="file" name="photos_zip" accept=".zip,application/zip">
+
+    <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:14px;">
+      <input type="checkbox" name="update" value="1" checked style="width:auto;">
+      aktualizuj istniejące kody (zalecane)
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:400;">
+      <input type="checkbox" name="also_new_codes" value="1" checked style="width:auto;">
+      dopisz brakujące z arkusza „Nowe kody”
+    </label>
+
+    <div style="margin-top:18px;display:flex;gap:10px;">
+      <button class="btn ok">Uruchom import</button>
+      <a class="btn ghost" href="{{ url_for('dictionaries') }}">Wróć</a>
+    </div>
+  </form>
+</div>
+
+{% if result %}
+<div class="card wide" style="margin-top:20px;max-width:900px;">
+  <h2 style="margin-top:0;">Ostatni wynik importu</h2>
+  {% if result.running %}
+  <p class="flash warn">Import w toku… odśwież stronę za chwilę.</p>
+  {% elif result.error %}
+  <p class="flash error">{{ result.error }}</p>
+  {% else %}
+  <p>
+    Dodano: <strong>{{ result.added }}</strong>,
+    zaktualizowano: <strong>{{ result.updated }}</strong>,
+    pominięto: <strong>{{ result.skipped }}</strong>,
+    bez zdjęcia: <strong>{{ result.no_photo }}</strong>
+  </p>
+  {% endif %}
+  {% if result.messages %}
+  <pre style="font-size:12px;max-height:320px;overflow:auto;background:#f8fafc;padding:12px;border-radius:8px;">{{ result.messages|join('\n') }}</pre>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

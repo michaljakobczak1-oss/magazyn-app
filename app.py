@@ -13,6 +13,10 @@ from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
                 equipment_photo_list, local_now, local_today, handoff_conflict,
                 next_free_after_return)
 from pdf_gen import protocol_pdf, group_pdf
+from import_excel import run_import
+import tempfile
+import shutil
+import zipfile
 
 BASE = Path(__file__).parent
 UPLOAD_DIR = BASE / "static" / "uploads"
@@ -21,7 +25,7 @@ MAX_PHOTOS = 5
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "zmien-mnie-w-produkcji")
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25 MB (do 5 zdjęć)
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # import katalogu + zdjęcia (zip)
 
 init_db()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -1347,6 +1351,113 @@ def user_name(uid):
             session["full_name"] = f"{fn} {ln}".strip()
         flash("Dane zaktualizowane.", "ok")
     return redirect(url_for("users"))
+
+
+@app.route("/catalog-import", methods=["GET", "POST"])
+@login_required
+@admin_required
+def catalog_import():
+    """Import katalogu z Excela + ZIP ze zdjęciami (tylko admin)."""
+    status_path = Path(__file__).parent / "data" / "catalog_import_status.json"
+    result = None
+    if status_path.exists():
+        try:
+            import json
+            result = json.loads(status_path.read_text(encoding="utf-8"))
+        except Exception:
+            result = None
+
+    if request.method == "POST":
+        xlsx = request.files.get("xlsx")
+        photos_zip = request.files.get("photos_zip")
+        do_update = bool(request.form.get("update"))
+        also_new = bool(request.form.get("also_new_codes"))
+        if not xlsx or not xlsx.filename:
+            flash("Wybierz plik Excel (.xlsx).", "error")
+            return redirect(url_for("catalog_import"))
+        if not xlsx.filename.lower().endswith(".xlsx"):
+            flash("Plik katalogu musi mieć rozszerzenie .xlsx.", "error")
+            return redirect(url_for("catalog_import"))
+
+        work = Path(__file__).parent / "data" / "catalog_import_work"
+        if work.exists():
+            shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True, exist_ok=True)
+        xlsx_path = work / "katalog.xlsx"
+        xlsx.save(xlsx_path)
+        zip_path = None
+        if photos_zip and photos_zip.filename:
+            zip_path = work / "zdjecia.zip"
+            photos_zip.save(zip_path)
+
+        import json
+        import threading
+
+        status_path.write_text(
+            json.dumps({"running": True, "messages": ["Import w toku…"]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        def job():
+            messages = []
+            try:
+                photos_dir = None
+                if zip_path and zip_path.exists():
+                    extract_dir = work / "extracted"
+                    extract_dir.mkdir(exist_ok=True)
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        zf.extractall(extract_dir)
+                    candidates = [extract_dir / "zdjecia", extract_dir]
+                    for c in list(extract_dir.iterdir()):
+                        if c.is_dir():
+                            candidates.insert(0, c)
+                    for c in candidates:
+                        if c.is_dir() and any(c.iterdir()):
+                            photos_dir = c
+                            break
+                    if not photos_dir:
+                        raise RuntimeError("ZIP nie zawiera folderu ze zdjęciami.")
+
+                r1 = run_import(
+                    xlsx_path, photos_dir=photos_dir, sheet="Import",
+                    update=do_update, log=messages,
+                )
+                totals = dict(r1)
+                if also_new:
+                    r2 = run_import(
+                        xlsx_path, photos_dir=photos_dir, sheet="Nowe kody",
+                        update=False, log=messages,
+                    )
+                    totals = {
+                        "added": r1["added"] + r2["added"],
+                        "updated": r1["updated"] + r2["updated"],
+                        "skipped": r1["skipped"] + r2["skipped"],
+                        "no_photo": r1["no_photo"] + r2["no_photo"],
+                        "messages": messages,
+                    }
+                totals["running"] = False
+                totals["messages"] = messages
+                status_path.write_text(
+                    json.dumps(totals, ensure_ascii=False), encoding="utf-8"
+                )
+            except Exception as e:
+                messages.append(f"Błąd: {e}")
+                status_path.write_text(
+                    json.dumps(
+                        {"running": False, "error": str(e), "messages": messages,
+                         "added": 0, "updated": 0, "skipped": 0, "no_photo": 0},
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+
+        threading.Thread(target=job, daemon=True).start()
+        flash("Import uruchomiony w tle. Odśwież tę stronę za 1–3 minuty.", "ok")
+        return redirect(url_for("catalog_import"))
+
+    return render_template("catalog_import.html", result=result)
 
 
 if __name__ == "__main__":

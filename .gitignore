@@ -7,3 +7,6 @@ __pycache__/
 
 # opcjonalnie: nie wrzucaj lokalnej bazy testowej (Render utworzy własną)
 # data/magazyn.db
+
+# lokalne dane importu (xlsx + zdjęcia)
+import_data/
