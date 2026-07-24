@@ -276,7 +276,7 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
     if photos_dir and not photo_index:
         messages.append(f"UWAGA: katalog zdjęć pusty / nie znaleziono plików: {photos_dir}")
 
-    wb = load_workbook(xlsx_path)
+    wb = load_workbook(xlsx_path, data_only=True)
     ws = pick_sheet(wb, sheet)
     headers = map_headers(ws)
     embedded = extract_embedded_images(ws)
@@ -308,7 +308,10 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
             continue
 
         qty_raw = val("quantity")
-        if qty_raw is None or (isinstance(qty_raw, str) and not str(qty_raw).strip()):
+        has_qty_col = "quantity" in headers
+        if not has_qty_col:
+            qty = None  # arkusz bez kolumny ilości (np. Nowe kody) → nie nadpisuj
+        elif qty_raw is None or (isinstance(qty_raw, str) and not str(qty_raw).strip()):
             qty = 0
         else:
             try:
@@ -319,16 +322,16 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
                 qty = 0
 
         wh_name = str(val("warehouse") or "").strip() or (warehouse or "")
-        warehouse_id = get_or_create_warehouse(con, wh_name, dry_run, wh_cache)
+        warehouse_id = get_or_create_warehouse(con, wh_name, dry_run, wh_cache) if wh_name else None
 
-        material_type = normalize_material_type(val("material_type"), code)
-        condition = normalize_condition(val("condition"))
-        storage = str(val("storage_instructions") or "").strip()
-        location = str(val("location") or "").strip()
-        owner = str(val("owner") or "").strip()
-        brand = str(val("brand") or "").strip()
-        project_number = str(val("project_number") or "").strip()
-        dimensions = str(val("dimensions") or "").strip()
+        material_type = normalize_material_type(val("material_type"), code) if "material_type" in headers else None
+        condition = normalize_condition(val("condition")) if "condition" in headers else None
+        storage = str(val("storage_instructions") or "").strip() if "storage_instructions" in headers else None
+        location = str(val("location") or "").strip() if "location" in headers else None
+        owner = str(val("owner") or "").strip() if "owner" in headers else None
+        brand = str(val("brand") or "").strip() if "brand" in headers else None
+        project_number = str(val("project_number") or "").strip() if "project_number" in headers else None
+        dimensions = str(val("dimensions") or "").strip() if "dimensions" in headers else None
 
         photo_files = []
         for pname in parse_photo_names(val("photo_file")):
@@ -359,11 +362,12 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
             no_photo += 1
 
         primary_photo = saved_names[0] if saved_names else None
+        qty_display = qty if qty is not None else (0 if not existing else "?")
 
         if dry_run:
             action = "UPDATE" if existing else "INSERT"
             messages.append(
-                f"{action}: {code} | {name} | {qty} szt. | {wh_name or '-'} / {location or '-'} | "
+                f"{action}: {code} | {name} | {qty_display} szt. | {wh_name or '-'} / {location or '-'} | "
                 f"zdjęcia: {len(saved_names)}"
             )
             if existing:
@@ -374,15 +378,36 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
 
         if existing:
             eid = existing["id"]
+            # Pola Absent/None w arkuszu (np. „Nowe kody” bez ilości) – nie nadpisuj istniejących
             con.execute(
-                """UPDATE equipment SET project_number=?, name=?, dimensions=?,
-                   photo=COALESCE(?, photo), location=?, warehouse_id=?, owner=?, brand=?,
-                   material_type=?, condition=?, storage_instructions=?, quantity=?
+                """UPDATE equipment SET
+                   name=?,
+                   project_number=COALESCE(?, project_number),
+                   dimensions=COALESCE(?, dimensions),
+                   photo=COALESCE(?, photo),
+                   location=COALESCE(?, location),
+                   warehouse_id=COALESCE(?, warehouse_id),
+                   owner=COALESCE(?, owner),
+                   brand=COALESCE(?, brand),
+                   material_type=COALESCE(?, material_type),
+                   condition=COALESCE(?, condition),
+                   storage_instructions=COALESCE(?, storage_instructions),
+                   quantity=COALESCE(?, quantity)
                    WHERE id=?""",
                 (
-                    project_number, name, dimensions, primary_photo, location,
-                    warehouse_id, owner, brand, material_type, condition,
-                    storage, qty, eid,
+                    name,
+                    project_number if project_number else None,
+                    dimensions if dimensions else None,
+                    primary_photo,
+                    location if location else None,
+                    warehouse_id,
+                    owner if owner else None,
+                    brand if brand else None,
+                    material_type,
+                    condition,
+                    storage if storage else None,
+                    qty,
+                    eid,
                 ),
             )
             if saved_names:
@@ -400,9 +425,19 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
                    condition, storage_instructions, quantity)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    code, project_number, name, dimensions, primary_photo,
-                    location, warehouse_id, owner, brand, material_type,
-                    condition, storage, qty,
+                    code,
+                    project_number or "",
+                    name,
+                    dimensions or "",
+                    primary_photo,
+                    location or "",
+                    warehouse_id,
+                    owner or "",
+                    brand or "",
+                    material_type or "klient",
+                    condition or "sprawny",
+                    storage or "",
+                    0 if qty is None else qty,
                 ),
             )
             eid = cur.lastrowid

@@ -1464,7 +1464,7 @@ def catalog_import():
                 if also_new:
                     r2 = run_import(
                         xlsx_path, photos_dir=photos_dir, sheet="Nowe kody",
-                        update=do_update, log=messages,
+                        update=False, log=messages,
                     )
                     totals = {
                         "added": r1["added"] + r2["added"],
