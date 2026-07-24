@@ -1405,18 +1405,29 @@ def catalog_import():
                 if zip_path and zip_path.exists():
                     extract_dir = work / "extracted"
                     extract_dir.mkdir(exist_ok=True)
-                    with zipfile.ZipFile(zip_path, "r") as zf:
+                    # Mac ZIP często ma UTF-8 / NFD w nazwach — wymuś utf-8 przy odczycie
+                    try:
+                        zf = zipfile.ZipFile(zip_path, "r", metadata_encoding="utf-8")
+                    except TypeError:
+                        zf = zipfile.ZipFile(zip_path, "r")
+                    with zf:
                         zf.extractall(extract_dir)
-                    candidates = [extract_dir / "zdjecia", extract_dir]
-                    for c in list(extract_dir.iterdir()):
-                        if c.is_dir():
-                            candidates.insert(0, c)
-                    for c in candidates:
-                        if c.is_dir() and any(c.iterdir()):
-                            photos_dir = c
-                            break
+
+                    img_ext = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+                    best, best_n = None, -1
+                    for c in [extract_dir, *extract_dir.rglob("*")]:
+                        if not c.is_dir() or "__MACOSX" in c.parts:
+                            continue
+                        n = sum(
+                            1 for f in c.iterdir()
+                            if f.is_file() and f.suffix.lower() in img_ext
+                        )
+                        if n > best_n:
+                            best, best_n = c, n
+                    photos_dir = best if best_n > 0 else None
                     if not photos_dir:
                         raise RuntimeError("ZIP nie zawiera folderu ze zdjęciami.")
+                    messages.append(f"Folder zdjęć: {photos_dir.name} ({best_n} plików)")
 
                 r1 = run_import(
                     xlsx_path, photos_dir=photos_dir, sheet="Import",
@@ -1426,7 +1437,7 @@ def catalog_import():
                 if also_new:
                     r2 = run_import(
                         xlsx_path, photos_dir=photos_dir, sheet="Nowe kody",
-                        update=False, log=messages,
+                        update=do_update, log=messages,
                     )
                     totals = {
                         "added": r1["added"] + r2["added"],

@@ -84,6 +84,33 @@ def nfc(s):
     return unicodedata.normalize("NFC", str(s or ""))
 
 
+def strip_diacritics(s):
+    """HGOŚW → HGOSW (dopasowanie NFC/NFD i różnic po rozpakowaniu ZIP na Linuxie)."""
+    decomposed = unicodedata.normalize("NFD", str(s or ""))
+    return "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+
+
+def photo_lookup_keys(filename):
+    """Wszystkie warianty klucza do indeksu zdjęć."""
+    name = Path(str(filename or "").strip()).name
+    if not name:
+        return []
+    keys = []
+    seen = set()
+    for form in (
+        name,
+        unicodedata.normalize("NFC", name),
+        unicodedata.normalize("NFD", name),
+        strip_diacritics(name),
+        strip_diacritics(unicodedata.normalize("NFC", name)),
+    ):
+        k = form.casefold()
+        if k and k not in seen:
+            seen.add(k)
+            keys.append(k)
+    return keys
+
+
 def map_headers(ws):
     headers = {}
     for idx, cell in enumerate(ws[1], start=1):
@@ -112,38 +139,51 @@ def extract_embedded_images(ws):
 
 
 def build_photo_index(photos_dir):
-    """Mapa casefold(NFC(nazwa)) -> Path."""
+    """Mapa wariantów nazwy (NFC/NFD/bez diakrytyków) -> Path. Szuka też w podfolderach."""
     if not photos_dir or not photos_dir.exists():
         return {}
     idx = {}
-    for p in photos_dir.iterdir():
+    files = []
+    root = Path(photos_dir)
+    for p in root.rglob("*"):
         if not p.is_file():
+            continue
+        if "__MACOSX" in p.parts:
             continue
         if p.suffix.lower() not in ALLOWED_EXT:
             continue
-        idx[nfc(p.name).casefold()] = p
+        files.append(p)
+    # jeśli rglob nic nie dał, spróbuj tylko poziom root
+    if not files:
+        files = [
+            p for p in root.iterdir()
+            if p.is_file() and p.suffix.lower() in ALLOWED_EXT
+        ]
+    for p in files:
+        for key in photo_lookup_keys(p.name):
+            idx.setdefault(key, p)
     return idx
 
 
 def find_photo_by_name(photo_index, filename):
-    if not filename:
+    if not filename or not photo_index:
         return None
-    key = nfc(filename).casefold()
-    if key in photo_index:
-        return photo_index[key]
+    for key in photo_lookup_keys(filename):
+        if key in photo_index:
+            return photo_index[key]
     # bez rozszerzenia – spróbuj znanych
-    stem = Path(filename).stem
+    stem = Path(str(filename).strip()).stem
     for ext in ALLOWED_EXT:
-        k = nfc(stem + ext).casefold()
-        if k in photo_index:
-            return photo_index[k]
+        for key in photo_lookup_keys(stem + ext):
+            if key in photo_index:
+                return photo_index[key]
     return None
 
 
 def find_photo_by_code(photo_index, code):
     if not code:
         return None
-    for candidate in (code, code.lower(), code.upper()):
+    for candidate in (code, strip_diacritics(code), code.lower(), code.upper()):
         for ext in ALLOWED_EXT:
             p = find_photo_by_name(photo_index, candidate + ext)
             if p:
