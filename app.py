@@ -19,7 +19,15 @@ import shutil
 import zipfile
 
 BASE = Path(__file__).parent
+# Zdjęcia: przy DATA_DIR (dysk trwały) trzymaj w DATA_DIR/uploads
+_DATA_DIR = Path(os.environ.get("DATA_DIR") or (BASE / "data"))
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_UPLOAD_PERSIST = _DATA_DIR / "uploads"
+_UPLOAD_PERSIST.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = BASE / "static" / "uploads"
+if os.environ.get("DATA_DIR"):
+    UPLOAD_DIR = _UPLOAD_PERSIST
+    # serwuj /static/uploads/* z dysku trwałego
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 MAX_PHOTOS = 5
 
@@ -29,6 +37,12 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # import katalogu + zdjęc
 
 init_db()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+if os.environ.get("DATA_DIR"):
+    @app.route("/static/uploads/<path:filename>")
+    def persistent_upload(filename):
+        from flask import send_from_directory
+        return send_from_directory(_UPLOAD_PERSIST, filename)
 
 
 # ---------- pomocnicze ----------

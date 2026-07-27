@@ -19,6 +19,7 @@ Zdjęcia:
 Wymaga: pip install openpyxl
 """
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -31,7 +32,8 @@ from openpyxl import load_workbook
 from db import get_db, init_db
 
 BASE = Path(__file__).parent
-UPLOAD_DIR = BASE / "static" / "uploads"
+_DATA_DIR = Path(os.environ.get("DATA_DIR") or (BASE / "data"))
+UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or (_DATA_DIR / "uploads" if os.environ.get("DATA_DIR") else BASE / "static" / "uploads"))
 ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 # nagłówek w arkuszu -> pole w bazie

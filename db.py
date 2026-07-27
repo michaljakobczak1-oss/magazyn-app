@@ -1,9 +1,14 @@
+import os
 import sqlite3
 from datetime import datetime, date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-DB_PATH = Path(__file__).parent / "data" / "magazyn.db"
+# DATA_DIR – na Renderze ustaw na ścieżkę dysku trwałego (np. /var/data),
+# inaczej po każdym deployu wraca pusta/stara baza z obrazu Dockera.
+_DATA_DIR = Path(os.environ.get("DATA_DIR") or (Path(__file__).parent / "data"))
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = _DATA_DIR / "magazyn.db"
 LOCAL_TZ = ZoneInfo("Europe/Warsaw")
 
 
