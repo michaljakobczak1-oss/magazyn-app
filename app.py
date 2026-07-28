@@ -225,6 +225,8 @@ def index():
     f_warehouse = request.args.get("warehouse", "").strip()
     f_own = request.args.get("own", "").strip()          # "1" = tylko materiały 00
     f_condition = request.args.get("condition", "").strip()
+    per_page_raw = (request.args.get("per_page") or "50").strip().lower()
+    page_raw = (request.args.get("page") or "1").strip()
 
     con = get_db()
     sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
@@ -247,7 +249,30 @@ def index():
         where.append("e.condition = ?"); params.append(f_condition)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    items = con.execute(sql + " ORDER BY e.code", params).fetchall()
+    all_items = con.execute(sql + " ORDER BY e.code", params).fetchall()
+
+    total = len(all_items)
+    per_page_choices = [25, 50, 100, "all"]
+    if per_page_raw == "all":
+        per_page = total or 1
+        per_page_value = "all"
+    else:
+        try:
+            per_page = int(per_page_raw)
+        except ValueError:
+            per_page = 50
+        if per_page not in (25, 50, 100):
+            per_page = 50
+        per_page_value = str(per_page)
+    try:
+        page = max(1, int(page_raw))
+    except ValueError:
+        page = 1
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    if page > total_pages:
+        page = total_pages
+    start = (page - 1) * per_page
+    items = all_items if per_page_value == "all" else all_items[start:start + per_page]
 
     # wartości do dropdownów filtrów
     projects = [r[0] for r in con.execute(
@@ -268,7 +293,10 @@ def index():
                            q=q, f_project=f_project, f_owner=f_owner, f_brand=f_brand,
                            f_warehouse=f_warehouse, f_own=f_own, f_condition=f_condition,
                            projects=projects, owners=owners, brands=brands,
-                           warehouses=warehouses)
+                           warehouses=warehouses,
+                           page=page, per_page=per_page_value,
+                           per_page_choices=per_page_choices,
+                           total=total, total_pages=total_pages)
 
 
 def _equipment_form_values(form, files, current=None, primary_photo=None):

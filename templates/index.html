@@ -47,6 +47,14 @@
       {% endfor %}
     </select>
   </div>
+  <div>
+    <label>Na stronie</label>
+    <select name="per_page">
+      {% for n in per_page_choices %}
+      <option value="{{ n }}" {{ 'selected' if per_page == n|string }}>{{ 'wszystkie' if n == 'all' else n }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <div class="chk">
     <input type="checkbox" name="own" value="1" id="own" {{ 'checked' if f_own == '1' }}>
     <label for="own" style="margin:0;">tylko materiały własne</label>
@@ -55,6 +63,45 @@
   <a class="btn ghost" href="{{ url_for('index') }}">Wyczyść</a>
   {% if session.role == 'admin' %}<a class="btn" style="margin-left:auto;" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>{% endif %}
 </form>
+
+{% set qs = {
+  'q': q, 'project': f_project, 'owner': f_owner, 'brand': f_brand,
+  'warehouse': f_warehouse, 'own': f_own, 'condition': f_condition,
+  'per_page': per_page
+} %}
+<div class="pager">
+  <div>
+    {% if total %}
+      Pokazano {{ items|length }} z {{ total }}
+      {% if per_page != 'all' %} · strona {{ page }} / {{ total_pages }}{% endif %}
+    {% else %}
+      Brak wyników
+    {% endif %}
+  </div>
+  {% if per_page != 'all' and total_pages > 1 %}
+  <div class="pager-nav">
+    {% if page > 1 %}
+      <a href="{{ url_for('index', page=page-1, **qs) }}">← Poprzednia</a>
+    {% else %}
+      <span class="disabled">← Poprzednia</span>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <span class="current">{{ p }}</span>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <a href="{{ url_for('index', page=p, **qs) }}">{{ p }}</a>
+      {% elif p == page - 3 or p == page + 3 %}
+        <span class="disabled">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+      <a href="{{ url_for('index', page=page+1, **qs) }}">Następna →</a>
+    {% else %}
+      <span class="disabled">Następna →</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
 
 <form method="get" action="{{ url_for('reserve_multi') }}">
 <div style="margin-bottom:10px;">
@@ -89,4 +136,19 @@
   {% endfor %}
 </table>
 </form>
+
+{% if per_page != 'all' and total_pages > 1 %}
+<div class="pager" style="margin-top:16px;">
+  <div></div>
+  <div class="pager-nav">
+    {% if page > 1 %}
+      <a href="{{ url_for('index', page=page-1, **qs) }}">← Poprzednia</a>
+    {% endif %}
+    <span class="current">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+      <a href="{{ url_for('index', page=page+1, **qs) }}">Następna →</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -27,6 +27,7 @@ body {
 }
 h1, h2 { font-family:"Gloock", Georgia, serif; font-weight:400; letter-spacing:0.01em; }
 nav {
+  position:sticky; top:0; z-index:50;
   background:var(--hg-black); color:var(--hg-white);
   display:flex; align-items:center; gap:16px; padding:0 20px;
   min-height:64px; flex-wrap:wrap;
@@ -125,7 +126,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 #lightbox img { max-width:92vw; max-height:88vh; border-radius:10px; object-fit:contain; }
 .site-footer {
   margin-top:auto; background:var(--hg-black); color:var(--hg-white);
-  border-top:2px solid var(--hg-lime); padding:16px 20px;
+  border-top:2px solid var(--hg-lime); padding:16px 20px 20px;
 }
 .site-footer-inner { max-width:1200px; margin:0 auto; }
 .site-footer-logos {
@@ -137,6 +138,24 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   opacity:0.92;
 }
 .site-footer-logos img:hover { opacity:1; }
+.site-footer-powered {
+  margin-top:14px; text-align:center; font-size:12px; letter-spacing:0.04em;
+  color:rgba(255,255,255,.55); font-weight:500;
+}
+.site-footer-powered strong { color:var(--hg-lime); font-weight:600; }
+.pager {
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+  justify-content:space-between; margin:14px 0 4px; font-size:13px; color:#555;
+}
+.pager-nav { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.pager-nav a, .pager-nav span {
+  display:inline-block; padding:6px 10px; border-radius:6px;
+  border:1px solid #d0d0d0; background:#fff; color:#111; text-decoration:none;
+  font-weight:600; font-size:13px;
+}
+.pager-nav a:hover { border-color:var(--hg-lime); }
+.pager-nav .current { background:var(--hg-black); color:#fff; border-color:#111; }
+.pager-nav .disabled { opacity:.45; pointer-events:none; }
 @media (max-width:700px) {
   nav { min-height:auto; padding:10px 14px; gap:10px; }
   nav .brand img { height:34px; }
@@ -185,6 +204,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
       <img src="{{ url_for('static', filename='brand/picture-perfect.png') }}" alt="Picture Perfect">
       <img src="{{ url_for('static', filename='brand/iskry.png') }}" alt="iskry!">
     </div>
+    <div class="site-footer-powered">Powered by <strong>Iskry</strong></div>
   </div>
 </footer>
 
