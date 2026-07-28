@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Magazyn{% endblock %}</title>
+<link rel="preload" as="image" href="{{ url_for('static', filename='brand/holo-group.png') }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -40,7 +41,7 @@ nav .brand {
   display:flex; align-items:center; gap:12px; text-decoration:none;
   margin-right:8px; padding:8px 0;
 }
-nav .brand img { height:40px; width:auto; display:block; }
+nav .brand img { height:40px; width:40px; display:block; flex-shrink:0; }
 nav .brand-text {
   font-family:"Gloock", Georgia, serif; font-size:22px; line-height:1;
   color:var(--hg-lime);
@@ -189,7 +190,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .pager-nav .disabled { opacity:.45; pointer-events:none; }
 @media (max-width:700px) {
   nav { min-height:auto; padding:10px 14px; gap:10px; }
-  nav .brand img { height:34px; }
+  nav .brand img { height:34px; width:34px; }
   nav .brand-text { font-size:20px; }
   nav .right { width:auto; margin-left:auto; justify-content:flex-end; flex-wrap:nowrap; }
   .site-footer-logos img { height:36px; max-width:84px; }
@@ -200,7 +201,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 <nav>
   <a class="brand" href="{{ url_for('dashboard') if session.user_id else url_for('login') }}">
     <span class="brand-text">Magazyn</span>
-    <img src="{{ url_for('static', filename='brand/holo-group.png') }}" alt="Holo Group">
+    <img src="{{ url_for('static', filename='brand/holo-group.png') }}" alt="Holo Group" width="40" height="40" decoding="async" fetchpriority="high">
   </a>
   {% if session.user_id %}
   <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
