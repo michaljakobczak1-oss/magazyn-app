@@ -139,10 +139,18 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 }
 .site-footer-logos img:hover { opacity:1; }
 .site-footer-powered {
-  margin-top:14px; text-align:center; font-size:12px; letter-spacing:0.04em;
-  color:rgba(255,255,255,.55); font-weight:500;
+  margin-top:16px; text-align:center;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  font-size:13px; letter-spacing:0.03em;
+  color:rgba(255,255,255,.7); font-weight:500;
 }
-.site-footer-powered strong { color:var(--hg-lime); font-weight:600; }
+.site-footer-powered .iskry-mark {
+  display:inline-flex; align-items:center; gap:8px;
+  color:#F85800; font-weight:700; letter-spacing:0.02em;
+}
+.site-footer-powered .iskry-mark img {
+  height:22px; width:auto; display:block;
+}
 .pager {
   display:flex; flex-wrap:wrap; gap:10px; align-items:center;
   justify-content:space-between; margin:14px 0 4px; font-size:13px; color:#555;
@@ -204,7 +212,13 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
       <img src="{{ url_for('static', filename='brand/picture-perfect.png') }}" alt="Picture Perfect">
       <img src="{{ url_for('static', filename='brand/iskry.png') }}" alt="iskry!">
     </div>
-    <div class="site-footer-powered">Powered by <strong>Iskry</strong></div>
+    <div class="site-footer-powered">
+      Powered by
+      <span class="iskry-mark">
+        <img src="{{ url_for('static', filename='brand/iskry-color.png') }}" alt="Iskry">
+        Iskry
+      </span>
+    </div>
   </div>
 </footer>
 

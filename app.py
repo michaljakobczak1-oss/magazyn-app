@@ -225,7 +225,7 @@ def index():
     f_warehouse = request.args.get("warehouse", "").strip()
     f_own = request.args.get("own", "").strip()          # "1" = tylko materiały 00
     f_condition = request.args.get("condition", "").strip()
-    per_page_raw = (request.args.get("per_page") or "50").strip().lower()
+    per_page_raw = (request.args.get("per_page") or "all").strip().lower()
     page_raw = (request.args.get("page") or "1").strip()
 
     con = get_db()
@@ -252,27 +252,25 @@ def index():
     all_items = con.execute(sql + " ORDER BY e.code", params).fetchall()
 
     total = len(all_items)
-    per_page_choices = [25, 50, 100, "all"]
-    if per_page_raw == "all":
+    per_page_choices = ["all", 25, 50, 100]
+    if per_page_raw in ("25", "50", "100"):
+        per_page = int(per_page_raw)
+        per_page_value = per_page_raw
+        try:
+            page = max(1, int(page_raw))
+        except ValueError:
+            page = 1
+        total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+        if page > total_pages:
+            page = total_pages
+        start = (page - 1) * per_page
+        items = all_items[start:start + per_page]
+    else:
         per_page = total or 1
         per_page_value = "all"
-    else:
-        try:
-            per_page = int(per_page_raw)
-        except ValueError:
-            per_page = 50
-        if per_page not in (25, 50, 100):
-            per_page = 50
-        per_page_value = str(per_page)
-    try:
-        page = max(1, int(page_raw))
-    except ValueError:
         page = 1
-    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
-    if page > total_pages:
-        page = total_pages
-    start = (page - 1) * per_page
-    items = all_items if per_page_value == "all" else all_items[start:start + per_page]
+        total_pages = 1
+        items = all_items
 
     # wartości do dropdownów filtrów
     projects = [r[0] for r in con.execute(
