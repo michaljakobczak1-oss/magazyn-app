@@ -45,8 +45,35 @@ nav .brand-text {
   font-family:"Gloock", Georgia, serif; font-size:22px; line-height:1;
   color:var(--hg-lime);
 }
-nav .right { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:13px; }
+nav .right { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:13px; position:relative; }
 nav .right a { font-size:13px; }
+.user-menu { position:relative; }
+.user-menu-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:36px; height:36px; border-radius:999px;
+  border:1px solid rgba(255,255,255,.35); background:transparent;
+  color:#fff; cursor:pointer; padding:0;
+}
+.user-menu-btn:hover, .user-menu.open .user-menu-btn {
+  border-color:var(--hg-lime); color:var(--hg-lime);
+}
+.user-menu-btn svg { width:18px; height:18px; display:block; }
+.user-menu-dropdown {
+  display:none; position:absolute; right:0; top:calc(100% + 8px);
+  min-width:200px; background:#111; border:1px solid #333;
+  border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.35);
+  padding:8px 0; z-index:80;
+}
+.user-menu.open .user-menu-dropdown { display:block; }
+.user-menu-name {
+  display:block; padding:8px 14px 10px; color:rgba(255,255,255,.55);
+  font-size:12px; border-bottom:1px solid #2a2a2a; margin-bottom:4px;
+}
+.user-menu-dropdown a {
+  display:block; padding:10px 14px; color:#fff; text-decoration:none;
+  font-size:13px; font-weight:500; border:0;
+}
+.user-menu-dropdown a:hover { background:#1c1c1c; color:var(--hg-lime); }
 .wrap { max-width:1200px; margin:24px auto; padding:0 16px; flex:1 0 auto; width:100%; }
 h1 { font-size:26px; margin:0 0 16px; }
 h2 { font-size:18px; }
@@ -164,7 +191,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   nav { min-height:auto; padding:10px 14px; gap:10px; }
   nav .brand img { height:34px; }
   nav .brand-text { font-size:20px; }
-  nav .right { width:100%; margin-left:0; justify-content:flex-start; flex-wrap:wrap; }
+  nav .right { width:auto; margin-left:auto; justify-content:flex-end; flex-wrap:nowrap; }
   .site-footer-logos img { height:36px; max-width:84px; }
 }
 </style>
@@ -185,11 +212,21 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   <a href="{{ url_for('catalog_import') }}" class="{{ 'active' if request.endpoint == 'catalog_import' }}">Import katalogu</a>
   <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Użytkownicy</a>
   {% endif %}
-  <span class="right">
-    {{ session.full_name or session.username }}
-    <a href="#" onclick="document.getElementById('pwd-modal').style.display='flex'; return false;">Zmień hasło</a>
-    <a href="{{ url_for('logout') }}">Wyloguj</a>
-  </span>
+  <div class="right">
+    <div class="user-menu" id="user-menu">
+      <button type="button" class="user-menu-btn" id="user-menu-btn" aria-label="Konto" title="Konto">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="8" r="3.2" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M5.5 18.5c1.6-3 4-4.5 6.5-4.5s4.9 1.5 6.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="user-menu-dropdown">
+        <span class="user-menu-name">{{ session.full_name or session.username }}</span>
+        <a href="#" onclick="document.getElementById('pwd-modal').style.display='flex'; document.getElementById('user-menu').classList.remove('open'); return false;">Zmień hasło</a>
+        <a href="{{ url_for('logout') }}">Wyloguj</a>
+      </div>
+    </div>
+  </div>
   {% endif %}
 </nav>
 <div class="wrap">
@@ -206,6 +243,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
       <img src="{{ url_for('static', filename='brand/holo.png') }}" alt="Holo">
       <img src="{{ url_for('static', filename='brand/warrens.png') }}" alt="Warren's">
       <img src="{{ url_for('static', filename='brand/picture-perfect.png') }}" alt="Picture Perfect">
+      <img src="{{ url_for('static', filename='brand/iskry.png') }}" alt="iskry!">
     </div>
     <div class="site-footer-powered">
       Powered by
@@ -238,6 +276,19 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 <!-- lightbox dla urządzeń dotykowych -->
 <div id="lightbox" onclick="this.style.display='none'"><img src="" alt=""></div>
 <script>
+(function(){
+  const menu = document.getElementById('user-menu');
+  const btn = document.getElementById('user-menu-btn');
+  if (menu && btn) {
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+    document.addEventListener('click', function(e){
+      if (!menu.contains(e.target)) menu.classList.remove('open');
+    });
+  }
+})();
 (function(){
   const preview = document.getElementById('thumb-preview');
   const pimg = preview.querySelector('img');
