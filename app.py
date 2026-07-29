@@ -11,7 +11,9 @@ from werkzeug.utils import secure_filename
 
 from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
                 equipment_photo_list, local_now, local_today, handoff_conflict,
-                next_free_after_return)
+                next_free_after_return, replace_equipment_stock,
+                move_equipment_stock_on_return, take_equipment_stock,
+                add_equipment_stock, sync_equipment_from_stock)
 from pdf_gen import protocol_pdf, group_pdf
 from import_excel import run_import
 import tempfile
@@ -242,7 +244,12 @@ def index():
     if f_brand:
         where.append("e.brand = ?"); params.append(f_brand)
     if f_warehouse.isdigit():
-        where.append("e.warehouse_id = ?"); params.append(int(f_warehouse))
+        wid = int(f_warehouse)
+        where.append(
+            """(e.warehouse_id = ? OR e.id IN (
+                 SELECT equipment_id FROM equipment_stock
+                 WHERE warehouse_id=? AND quantity > 0))""")
+        params.extend([wid, wid])
     if f_own == "1":
         where.append("e.material_type = 'wlasny'")
     if f_condition:
@@ -286,8 +293,25 @@ def index():
         it["id"]: it["quantity"] - reserved_qty(con, it["id"], today, today)
         for it in items
     }
+
+    # rozkład stanu po magazynach dla każdej pozycji (do wyświetlenia w tabeli)
+    eids = [it["id"] for it in items]
+    stock_map = {}
+    if eids:
+        stock_rows = con.execute(
+            f"""SELECT es.equipment_id, es.quantity, IFNULL(es.location,'') loc,
+                       w.name wh
+                FROM equipment_stock es
+                LEFT JOIN warehouses w ON w.id=es.warehouse_id
+                WHERE es.equipment_id IN ({','.join('?'*len(eids))}) AND es.quantity > 0
+                ORDER BY es.quantity DESC""",
+            eids).fetchall()
+        for sr in stock_rows:
+            stock_map.setdefault(sr["equipment_id"], []).append(sr)
+
     con.close()
     return render_template("index.html", items=items, availability=availability,
+                           stock_map=stock_map,
                            q=q, f_project=f_project, f_owner=f_owner, f_brand=f_brand,
                            f_warehouse=f_warehouse, f_own=f_own, f_condition=f_condition,
                            projects=projects, owners=owners, brands=brands,
@@ -340,14 +364,15 @@ def equipment_new():
         try:
             new_photos = _save_new_photos(request.files)[:MAX_PHOTOS]
             primary = new_photos[0] if new_photos else None
+            vals = _equipment_form_values(request.form, request.files, primary_photo=primary)
             cur = con.execute(
-                f"INSERT INTO equipment ({EQ_COLS}) VALUES ({','.join('?'*16)})",
-                _equipment_form_values(request.form, request.files, primary_photo=primary))
+                f"INSERT INTO equipment ({EQ_COLS}) VALUES ({','.join('?'*16)})", vals)
             eid = cur.lastrowid
             for i, fn in enumerate(new_photos):
                 con.execute(
                     "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,?)",
                     (eid, fn, i))
+            replace_equipment_stock(con, eid, vals[7], vals[6], vals[14])
             con.commit()
             flash("Sprzęt dodany.", "ok")
             return redirect(url_for("index"))
@@ -388,6 +413,8 @@ def equipment_edit(eid):
                 con.execute(
                     "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,?)",
                     (eid, fn, i))
+            # ręczna edycja karty: jeden magazyn/miejsce zgodne z formularzem
+            replace_equipment_stock(con, eid, vals[7], vals[6], vals[14])
             con.commit()
             flash("Zapisano zmiany.", "ok")
             return redirect(url_for("equipment_detail", eid=eid))
@@ -728,12 +755,16 @@ def _apply_issue(con, r, user_id, permanent=None):
         date_from = today
     status = "wydane trwale" if permanent else "wydane"
     if permanent:
-        eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
+        eq = con.execute("SELECT quantity, warehouse_id FROM equipment WHERE id=?",
                          (r["equipment_id"],)).fetchone()
         if not eq or eq["quantity"] < r["quantity"]:
             return False
+        if not take_equipment_stock(con, r["equipment_id"], r["quantity"],
+                                    prefer_warehouse_id=eq["warehouse_id"]):
+            return False
         con.execute("UPDATE equipment SET quantity = quantity - ? WHERE id=?",
                     (r["quantity"], r["equipment_id"]))
+        sync_equipment_from_stock(con, r["equipment_id"], keep_total=True)
     con.execute("""UPDATE reservations SET status=?, issued_at=?, issued_by=?,
                    date_from=?, permanent=? WHERE id=?""",
                 (status, now.isoformat(timespec="seconds"), user_id, date_from,
@@ -760,11 +791,7 @@ def _apply_return(con, r, user_id, form):
                    returned_by=?, damage=?, damage_notes=? WHERE id=?""",
                 (now, user_id, damage, damage_notes, r["id"]))
     eid = r["equipment_id"]
-    if loc:
-        con.execute("UPDATE equipment SET warehouse_id=?, location=? WHERE id=?",
-                    (wid, loc, eid))
-    else:
-        con.execute("UPDATE equipment SET warehouse_id=? WHERE id=?", (wid, eid))
+    move_equipment_stock_on_return(con, eid, r["quantity"], wid, loc)
     if damage:
         stamp = f"[{local_today().isoformat()}] zwrot rez. #{r['id']}: {damage_notes or 'uszkodzenie'}"
         con.execute("""UPDATE equipment SET condition='uszkodzony',
@@ -789,7 +816,7 @@ def _apply_dispose(con, r, user_id, form):
     if qty is None:
         return False
     r = _split_partial(con, r, qty)
-    eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
+    eq = con.execute("SELECT quantity, warehouse_id FROM equipment WHERE id=?",
                      (r["equipment_id"],)).fetchone()
     if not eq or eq["quantity"] < r["quantity"]:
         return False
@@ -800,17 +827,20 @@ def _apply_dispose(con, r, user_id, form):
     eid = r["equipment_id"]
     new_qty = eq["quantity"] - r["quantity"]
     stamp = f"[{local_today().isoformat()}] utylizacja rez. #{r['id']} ({r['quantity']} szt.): {notes}"
+    take_equipment_stock(con, eid, r["quantity"], prefer_warehouse_id=eq["warehouse_id"])
     if new_qty <= 0:
         con.execute("""UPDATE equipment SET quantity=0, condition='do utylizacji',
                        condition_notes=IFNULL(condition_notes,'') ||
                        CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
                        WHERE id=?""", (stamp, eid))
+        con.execute("DELETE FROM equipment_stock WHERE equipment_id=?", (eid,))
     else:
         # pozostałe sztuki nadal sprawne – tylko notatka w historii
         con.execute("""UPDATE equipment SET quantity=?,
                        condition_notes=IFNULL(condition_notes,'') ||
                        CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
                        WHERE id=?""", (new_qty, stamp, eid))
+        sync_equipment_from_stock(con, eid, keep_total=True)
     return True
 
 
@@ -818,24 +848,36 @@ def _pdf_for_rids(con, kind, rids):
     rows = _selected_reservations(con, rids)
     if not rows:
         return None
+    prefix = "WZ" if kind == "wydanie" else "PZ"
     if len(rows) == 1:
         r = rows[0]
-        eq = con.execute("SELECT * FROM equipment WHERE id=?", (r["equipment_id"],)).fetchone()
+        eq = con.execute(
+            """SELECT e.*, w.name AS warehouse_name, w.address AS warehouse_address
+               FROM equipment e LEFT JOIN warehouses w ON w.id=e.warehouse_id
+               WHERE e.id=?""",
+            (r["equipment_id"],)).fetchone()
         op = None
         if kind == "wydanie" and r["issued_by"]:
             op = con.execute("SELECT * FROM users WHERE id=?", (r["issued_by"],)).fetchone()
         elif kind == "przyjecie" and r["returned_by"]:
             op = con.execute("SELECT * FROM users WHERE id=?", (r["returned_by"],)).fetchone()
         photos = equipment_photo_list(con, r["equipment_id"])
-        if not photos and eq["photo"]:
+        if not photos and eq and eq["photo"]:
             photos = [eq["photo"]]
         buf = protocol_pdf(kind, r, eq, display_name(r),
                            display_name(op) if op else None, photos=photos)
-        prefix = "WZ" if kind == "wydanie" else "PZ"
         name = f"{prefix}_{r['code']}_{local_now():%Y%m%d_%H%M}.pdf"
     else:
-        buf = group_pdf(kind, rows)
-        prefix = "WZ" if kind == "wydanie" else "PZ"
+        # Zbiorcze wydanie/przyjęcie – jeden PDF tabelaryczny (jak wcześniej)
+        enriched = []
+        for r in rows:
+            row = dict(r)
+            if not row.get("photo"):
+                photos = equipment_photo_list(con, r["equipment_id"])
+                if photos:
+                    row["photo"] = photos[0]
+            enriched.append(row)
+        buf = group_pdf(kind, enriched)
         name = f"{prefix}_zbiorczy_{local_now():%Y%m%d_%H%M}.pdf"
     return buf, name
 
@@ -929,19 +971,18 @@ def bulk_action(action):
 @app.route("/reservations/pdf-group/<kind>")
 @login_required
 def pdf_group(kind):
-    """Tylko ponowne pobranie PDF – bez zmiany statusu."""
+    """Tylko ponowne pobranie PDF – bez zmiany statusu (ten sam układ co auto WZ/PZ)."""
     if kind not in ("wydanie", "przyjecie"):
         abort(404)
     con = get_db()
-    rows = _selected_reservations(con, request.args.getlist("rid"))
+    result = _pdf_for_rids(con, kind, request.args.getlist("rid"))
     con.close()
-    if not rows:
+    if not result:
         flash("Zaznacz przynajmniej jedną rezerwację.", "error")
         return redirect(url_for("reservations"))
-    buf = group_pdf(kind, rows)
-    prefix = "WZ" if kind == "wydanie" else "PZ"
+    buf, name = result
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                     download_name=f"{prefix}_zbiorczy_{local_now():%Y%m%d_%H%M}.pdf")
+                     download_name=name)
 
 
 def _get_reservation(con, rid):
@@ -974,6 +1015,11 @@ def purge_all_reservations():
             "UPDATE equipment SET quantity = quantity + ? WHERE id=?",
             (r["quantity"], r["equipment_id"]),
         )
+        eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
+                         (r["equipment_id"],)).fetchone()
+        if eq:
+            add_equipment_stock(con, r["equipment_id"], eq["warehouse_id"], eq["loc"], r["quantity"])
+            sync_equipment_from_stock(con, r["equipment_id"], keep_total=True)
     n = con.execute("SELECT COUNT(*) c FROM reservations").fetchone()["c"]
     con.execute("DELETE FROM reservations")
     con.commit()

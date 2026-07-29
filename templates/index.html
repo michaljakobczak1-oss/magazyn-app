@@ -109,7 +109,7 @@
   <span style="font-size:13px; color:#666;">– zaznacz kilka pozycji, aby stworzyć wspólną rezerwację na jeden termin</span>
 </div>
 <table>
-  <tr><th></th><th></th><th>Kod</th><th>Nazwa</th><th>Nr projektu</th><th>Magazyn</th><th>Miejsce</th><th>Własność</th><th>Brand</th><th>Stan</th><th>Dostępne dziś</th><th></th></tr>
+  <tr><th></th><th></th><th>Kod</th><th>Nazwa</th><th>Nr projektu</th><th>Magazyn / miejsce</th><th>Własność</th><th>Brand</th><th>Stan</th><th>Dostępne dziś</th><th></th></tr>
   {% for it in items %}
   <tr>
     <td><input type="checkbox" name="eid" value="{{ it.id }}" style="width:auto;"></td>
@@ -123,8 +123,21 @@
     </td>
     <td>{{ it.name }}</td>
     <td>{{ it.project_number or '–' }}</td>
-    <td>{{ it.warehouse_name or '–' }}</td>
-    <td>{{ it.location or '–' }}</td>
+    <td>
+      {% set rows = stock_map.get(it.id, []) %}
+      {% if rows | length > 1 %}
+        {% for sr in rows %}
+          <div style="white-space:nowrap;">
+            {{ sr.wh or '–' }}{% if sr.loc %} / {{ sr.loc }}{% endif %}
+            <strong style="font-size:12px;"> {{ sr.quantity }} szt.</strong>
+          </div>
+        {% endfor %}
+      {% elif rows | length == 1 %}
+        <div>{{ rows[0].wh or it.warehouse_name or '–' }}{% if rows[0].loc %} / {{ rows[0].loc }}{% endif %}</div>
+      {% else %}
+        {{ it.warehouse_name or '–' }}{% if it.location %} / {{ it.location }}{% endif %}
+      {% endif %}
+    </td>
     <td>{{ it.owner or '–' }}</td>
     <td>{{ it.brand or '–' }}</td>
     <td>{{ it.quantity }} szt.</td>

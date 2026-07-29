@@ -1,4 +1,5 @@
 """Generowanie protokołów wydania / przyjęcia (PDF)."""
+import os
 from io import BytesIO
 from pathlib import Path
 from datetime import datetime
@@ -23,7 +24,32 @@ try:
 except Exception:
     pass  # brak fontu -> Helvetica (bez polskich znaków)
 
-UPLOADS = Path(__file__).parent / "static" / "uploads"
+_BASE = Path(__file__).parent
+
+
+def _upload_dirs():
+    """Katalogi ze zdjęciami: dysk trwały (DATA_DIR) + static/uploads."""
+    dirs = []
+    data = os.environ.get("DATA_DIR")
+    if data:
+        dirs.append(Path(data) / "uploads")
+    dirs.append(_BASE / "data" / "uploads")
+    dirs.append(_BASE / "static" / "uploads")
+    return dirs
+
+
+def _resolve_photo(fn):
+    if not fn:
+        return None
+    for d in _upload_dirs():
+        path = d / fn
+        if path.exists():
+            return path
+    return None
+
+
+# kompatybilność wsteczna
+UPLOADS = _BASE / "static" / "uploads"
 
 
 def _wrap(text, max_chars):
@@ -38,6 +64,31 @@ def _wrap(text, max_chars):
             raw = raw[cut:].strip()
         lines.append(raw)
     return lines or [""]
+
+
+def _wrap_width(c, text, font, size, max_w):
+    """Zawijanie tekstu wg szerokości kolumny (mm → pt w ReportLab)."""
+    words = str(text or "").split()
+    if not words:
+        return [""]
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        trial = cur + " " + w
+        if c.stringWidth(trial, font, size) <= max_w:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+def _draw_col_lines(c, x, y, lines, font, size, line_h=3.5 * mm):
+    """Rysuje linie tekstu w kolumnie, zwraca nowe y."""
+    c.setFont(font, size)
+    for i, line in enumerate(lines):
+        c.drawString(x, y - i * line_h, line)
+    return y - max(1, len(lines)) * line_h
 
 
 def _get(row, key):
@@ -143,8 +194,8 @@ def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
     drawn_h = 0
     images = []
     for fn in names:
-        path = UPLOADS / fn
-        if not path.exists():
+        path = _resolve_photo(fn)
+        if not path:
             images.append(None)
             continue
         try:
@@ -171,10 +222,8 @@ def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
     return y - 6 * mm
 
 
-def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
-    """kind: 'wydanie' | 'przyjecie'. Kompaktowy układ na 1 stronę A4."""
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
+def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=None):
+    """Rysuje jedną stronę protokołu (WZ/PZ) na istniejącym canvasie."""
     w, h = A4
     m = 14 * mm
     y = h - m
@@ -284,23 +333,44 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
 
     # podpisy – zawsze na dole strony
     sig_y = 28 * mm
-    if y < sig_y + 8 * mm:
-        # brak miejsca – zmniejsz zdjęcia nie da się już, podpisy i tak na dole
-        pass
     c.setFont(FONT, 9)
     c.line(m, sig_y, m + 55 * mm, sig_y)
     c.line(w - m - 55 * mm, sig_y, w - m, sig_y)
     c.drawString(m + 6 * mm, sig_y - 4.5 * mm, "Wydający / Przyjmujący")
     c.drawString(w - m - 48 * mm, sig_y - 4.5 * mm, "Odbierający / Zwracający")
 
+
+def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
+    """kind: 'wydanie' | 'przyjecie'. Kompaktowy układ na 1 stronę A4."""
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    _draw_protocol_page(c, kind, res, eq, user_name, operator_name, photos)
     c.showPage()
     c.save()
     buf.seek(0)
     return buf
 
 
+def protocols_pdf(kind, pages):
+    """Wiele pozycji – każda na osobnej stronie w tym samym układzie co pojedynczy WZ/PZ.
+
+    pages: lista dictów {res, eq, user_name, operator_name, photos}
+    """
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    for p in pages:
+        _draw_protocol_page(
+            c, kind, p["res"], p["eq"], p["user_name"],
+            p.get("operator_name"), p.get("photos"))
+        c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
+
+
 def group_pdf(kind, rows):
-    """Zbiorczy protokół dla wielu rezerwacji. rows: sqlite3.Row z JOIN equipment+users."""
+    """Zbiorczy protokół tabelaryczny (pozostawiony dla kompatybilności / jawnego eksportu)."""
+    # Zdjęcia z dysku trwałego – _resolve_photo
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     w, h = A4
@@ -403,14 +473,20 @@ def group_pdf(kind, rows):
         y = _boxed_section(c, m, y, w - 2 * m, "ADRESAT TOWARU (dostawa)", rec_rows, font_size=9)
 
     row_h = 28 * mm
-    # Zdjęcie | Kod | Nazwa | Termin | Magazyn | Szt. | Własność
-    col_x = [m, m + 20 * mm, m + 38 * mm, m + 78 * mm, m + 118 * mm, m + 148 * mm, m + 158 * mm, w - m]
+    # Zdjęcie | Kod | Nazwa | Termin | Magazyn | Szt. | Własność  (szerokości dopasowane do długich kodów)
+    tbl_left = m
+    tbl_right = w - m
+    col_w = [22 * mm, 28 * mm, 38 * mm, 34 * mm, 30 * mm, 10 * mm,
+             tbl_right - tbl_left - (22 + 28 + 38 + 34 + 30 + 10) * mm]
+    col_x = [tbl_left]
+    for cw in col_w[:-1]:
+        col_x.append(col_x[-1] + cw)
 
     def table_head(y):
         c.setFont(FONT_B, 8)
         headers = ["Zdjęcie", "Kod", "Nazwa", "Termin", "Magazyn / miejsce", "Szt.", "Własność / brand"]
-        for x, t in zip(col_x, headers):
-            c.drawString(x + 0.5 * mm, y, t)
+        for x, cw, t in zip(col_x, col_w, headers):
+            c.drawString(x + 1 * mm, y, t)
         y -= 2 * mm
         c.line(m, y, w - m, y)
         return y
@@ -423,29 +499,35 @@ def group_pdf(kind, rows):
             y = table_head(y)
         yr = y - row_h
         if r["photo"]:
-            p = UPLOADS / r["photo"]
-            if p.exists():
+            p = _resolve_photo(r["photo"])
+            if p:
                 try:
                     img = ImageReader(str(p))
                     iw, ih = img.getSize()
-                    s = min(18 * mm / iw, (row_h - 4 * mm) / ih)
-                    c.drawImage(img, col_x[0], yr + 2 * mm, iw * s, ih * s,
+                    s = min((col_w[0] - 2 * mm) / iw, (row_h - 4 * mm) / ih)
+                    c.drawImage(img, col_x[0] + 1 * mm, yr + 2 * mm, iw * s, ih * s,
                                 preserveAspectRatio=True, anchor="sw")
                 except Exception:
                     pass
-        c.setFont(FONT, 8)
         ty = y - 5 * mm
-        c.drawString(col_x[1] + 0.5 * mm, ty, r["code"])
-        name = r["name"]
-        max_chars = 18
-        c.drawString(col_x[2] + 0.5 * mm, ty, name[:max_chars])
-        if len(name) > max_chars:
-            c.drawString(col_x[2] + 0.5 * mm, ty - 3.5 * mm, name[max_chars:max_chars * 2])
-        # termin: rzeczywiste daty jak w statusach tabeli
+        pad = 1 * mm
+        # kod – dopasuj czcionkę, żeby nie wchodził w nazwę
+        code = str(r["code"])
+        code_size = 8
+        while code_size >= 6.5 and c.stringWidth(code, FONT, code_size) > col_w[1] - 2 * pad:
+            code_size -= 0.5
+        c.setFont(FONT, code_size)
+        c.drawString(col_x[1] + pad, ty, code)
+        # nazwa – zawijanie po słowach w ramach kolumny
+        name_lines = _wrap_width(c, r["name"], FONT, 8, col_w[2] - 2 * pad)[:2]
+        _draw_col_lines(c, col_x[2] + pad, ty, name_lines, FONT, 8)
+        # termin
         c.setFont(FONT_B, 7.5)
         start, end = _actual_period(r, kind)
         issued_ts = _fmt_ts(_get(r, "issued_at"))
         returned_ts = _fmt_ts(_get(r, "returned_at"))
+        term_x = col_x[3] + pad
+        term_w = col_w[3] - 2 * pad
         if kind == "przyjecie" and (issued_ts or returned_ts):
             line1 = ("wyd. " + issued_ts) if issued_ts else start
             if r["status"] == "utylizacja" and returned_ts:
@@ -454,30 +536,37 @@ def group_pdf(kind, rows):
                 line2 = "zwr. " + returned_ts
             else:
                 line2 = "– " + end
-            c.drawString(col_x[3] + 0.5 * mm, ty, line1[:22])
+            c.drawString(term_x, ty, line1[:28])
             c.setFont(FONT, 7.5)
-            c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, line2[:22])
+            c.drawString(term_x, ty - 3.5 * mm, line2[:28])
         elif kind == "wydanie" and issued_ts:
-            c.drawString(col_x[3] + 0.5 * mm, ty, ("wyd. " + issued_ts)[:22])
+            c.drawString(term_x, ty, start[:28])
             c.setFont(FONT, 7.5)
-            c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, ("do " + end)[:22])
+            c.drawString(term_x, ty - 3.5 * mm, "– " + str(end)[:26])
         else:
-            c.drawString(col_x[3] + 0.5 * mm, ty, str(start))
+            c.drawString(term_x, ty, str(start)[:28])
             c.setFont(FONT, 7.5)
-            c.drawString(col_x[3] + 0.5 * mm, ty - 3.5 * mm, "– " + str(end))
+            c.drawString(term_x, ty - 3.5 * mm, "– " + str(end)[:26])
         if _get(r, "client"):
             c.setFillColor(colors.HexColor("#444444"))
-            cl = str(r["client"])[:20]
-            c.drawString(col_x[3] + 0.5 * mm, ty - 7 * mm, cl)
+            for i, wl in enumerate(_wrap_width(c, r["client"], FONT, 7, term_w)[:1]):
+                c.drawString(term_x, ty - 7 * mm - i * 3.2 * mm, wl)
             c.setFillColor(colors.black)
         c.setFont(FONT, 8)
         wh_name = _get(r, "warehouse_name") or "-"
-        c.drawString(col_x[4] + 0.5 * mm, ty, wh_name[:16])
-        c.drawString(col_x[4] + 0.5 * mm, ty - 3.5 * mm, (r["location"] or "-")[:16])
-        c.drawString(col_x[5] + 0.5 * mm, ty, str(r["quantity"]))
-        c.drawString(col_x[6] + 0.5 * mm, ty, (r["owner"] or "-")[:14])
+        wh_lines = _wrap_width(c, wh_name, FONT, 8, col_w[4] - 2 * pad)[:1]
+        loc_lines = _wrap_width(c, r["location"] or "-", FONT, 8, col_w[4] - 2 * pad)[:1]
+        _draw_col_lines(c, col_x[4] + pad, ty, wh_lines, FONT, 8)
+        if loc_lines:
+            c.setFont(FONT, 8)
+            c.drawString(col_x[4] + pad, ty - 3.5 * mm, loc_lines[0])
+        c.drawString(col_x[5] + pad, ty, str(r["quantity"]))
+        owner_lines = _wrap_width(c, r["owner"] or "-", FONT, 8, col_w[6] - 2 * pad)[:1]
+        _draw_col_lines(c, col_x[6] + pad, ty, owner_lines, FONT, 8)
         if _get(r, "brand"):
-            c.drawString(col_x[6] + 0.5 * mm, ty - 3.5 * mm, r["brand"][:14])
+            brand_lines = _wrap_width(c, r["brand"], FONT, 8, col_w[6] - 2 * pad)[:1]
+            c.setFont(FONT, 8)
+            c.drawString(col_x[6] + pad, ty - 3.5 * mm, brand_lines[0])
         extra_y = ty - 11 * mm
         if kind == "przyjecie":
             c.setFont(FONT_B, 7)

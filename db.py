@@ -120,6 +120,17 @@ CREATE TABLE IF NOT EXISTS equipment_photos (
     sort_order INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_eq_photos ON equipment_photos(equipment_id, sort_order);
+
+-- Stan magazynowy per magazyn/miejsce (ten sam kod może leżeć w kilku lokalizacjach)
+CREATE TABLE IF NOT EXISTS equipment_stock (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+    warehouse_id INTEGER REFERENCES warehouses(id),
+    location TEXT NOT NULL DEFAULT '',
+    quantity INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(equipment_id, warehouse_id, location)
+);
+CREATE INDEX IF NOT EXISTS idx_eq_stock ON equipment_stock(equipment_id);
 """
 
 # kolumny dokładane migracją do starszych baz: tabela -> {kolumna: definicja}
@@ -198,6 +209,22 @@ def init_db():
     con.execute("""UPDATE equipment SET condition='sprawny'
                    WHERE condition='do utylizacji' AND quantity > 0""")
     con.commit()
+
+    # migracja: stan per magazyn z dotychczasowego warehouse_id / location / quantity
+    still_missing = con.execute(
+        """SELECT e.id AS eid, e.warehouse_id AS wid, IFNULL(e.location,'') AS loc, e.quantity AS qty
+           FROM equipment e
+           WHERE e.quantity > 0
+             AND e.id NOT IN (SELECT DISTINCT equipment_id FROM equipment_stock WHERE quantity > 0)"""
+    ).fetchall()
+    for row in still_missing:
+        con.execute(
+            """INSERT INTO equipment_stock (equipment_id, warehouse_id, location, quantity)
+               VALUES (?,?,?,?)""",
+            (row["eid"], row["wid"], row["loc"], row["qty"]),
+        )
+    if still_missing:
+        con.commit()
 
     # pierwszy admin, jeśli brak użytkowników
     if con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
@@ -289,3 +316,170 @@ def sync_equipment_primary_photo(con, equipment_id):
     photos = equipment_photo_list(con, equipment_id)
     con.execute("UPDATE equipment SET photo=? WHERE id=?",
                 (photos[0] if photos else None, equipment_id))
+
+
+def ensure_equipment_stock(con, equipment_id):
+    """Gwarantuje wiersze stock; przy braku tworzy jeden z equipment.warehouse/location/qty."""
+    rows = con.execute(
+        "SELECT * FROM equipment_stock WHERE equipment_id=? AND quantity > 0 ORDER BY quantity DESC, id",
+        (equipment_id,)).fetchall()
+    if rows:
+        return rows
+    eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc, quantity FROM equipment WHERE id=?",
+                     (equipment_id,)).fetchone()
+    if not eq or not eq["quantity"] or eq["quantity"] <= 0:
+        return []
+    con.execute(
+        """INSERT INTO equipment_stock (equipment_id, warehouse_id, location, quantity)
+           VALUES (?,?,?,?)""",
+        (equipment_id, eq["warehouse_id"], eq["loc"], eq["quantity"]))
+    return con.execute(
+        "SELECT * FROM equipment_stock WHERE equipment_id=? AND quantity > 0 ORDER BY quantity DESC, id",
+        (equipment_id,)).fetchall()
+
+
+def replace_equipment_stock(con, equipment_id, warehouse_id, location, quantity):
+    """Ustawia stan jako jeden magazyn/miejsce (edycja karty / import)."""
+    con.execute("DELETE FROM equipment_stock WHERE equipment_id=?", (equipment_id,))
+    qty = int(quantity or 0)
+    if qty > 0:
+        con.execute(
+            """INSERT INTO equipment_stock (equipment_id, warehouse_id, location, quantity)
+               VALUES (?,?,?,?)""",
+            (equipment_id, warehouse_id, (location or "").strip(), qty))
+    sync_equipment_from_stock(con, equipment_id)
+
+
+def _stock_key_clause(warehouse_id, location):
+    loc = (location or "").strip()
+    if warehouse_id is None:
+        return "warehouse_id IS NULL AND location=?", [loc]
+    return "warehouse_id=? AND location=?", [warehouse_id, loc]
+
+
+def add_equipment_stock(con, equipment_id, warehouse_id, location, qty):
+    """Dodaje sztuki do wskazanego magazynu/miejsca."""
+    qty = int(qty)
+    if qty <= 0:
+        return
+    loc = (location or "").strip()
+    where, params = _stock_key_clause(warehouse_id, loc)
+    row = con.execute(
+        f"SELECT id, quantity FROM equipment_stock WHERE equipment_id=? AND {where}",
+        [equipment_id, *params]).fetchone()
+    if row:
+        con.execute("UPDATE equipment_stock SET quantity=quantity+? WHERE id=?",
+                    (qty, row["id"]))
+    else:
+        con.execute(
+            """INSERT INTO equipment_stock (equipment_id, warehouse_id, location, quantity)
+               VALUES (?,?,?,?)""",
+            (equipment_id, warehouse_id, loc, qty))
+
+
+def take_equipment_stock(con, equipment_id, qty, prefer_warehouse_id=None):
+    """Zdejmuje sztuki ze stanu (najpierw preferowany magazyn, potem największe stany)."""
+    qty = int(qty)
+    if qty <= 0:
+        return True
+    ensure_equipment_stock(con, equipment_id)
+    rows = list(con.execute(
+        "SELECT * FROM equipment_stock WHERE equipment_id=? AND quantity > 0 ORDER BY quantity DESC, id",
+        (equipment_id,)).fetchall())
+    if prefer_warehouse_id is not None:
+        rows.sort(key=lambda r: (
+            0 if r["warehouse_id"] == prefer_warehouse_id else 1,
+            -int(r["quantity"]),
+            r["id"],
+        ))
+    left = qty
+    for r in rows:
+        if left <= 0:
+            break
+        take = min(int(r["quantity"]), left)
+        new_q = int(r["quantity"]) - take
+        if new_q <= 0:
+            con.execute("DELETE FROM equipment_stock WHERE id=?", (r["id"],))
+        else:
+            con.execute("UPDATE equipment_stock SET quantity=? WHERE id=?", (new_q, r["id"]))
+        left -= take
+    return left == 0
+
+
+def move_equipment_stock_on_return(con, equipment_id, qty, to_warehouse_id, to_location):
+    """Przy zwrocie: przenosi qty szt. ze starego stanu na magazyn/miejsce przyjęcia.
+
+    Nie zmienia łącznej quantity sprzętu – tylko rozkład po magazynach.
+    """
+    qty = int(qty)
+    if qty <= 0:
+        return False
+    eq = con.execute("SELECT warehouse_id FROM equipment WHERE id=?", (equipment_id,)).fetchone()
+    prefer = eq["warehouse_id"] if eq else None
+    ensure_equipment_stock(con, equipment_id)
+    take_equipment_stock(con, equipment_id, qty, prefer_warehouse_id=prefer)
+    add_equipment_stock(con, equipment_id, to_warehouse_id, to_location, qty)
+    sync_equipment_from_stock(con, equipment_id, keep_total=True)
+    return True
+
+
+def sync_equipment_from_stock(con, equipment_id, keep_total=False):
+    """Ustawia equipment.warehouse_id / location / (opcjonalnie quantity) wg stock.
+
+    keep_total=True: nie rusza equipment.quantity (zwrot tylko zmienia rozkład).
+    """
+    rows = con.execute(
+        """SELECT es.*, w.name AS warehouse_name
+           FROM equipment_stock es
+           LEFT JOIN warehouses w ON w.id=es.warehouse_id
+           WHERE es.equipment_id=? AND es.quantity > 0
+           ORDER BY es.quantity DESC, es.id""",
+        (equipment_id,)).fetchall()
+    if not rows:
+        if not keep_total:
+            con.execute(
+                "UPDATE equipment SET quantity=0, warehouse_id=NULL, location='' WHERE id=?",
+                (equipment_id,))
+        return
+
+    primary = rows[0]
+    if len(rows) == 1:
+        loc = primary["location"] or ""
+    else:
+        parts = []
+        for r in rows:
+            wh = r["warehouse_name"] or "—"
+            place = (r["location"] or "").strip()
+            label = f"{wh}" + (f"/{place}" if place else "")
+            parts.append(f"{label} {int(r['quantity'])}")
+        loc = ", ".join(parts)
+
+    if keep_total:
+        con.execute(
+            "UPDATE equipment SET warehouse_id=?, location=? WHERE id=?",
+            (primary["warehouse_id"], loc, equipment_id))
+    else:
+        stock_sum = sum(int(r["quantity"]) for r in rows)
+        con.execute(
+            "UPDATE equipment SET warehouse_id=?, location=?, quantity=? WHERE id=?",
+            (primary["warehouse_id"], loc, stock_sum, equipment_id))
+
+
+def stock_summary(con, equipment_id):
+    """Krótki opis rozkładu stanu, np. 'Łowicz: 4, Stalowa: 1'."""
+    rows = con.execute(
+        """SELECT es.quantity, IFNULL(es.location,'') loc, w.name AS warehouse_name
+           FROM equipment_stock es
+           LEFT JOIN warehouses w ON w.id=es.warehouse_id
+           WHERE es.equipment_id=? AND es.quantity > 0
+           ORDER BY es.quantity DESC, es.id""",
+        (equipment_id,)).fetchall()
+    if not rows:
+        return ""
+    parts = []
+    for r in rows:
+        wh = r["warehouse_name"] or "—"
+        loc = (r["loc"] or "").strip()
+        label = wh + (f"/{loc}" if loc else "")
+        parts.append(f"{label}: {int(r['quantity'])}")
+    return ", ".join(parts)
