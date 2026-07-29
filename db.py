@@ -161,6 +161,8 @@ MIGRATIONS = {
         "damage": "INTEGER NOT NULL DEFAULT 0",
         "damage_notes": "TEXT",
         "permanent": "INTEGER NOT NULL DEFAULT 0",
+        "return_warehouse_id": "INTEGER REFERENCES warehouses(id)",
+        "return_location": "TEXT",
     },
 }
 
@@ -443,16 +445,8 @@ def sync_equipment_from_stock(con, equipment_id, keep_total=False):
         return
 
     primary = rows[0]
-    if len(rows) == 1:
-        loc = primary["location"] or ""
-    else:
-        parts = []
-        for r in rows:
-            wh = r["warehouse_name"] or "—"
-            place = (r["location"] or "").strip()
-            label = f"{wh}" + (f"/{place}" if place else "")
-            parts.append(f"{label} {int(r['quantity'])}")
-        loc = ", ".join(parts)
+    # Główny magazyn = ten z największą ilością; lokalizacja bez sklejania multi-stock
+    loc = primary["location"] or ""
 
     if keep_total:
         con.execute(

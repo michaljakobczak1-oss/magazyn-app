@@ -788,8 +788,9 @@ def _apply_return(con, r, user_id, form):
     damage_notes = (form.get("damage_notes") or "").strip()
     now = local_now().isoformat(timespec="seconds")
     con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
-                   returned_by=?, damage=?, damage_notes=? WHERE id=?""",
-                (now, user_id, damage, damage_notes, r["id"]))
+                   returned_by=?, damage=?, damage_notes=?,
+                   return_warehouse_id=?, return_location=? WHERE id=?""",
+                (now, user_id, damage, damage_notes, wid, loc, r["id"]))
     eid = r["equipment_id"]
     move_equipment_stock_on_return(con, eid, r["quantity"], wid, loc)
     if damage:
@@ -844,18 +845,50 @@ def _apply_dispose(con, r, user_id, form):
     return True
 
 
-def _pdf_for_rids(con, kind, rids):
+def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, ret_loc=None):
+    """Dane sprzętu do PDF. Dla PZ używa magazynu przyjęcia ze zwrotu, nie głównego stocku."""
+    eq = con.execute(
+        """SELECT e.*, w.name AS warehouse_name, w.address AS warehouse_address
+           FROM equipment e LEFT JOIN warehouses w ON w.id=e.warehouse_id
+           WHERE e.id=?""",
+        (equipment_id,)).fetchone()
+    if not eq:
+        return None
+    if kind != "przyjecie":
+        return eq
+
+    wid = ret_wid
+    loc = ret_loc
+    if wid is None and reservation is not None:
+        try:
+            wid = reservation["return_warehouse_id"]
+            loc = reservation["return_location"]
+        except (KeyError, IndexError, TypeError):
+            wid = None
+            loc = None
+    if not wid:
+        return eq
+
+    ret_wh = con.execute("SELECT name, address FROM warehouses WHERE id=?",
+                         (wid,)).fetchone()
+    if not ret_wh:
+        return eq
+    eq = dict(eq)
+    eq["warehouse_name"] = ret_wh["name"]
+    eq["warehouse_address"] = ret_wh["address"] or ""
+    eq["location"] = (loc or "").strip()
+    return eq
+
+
+def _pdf_for_rids(con, kind, rids, ret_wid=None, ret_loc=None):
     rows = _selected_reservations(con, rids)
     if not rows:
         return None
     prefix = "WZ" if kind == "wydanie" else "PZ"
     if len(rows) == 1:
         r = rows[0]
-        eq = con.execute(
-            """SELECT e.*, w.name AS warehouse_name, w.address AS warehouse_address
-               FROM equipment e LEFT JOIN warehouses w ON w.id=e.warehouse_id
-               WHERE e.id=?""",
-            (r["equipment_id"],)).fetchone()
+        eq = _eq_for_pdf(con, r["equipment_id"], kind=kind, reservation=r,
+                         ret_wid=ret_wid, ret_loc=ret_loc)
         op = None
         if kind == "wydanie" and r["issued_by"]:
             op = con.execute("SELECT * FROM users WHERE id=?", (r["issued_by"],)).fetchone()
@@ -962,7 +995,10 @@ def bulk_action(action):
         pdf_ids = returned_ids + disposed_ids
         flash(msg + (" Pobieranie PDF…" if pdf_ids else ""), "ok")
         if pdf_ids:
-            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=pdf_ids))
+            ret_wid = (request.form.get("return_warehouse_id") or "").strip()
+            ret_loc = (request.form.get("return_location") or "").strip()
+            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=pdf_ids,
+                                    ret_wid=ret_wid, ret_loc=ret_loc))
         return redirect(url_for("reservations"))
     flash(f"Wydano: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
@@ -1101,13 +1137,16 @@ def return_item(rid):
         flash(f"Podaj poprawną liczbę sztuk (1–{r['quantity']}).", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
+    ret_wid = (request.form.get("return_warehouse_id") or "").strip()
+    ret_loc = (request.form.get("return_location") or "").strip()
     if _apply_return(con, r, session["user_id"], request.form):
         con.commit()
         con.close()
         damaged = bool(request.form.get("damage"))
         flash("Oznaczono jako zwrócone." + (" Odnotowano uszkodzenie." if damaged else "")
               + " Pobieranie PDF…", "ok")
-        return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid))
+        return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid,
+                                ret_wid=ret_wid, ret_loc=ret_loc))
     con.close()
     flash("Nie udało się przyjąć zwrotu.", "error")
     return redirect(request.referrer or url_for("reservations"))
@@ -1120,7 +1159,10 @@ def auto_pdf(kind):
     if kind not in ("wydanie", "przyjecie"):
         abort(404)
     con = get_db()
-    result = _pdf_for_rids(con, kind, request.args.getlist("rid"))
+    ret_wid = request.args.get("ret_wid", "").strip()
+    ret_loc = request.args.get("ret_loc", "").strip()
+    result = _pdf_for_rids(con, kind, request.args.getlist("rid"),
+                           ret_wid=ret_wid or None, ret_loc=ret_loc or None)
     con.close()
     if not result:
         flash("Brak danych do PDF.", "error")
@@ -1205,11 +1247,9 @@ def reservation_pdf(rid, kind):
         abort(404)
     con = get_db()
     r = _get_reservation(con, rid)
-    eq = con.execute("""SELECT e.*, w.name AS warehouse_name, w.address AS warehouse_address
-                        FROM equipment e LEFT JOIN warehouses w ON w.id=e.warehouse_id
-                        WHERE e.id=?""", (r["equipment_id"],)).fetchone()
+    eq = _eq_for_pdf(con, r["equipment_id"], kind=kind, reservation=r)
     photos = equipment_photo_list(con, r["equipment_id"])
-    if not photos and eq["photo"]:
+    if not photos and eq and eq["photo"]:
         photos = [eq["photo"]]
     op_id = r["issued_by"] if kind == "wydanie" else r["returned_by"]
     op = None

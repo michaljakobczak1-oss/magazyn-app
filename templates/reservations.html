@@ -520,9 +520,13 @@ function openReturnBulk(){
 (function(){
   const kind = {{ request.args.get('auto_pdf')|tojson }};
   const rids = {{ request.args.getlist('rid')|tojson }};
-  const q = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); }).join('&');
+  const parts = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); });
+  const retWid = {{ request.args.get('ret_wid', '')|tojson }};
+  const retLoc = {{ request.args.get('ret_loc', '')|tojson }};
+  if (retWid) parts.push('ret_wid=' + encodeURIComponent(retWid));
+  if (retLoc) parts.push('ret_loc=' + encodeURIComponent(retLoc));
   const a = document.createElement('a');
-  a.href = '/reservations/auto-pdf/' + kind + '?' + q;
+  a.href = '/reservations/auto-pdf/' + kind + '?' + parts.join('&');
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
