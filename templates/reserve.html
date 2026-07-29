@@ -25,7 +25,13 @@
       {% endfor %}
     </select>
     <label>Klient / cel</label>
-    <input name="client" placeholder="np. Targi XYZ, projekt 2026/07" value="{{ form.get('client', '') }}">
+    <input name="client" placeholder="np. Targi XYZ" value="{{ form.get('client', '') }}">
+    <label>Numer projektu *</label>
+    <input name="project_number" list="project-numbers" placeholder="wybierz z listy lub wpisz"
+           value="{{ form.get('project_number', eq.project_number or '') }}" required>
+    <datalist id="project-numbers">
+      {% for p in projects %}<option value="{{ p }}"></option>{% endfor %}
+    </datalist>
     <label>Uwagi</label>
     <textarea name="notes" rows="2">{{ form.get('notes', '') }}</textarea>
     <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-top:12px;">

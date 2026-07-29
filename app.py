@@ -123,6 +123,21 @@ def recent_recipients(con, limit=30):
         "SELECT * FROM recipients ORDER BY last_used DESC LIMIT ?", (limit,)).fetchall()
 
 
+def project_suggestions(con):
+    """Numery projektu do wyboru przy rezerwacji – tylko wartości z cyframi
+    (bez nazw typu brand/opis). Filtry na liście sprzętu bez zmian.
+    """
+    rows = con.execute(
+        """SELECT DISTINCT project_number AS p FROM equipment
+           WHERE IFNULL(project_number,'')!=''
+           UNION
+           SELECT DISTINCT project_number AS p FROM reservations
+           WHERE IFNULL(project_number,'')!=''
+           ORDER BY 1"""
+    ).fetchall()
+    return [r["p"] for r in rows if any(ch.isdigit() for ch in (r["p"] or ""))]
+
+
 def recipient_form_fields(form):
     return dict(
         recipient_name=form.get("recipient_name", "").strip(),
@@ -519,7 +534,10 @@ def reserve(eid):
         form_data = request.form
         d_from, d_to = request.form["date_from"], request.form["date_to"]
         qty = max(1, int(request.form.get("quantity") or 1))
-        if not valid_dates(d_from, d_to):
+        proj = (request.form.get("project_number") or "").strip()
+        if not proj:
+            flash("Podaj numer projektu.", "error")
+        elif not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
         elif handoff_conflict(con, eid, d_from, d_to):
             # znajdź konflikt, żeby podać konkretną datę
@@ -544,12 +562,13 @@ def reserve(eid):
                 con.execute(
                     """INSERT INTO reservations (equipment_id, user_id, client,
                        date_from, date_to, quantity, notes, receiver, permanent,
+                       project_number,
                        recipient_name, recipient_contact, recipient_phone,
                        recipient_address, recipient_email)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (eid, session["user_id"], request.form["client"].strip(),
                      d_from, d_to, qty, request.form["notes"].strip(),
-                     request.form.get("receiver", ""), permanent,
+                     request.form.get("receiver", ""), permanent, proj,
                      rec["recipient_name"], rec["recipient_contact"],
                      rec["recipient_phone"], rec["recipient_address"],
                      rec["recipient_email"]))
@@ -562,9 +581,10 @@ def reserve(eid):
                 return redirect(url_for("equipment_detail", eid=eid))
     receivers = active_partners(con)
     recipients = recent_recipients(con)
+    projects = project_suggestions(con)
     con.close()
     return render_template("reserve.html", eq=eq, receivers=receivers,
-                           recipients=recipients, form=form_data)
+                           recipients=recipients, projects=projects, form=form_data)
 
 
 @app.route("/reserve-multi", methods=["GET", "POST"])
@@ -593,7 +613,10 @@ def reserve_multi():
     if request.method == "POST" and "date_from" in request.form:
         form_data = request.form
         d_from, d_to = request.form["date_from"], request.form["date_to"]
-        if not valid_dates(d_from, d_to):
+        proj = (request.form.get("project_number") or "").strip()
+        if not proj:
+            flash("Podaj numer projektu.", "error")
+        elif not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
         else:
             errors = []
@@ -638,13 +661,14 @@ def reserve_multi():
                     con.execute(
                         """INSERT INTO reservations (equipment_id, user_id, client,
                            date_from, date_to, quantity, notes, group_id, receiver, permanent,
+                           project_number,
                            recipient_name, recipient_contact, recipient_phone,
                            recipient_address, recipient_email)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (it["id"], session["user_id"], request.form["client"].strip(),
                          d_from, d_to, wanted[it["id"]],
                          request.form["notes"].strip(), gid,
-                         request.form.get("receiver", ""), permanent,
+                         request.form.get("receiver", ""), permanent, proj,
                          rec["recipient_name"], rec["recipient_contact"],
                          rec["recipient_phone"], rec["recipient_address"],
                          rec["recipient_email"]))
@@ -657,10 +681,17 @@ def reserve_multi():
                 return redirect(url_for("reservations"))
     receivers = active_partners(con)
     recipients = recent_recipients(con)
+    projects = project_suggestions(con)
+    # podpowiedź: wspólny numer projektu ze sprzętu, jeśli wszystkie mają ten sam
+    eq_projects = {(it["project_number"] or "").strip() for it in items}
+    eq_projects.discard("")
+    default_proj = next(iter(eq_projects)) if len(eq_projects) == 1 else ""
     con.close()
     return render_template("reserve_multi.html", items=items, receivers=receivers,
-                           recipients=recipients, multi_warehouse=multi_warehouse,
-                           wh_names=sorted(wh_names), form=form_data)
+                           recipients=recipients, projects=projects,
+                           multi_warehouse=multi_warehouse,
+                           wh_names=sorted(wh_names), form=form_data,
+                           default_project=default_proj)
 
 
 def _selected_reservations(con, rids):
@@ -670,7 +701,8 @@ def _selected_reservations(con, rids):
     return con.execute(
         f"""SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
             e.code, e.name, e.location, e.owner, e.brand,
-            e.photo, e.dimensions, e.project_number, e.storage_instructions,
+            e.photo, e.dimensions, e.project_number AS equipment_project_number,
+            e.storage_instructions,
             w.name AS warehouse_name, w.address AS warehouse_address
             FROM reservations r JOIN users u ON u.id=r.user_id
             JOIN equipment e ON e.id=r.equipment_id
@@ -719,14 +751,15 @@ def _split_partial(con, r, process_qty):
     con.execute(
         """INSERT INTO reservations (
             equipment_id, user_id, client, date_from, date_to, quantity, status,
-            group_id, receiver, permanent, recipient_name, recipient_contact,
+            group_id, receiver, permanent, project_number,
+            recipient_name, recipient_contact,
             recipient_phone, recipient_address, recipient_email, notes,
             issued_at, issued_by
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             r["equipment_id"], r["user_id"], g("client"), r["date_from"], r["date_to"],
             remaining, "wydane", g("group_id"), g("receiver"),
-            1 if g("permanent") else 0,
+            1 if g("permanent") else 0, g("project_number"),
             g("recipient_name"), g("recipient_contact"), g("recipient_phone"),
             g("recipient_address"), g("recipient_email"), g("notes"),
             g("issued_at"), g("issued_by"),

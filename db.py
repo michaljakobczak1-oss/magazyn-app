@@ -163,6 +163,7 @@ MIGRATIONS = {
         "permanent": "INTEGER NOT NULL DEFAULT 0",
         "return_warehouse_id": "INTEGER REFERENCES warehouses(id)",
         "return_location": "TEXT",
+        "project_number": "TEXT",
     },
 }
 

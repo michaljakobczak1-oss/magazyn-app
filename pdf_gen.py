@@ -253,7 +253,7 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
     left = [
         ("Kod sprzętu", eq["code"]),
         ("Nazwa", eq["name"]),
-        ("Numer projektu", eq["project_number"] or "-"),
+        ("Numer projektu", _get(res, "project_number") or _get(eq, "project_number") or "-"),
         ("Wymiary", eq["dimensions"] or "-"),
         ("Magazyn" if kind == "wydanie" else "Magazyn przyjęcia", wh_txt),
         ("Miejsce w magazynie", eq["location"] or "-"),
@@ -425,6 +425,10 @@ def group_pdf(kind, rows):
 
     terms = sorted({_actual_period(r, kind) for r in rows})
     clients = sorted({r["client"] for r in rows if r["client"]})
+    projects = sorted({(_get(r, "project_number") or "").strip()
+                       or (_get(r, "equipment_project_number") or "").strip()
+                       for r in rows})
+    projects = [p for p in projects if p]
     users = sorted({f"{(_get(r,'first_name') or '').strip()} {(_get(r,'last_name') or '').strip()}".strip()
                     or r["username"] for r in rows})
     receivers = sorted({r["receiver"] for r in rows if r["receiver"]})
@@ -432,9 +436,16 @@ def group_pdf(kind, rows):
         termin_txt = f"{terms[0][0]} – {terms[0][1]}"
     else:
         termin_txt = "różne – szczegóły przy pozycjach"
+    if len(projects) == 0:
+        project_txt = "-"
+    elif len(projects) == 1:
+        project_txt = projects[0]
+    else:
+        project_txt = ", ".join(projects)
     termin_label = "Termin (wydanie – zwrot)" if kind == "przyjecie" else "Termin"
     common = [
         (termin_label, termin_txt),
+        ("Numer projektu", project_txt),
         ("Klient / cel", ", ".join(clients) or "-"),
         ("Odbiera towar", ", ".join(receivers) or "-"),
         ("Rezerwujący", ", ".join(users)),
