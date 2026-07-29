@@ -61,7 +61,6 @@
   </div>
   <button class="btn">Filtruj</button>
   <a class="btn ghost" href="{{ url_for('index') }}">Wyczyść</a>
-  {% if session.role == 'admin' %}<a class="btn" style="margin-left:auto;" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>{% endif %}
 </form>
 
 {% set qs = {
@@ -69,7 +68,7 @@
   'warehouse': f_warehouse, 'own': f_own, 'condition': f_condition,
   'per_page': per_page
 } %}
-<div class="pager">
+<div class="list-actions">
   <div>
     {% if total %}
       Pokazano {{ items|length }} z {{ total }}
@@ -78,8 +77,13 @@
       Brak wyników
     {% endif %}
   </div>
-  {% if per_page != 'all' and total_pages > 1 %}
-  <div class="pager-nav">
+  {% if session.role == 'admin' %}
+  <a class="btn" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>
+  {% endif %}
+</div>
+{% if per_page != 'all' and total_pages > 1 %}
+<div class="pager">
+  <div class="pager-nav" style="margin-left:auto;">
     {% if page > 1 %}
       <a href="{{ url_for('index', page=page-1, **qs) }}">← Poprzednia</a>
     {% else %}
@@ -100,8 +104,8 @@
       <span class="disabled">Następna →</span>
     {% endif %}
   </div>
-  {% endif %}
 </div>
+{% endif %}
 
 <form method="get" action="{{ url_for('reserve_multi') }}">
 <div style="margin-bottom:10px;">

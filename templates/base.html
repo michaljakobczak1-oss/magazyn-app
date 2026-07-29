@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Magazyn{% endblock %}</title>
-<link rel="preload" as="image" href="{{ url_for('static', filename='brand/holo-group.png') }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -41,7 +40,6 @@ nav .brand {
   display:flex; align-items:center; gap:12px; text-decoration:none;
   margin-right:8px; padding:8px 0;
 }
-nav .brand img { height:40px; width:40px; display:block; flex-shrink:0; }
 nav .brand-text {
   font-family:"Gloock", Georgia, serif; font-size:22px; line-height:1;
   color:var(--hg-lime);
@@ -188,12 +186,29 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .pager-nav a:hover { border-color:var(--hg-lime); }
 .pager-nav .current { background:var(--hg-black); color:#fff; border-color:#111; }
 .pager-nav .disabled { opacity:.45; pointer-events:none; }
+.list-actions {
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+  justify-content:space-between; margin:-4px 0 14px;
+}
+#back-to-top {
+  position:fixed; right:22px; bottom:22px; z-index:70;
+  display:none; align-items:center; justify-content:center; gap:8px;
+  min-width:44px; height:44px; padding:0 14px;
+  border:none; border-radius:999px; cursor:pointer;
+  background:var(--hg-black); color:var(--hg-white);
+  box-shadow:0 8px 24px rgba(0,0,0,.28);
+  font-family:inherit; font-size:13px; font-weight:600;
+}
+#back-to-top.visible { display:inline-flex; }
+#back-to-top:hover { background:#222; }
+#back-to-top svg { width:16px; height:16px; display:block; }
 @media (max-width:700px) {
   nav { min-height:auto; padding:10px 14px; gap:10px; }
-  nav .brand img { height:34px; width:34px; }
   nav .brand-text { font-size:20px; }
   nav .right { width:auto; margin-left:auto; justify-content:flex-end; flex-wrap:nowrap; }
   .site-footer-logos img { height:36px; max-width:84px; }
+  #back-to-top span { display:none; }
+  #back-to-top { padding:0; width:44px; }
 }
 </style>
 </head>
@@ -201,7 +216,6 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 <nav>
   <a class="brand" href="{{ url_for('dashboard') if session.user_id else url_for('login') }}">
     <span class="brand-text">Magazyn</span>
-    <img src="{{ url_for('static', filename='brand/holo-group.png') }}" alt="Holo Group" width="40" height="40" decoding="async" fetchpriority="high">
   </a>
   {% if session.user_id %}
   <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
@@ -253,6 +267,13 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   </div>
 </footer>
 
+<button type="button" id="back-to-top" aria-label="Wróć na górę" title="Wróć na górę">
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span>Wróć na górę</span>
+</button>
+
 {% if session.user_id %}
 <!-- zmiana własnego hasła -->
 <div id="pwd-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center;">
@@ -289,6 +310,18 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
       if (!menu.contains(e.target)) menu.classList.remove('open');
     });
   }
+})();
+(function(){
+  const btn = document.getElementById('back-to-top');
+  if (!btn) return;
+  function sync(){
+    btn.classList.toggle('visible', window.scrollY > 400);
+  }
+  window.addEventListener('scroll', sync, { passive: true });
+  sync();
+  btn.addEventListener('click', function(){
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
 })();
 (function(){
   const preview = document.getElementById('thumb-preview');
