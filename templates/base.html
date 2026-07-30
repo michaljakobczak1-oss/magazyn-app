@@ -110,6 +110,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .badge.overdue { background:var(--err); color:#fff; }
 .badge.damaged { background:#fde8e8; color:var(--err); border:1px solid var(--err); }
 .badge.own { background:#f0f0f0; color:#111; }
+.badge.tcl { background:#e8eaf6; color:#283593; border:1px solid #9fa8da; }
 .thumb { width:48px; height:48px; object-fit:cover; border-radius:6px; cursor:zoom-in; }
 .zoomable { display:inline-block; line-height:0; }
 /* podgląd poza tabelą – fixed, całe zdjęcie (object-fit:contain), ~450 px */
@@ -258,6 +259,9 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   {% if session.user_id %}
   <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
   <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Sprzęt</a>
+  {% if can_manage_tcl %}
+  <a href="{{ url_for('tcl_index') }}" class="{{ 'active' if request.endpoint in ('tcl_index', 'tcl_import') }}">Sprzęt TCL</a>
+  {% endif %}
   <a href="{{ url_for('reservations') }}" class="{{ 'active' if request.endpoint == 'reservations' and not request.args.get('mine') }}">Rezerwacje</a>
   <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>
   {% if session.role == 'admin' %}

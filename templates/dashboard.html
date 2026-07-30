@@ -15,7 +15,9 @@
   <tr><th>Kod</th><th>Nazwa</th><th>Magazyn / miejsce</th><th>Szt.</th><th>Termin</th><th>Klient / cel</th><th>Odbiera (podwykonawca)</th><th>PM</th><th></th></tr>
   {% for r in rows %}
   <tr>
-    <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
+    <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a>
+      {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
+    </td>
     <td>{{ r.name }}</td>
     <td>{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</td>
     <td>{{ r.quantity }}</td>

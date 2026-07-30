@@ -1,11 +1,16 @@
 {% extends "base.html" %}
 {% from "_thumb.html" import thumb %}
-{% block title %}Sprzęt – Magazyn{% endblock %}
+{% set is_tcl = (catalog or 'main') == 'tcl' %}
+{% set list_ep = 'tcl_index' if is_tcl else 'index' %}
+{% block title %}{{ 'Sprzęt TCL' if is_tcl else 'Sprzęt' }} – Magazyn{% endblock %}
 {% block content %}
-<h1>Rejestr sprzętu</h1>
+<h1>{% if is_tcl %}Sprzęt TCL <span class="badge tcl">TCL</span>{% else %}Rejestr sprzętu{% endif %}</h1>
+{% if is_tcl %}
+<p style="color:#555; margin-top:-8px; font-size:14px;">Osobny katalog TCL – zarządzanie: dział Warrens i admin.</p>
+{% endif %}
 
 {# 1.1 – filtry łączone, zachowywane w URL #}
-<form method="get" class="filters">
+<form method="get" class="filters" action="{{ url_for(list_ep) }}">
   <div>
     <label>Nazwa / kod / miejsce</label>
     <input type="text" name="q" value="{{ q }}" placeholder="Szukaj…">
@@ -60,7 +65,7 @@
     <label for="own" style="margin:0;">tylko materiały własne</label>
   </div>
   <button class="btn">Filtruj</button>
-  <a class="btn ghost" href="{{ url_for('index') }}">Wyczyść</a>
+  <a class="btn ghost" href="{{ url_for(list_ep) }}">Wyczyść</a>
 </form>
 
 {% set qs = {
@@ -77,7 +82,12 @@
       Brak wyników
     {% endif %}
   </div>
-  {% if session.role == 'admin' %}
+  {% if is_tcl and can_manage_tcl %}
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <a class="btn" href="{{ url_for('equipment_new', catalog='tcl') }}">+ Dodaj sprzęt TCL</a>
+    <a class="btn ghost" href="{{ url_for('tcl_import') }}">Import TCL</a>
+  </div>
+  {% elif not is_tcl and session.role == 'admin' %}
   <a class="btn" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>
   {% endif %}
 </div>
@@ -85,7 +95,7 @@
 <div class="pager">
   <div class="pager-nav" style="margin-left:auto;">
     {% if page > 1 %}
-      <a href="{{ url_for('index', page=page-1, **qs) }}">← Poprzednia</a>
+      <a href="{{ url_for(list_ep, page=page-1, **qs) }}">← Poprzednia</a>
     {% else %}
       <span class="disabled">← Poprzednia</span>
     {% endif %}
@@ -93,13 +103,13 @@
       {% if p == page %}
         <span class="current">{{ p }}</span>
       {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-        <a href="{{ url_for('index', page=p, **qs) }}">{{ p }}</a>
+        <a href="{{ url_for(list_ep, page=p, **qs) }}">{{ p }}</a>
       {% elif p == page - 3 or p == page + 3 %}
         <span class="disabled">…</span>
       {% endif %}
     {% endfor %}
     {% if page < total_pages %}
-      <a href="{{ url_for('index', page=page+1, **qs) }}">Następna →</a>
+      <a href="{{ url_for(list_ep, page=page+1, **qs) }}">Następna →</a>
     {% else %}
       <span class="disabled">Następna →</span>
     {% endif %}
@@ -170,11 +180,11 @@
   <div></div>
   <div class="pager-nav">
     {% if page > 1 %}
-      <a href="{{ url_for('index', page=page-1, **qs) }}">← Poprzednia</a>
+      <a href="{{ url_for(list_ep, page=page-1, **qs) }}">← Poprzednia</a>
     {% endif %}
     <span class="current">{{ page }} / {{ total_pages }}</span>
     {% if page < total_pages %}
-      <a href="{{ url_for('index', page=page+1, **qs) }}">Następna →</a>
+      <a href="{{ url_for(list_ep, page=page+1, **qs) }}">Następna →</a>
     {% endif %}
   </div>
 </div>

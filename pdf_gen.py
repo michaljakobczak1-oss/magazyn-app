@@ -279,6 +279,13 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
     c.drawRightString(w - m, y, f"Nr dokumentu: {doc_no}")
     y -= 4.5 * mm
     c.drawRightString(w - m, y, f"Data wygenerowania: {local_now():%Y-%m-%d %H:%M}")
+    cat = (_get(eq, "catalog") or "main").strip().lower()
+    if cat == "tcl":
+        y -= 4 * mm
+        c.setFont(FONT_B, 9)
+        c.setFillColor(colors.Color(0.16, 0.21, 0.58))
+        c.drawString(m, y, "Katalog: TCL")
+        c.setFillColor(colors.black)
     y -= 3 * mm
     c.setStrokeColor(colors.black)
     c.line(m, y, w - m, y)
@@ -457,6 +464,12 @@ def group_pdf(kind, rows):
         c.drawRightString(w - m, y + 1, f"Nr: {doc_no}")
         y -= 5 * mm
         c.drawRightString(w - m, y, f"Data: {local_now():%Y-%m-%d %H:%M}")
+        if any((_get(r, "catalog") or "").lower() == "tcl" for r in rows):
+            y -= 4.5 * mm
+            c.setFont(FONT_B, 9)
+            c.setFillColor(colors.Color(0.16, 0.21, 0.58))
+            c.drawString(m, y, "Katalog: TCL")
+            c.setFillColor(colors.black)
         if single_wh:
             c.setFont(FONT_B, 9)
             label = "Magazyn (przyjęcie)" if kind == "przyjecie" else "Magazyn (odbiór)"
@@ -541,21 +554,34 @@ def group_pdf(kind, rows):
         y = _boxed_section(c, m, y, w - 2 * m, "ADRESAT TOWARU (dostawa)", rec_rows, font_size=9)
 
     row_h = 28 * mm
-    # Zdjęcie | Kod | Nazwa | Termin | Magazyn | Szt. | Własność  (szerokości dopasowane do długich kodów)
+    # Zdjęcie | Kod | Nazwa | Termin | Magazyn | Szt. | Własność
+    # Magazyn ≥32mm (nagłówek „Magazyn / miejsce” ~29mm); Szt. z zapasem
     tbl_left = m
     tbl_right = w - m
-    col_w = [22 * mm, 28 * mm, 38 * mm, 34 * mm, 30 * mm, 10 * mm,
-             tbl_right - tbl_left - (22 + 28 + 38 + 34 + 30 + 10) * mm]
+    col_w = [18 * mm, 24 * mm, 32 * mm, 40 * mm, 32 * mm, 12 * mm,
+             tbl_right - tbl_left - (18 + 24 + 32 + 40 + 32 + 12) * mm]
     col_x = [tbl_left]
     for cw in col_w[:-1]:
         col_x.append(col_x[-1] + cw)
 
     def table_head(y):
-        c.setFont(FONT_B, 8)
         headers = ["Zdjęcie", "Kod", "Nazwa", "Termin", "Magazyn / miejsce", "Szt.", "Własność / brand"]
+        head_h = 3.2 * mm
+        max_lines = 1
+        drawn = []
         for x, cw, t in zip(col_x, col_w, headers):
-            c.drawString(x + 1 * mm, y, t)
-        y -= 2 * mm
+            lines = _wrap_width(c, t, FONT_B, 7.5, cw - 2 * mm)[:2]
+            # twardy limit: ucięcie linii, które i tak są za długie (np. jedno słowo)
+            clipped = []
+            for ln in lines:
+                while ln and c.stringWidth(ln, FONT_B, 7.5) > cw - 2 * mm:
+                    ln = ln[:-1]
+                clipped.append(ln)
+            drawn.append((x, clipped))
+            max_lines = max(max_lines, len(clipped))
+        for x, lines in drawn:
+            _draw_col_lines(c, x + 1 * mm, y, lines, FONT_B, 7.5, line_h=head_h)
+        y -= max_lines * head_h + 1 * mm
         c.line(m, y, w - m, y)
         return y
 
@@ -589,32 +615,29 @@ def group_pdf(kind, rows):
         # nazwa – zawijanie po słowach w ramach kolumny
         name_lines = _wrap_width(c, r["name"], FONT, 8, col_w[2] - 2 * pad)[:2]
         _draw_col_lines(c, col_x[2] + pad, ty, name_lines, FONT, 8)
-        # termin
-        c.setFont(FONT_B, 7.5)
+        # termin – zawijanie do szerokości kolumny (bez nachodzenia na Magazyn)
         start, end = _actual_period(r, kind)
         issued_ts = _fmt_ts(_get(r, "issued_at"))
         returned_ts = _fmt_ts(_get(r, "returned_at"))
         term_x = col_x[3] + pad
         term_w = col_w[3] - 2 * pad
         if kind == "przyjecie" and (issued_ts or returned_ts):
-            line1 = ("wyd. " + issued_ts) if issued_ts else start
+            line1 = ("wyd. " + issued_ts) if issued_ts else str(start)
             if r["status"] == "utylizacja" and returned_ts:
                 line2 = "utyl. " + returned_ts
             elif returned_ts:
                 line2 = "zwr. " + returned_ts
             else:
-                line2 = "– " + end
-            c.drawString(term_x, ty, line1[:28])
-            c.setFont(FONT, 7.5)
-            c.drawString(term_x, ty - 3.5 * mm, line2[:28])
+                line2 = "– " + str(end)
         elif kind == "wydanie" and issued_ts:
-            c.drawString(term_x, ty, start[:28])
-            c.setFont(FONT, 7.5)
-            c.drawString(term_x, ty - 3.5 * mm, "– " + str(end)[:26])
+            line1, line2 = str(start), "– " + str(end)
         else:
-            c.drawString(term_x, ty, str(start)[:28])
-            c.setFont(FONT, 7.5)
-            c.drawString(term_x, ty - 3.5 * mm, "– " + str(end)[:26])
+            line1, line2 = str(start), "– " + str(end)
+        t1 = _wrap_width(c, line1, FONT_B, 7.5, term_w)[:1]
+        t2 = _wrap_width(c, line2, FONT, 7.5, term_w)[:1]
+        _draw_col_lines(c, term_x, ty, t1, FONT_B, 7.5)
+        if t2:
+            _draw_col_lines(c, term_x, ty - 3.5 * mm, t2, FONT, 7.5)
         if _get(r, "client"):
             c.setFillColor(colors.HexColor("#444444"))
             for i, wl in enumerate(_wrap_width(c, r["client"], FONT, 7, term_w)[:1]):
@@ -626,15 +649,16 @@ def group_pdf(kind, rows):
         loc_lines = _wrap_width(c, r["location"] or "-", FONT, 8, col_w[4] - 2 * pad)[:1]
         _draw_col_lines(c, col_x[4] + pad, ty, wh_lines, FONT, 8)
         if loc_lines:
-            c.setFont(FONT, 8)
-            c.drawString(col_x[4] + pad, ty - 3.5 * mm, loc_lines[0])
-        c.drawString(col_x[5] + pad, ty, str(r["quantity"]))
+            _draw_col_lines(c, col_x[4] + pad, ty - 3.5 * mm, loc_lines, FONT, 8)
+        c.setFont(FONT, 8)
+        qty = str(r["quantity"])
+        qty_x = col_x[5] + (col_w[5] - c.stringWidth(qty, FONT, 8)) / 2
+        c.drawString(qty_x, ty, qty)
         owner_lines = _wrap_width(c, r["owner"] or "-", FONT, 8, col_w[6] - 2 * pad)[:1]
         _draw_col_lines(c, col_x[6] + pad, ty, owner_lines, FONT, 8)
         if _get(r, "brand"):
             brand_lines = _wrap_width(c, r["brand"], FONT, 8, col_w[6] - 2 * pad)[:1]
-            c.setFont(FONT, 8)
-            c.drawString(col_x[6] + pad, ty - 3.5 * mm, brand_lines[0])
+            _draw_col_lines(c, col_x[6] + pad, ty - 3.5 * mm, brand_lines, FONT, 8)
         extra_y = ty - 11 * mm
         if kind == "przyjecie":
             c.setFont(FONT_B, 7)

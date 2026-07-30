@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, date, timedelta
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlencode
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, send_file, abort, jsonify)
@@ -68,6 +69,40 @@ def admin_required(f):
             return redirect(url_for("index"))
         return f(*a, **kw)
     return wrapper
+
+
+TCL_DEPT_NAME = "Warrens"
+
+
+def equipment_catalog(eq):
+    """main | tcl"""
+    try:
+        return ((eq["catalog"] or "main").strip().lower() or "main")
+    except (KeyError, IndexError, TypeError):
+        return "main"
+
+
+def can_manage_tcl():
+    """Admin albo dział Warrens – zarządzanie katalogiem TCL."""
+    if session.get("role") == "admin":
+        return True
+    dept = (session.get("department") or "").strip()
+    return dept.lower() == TCL_DEPT_NAME.lower()
+
+
+def tcl_required(f):
+    @wraps(f)
+    def wrapper(*a, **kw):
+        if not can_manage_tcl():
+            flash("Brak dostępu do modułu TCL (wymagany dział Warrens lub admin).", "error")
+            return redirect(url_for("dashboard"))
+        return f(*a, **kw)
+    return wrapper
+
+
+@app.context_processor
+def inject_acl_flags():
+    return {"can_manage_tcl": can_manage_tcl()}
 
 
 def can_manage_reservation(r):
@@ -205,7 +240,8 @@ def dashboard():
     today_s, week_end_s = today.isoformat(), week_end.isoformat()
     con = get_db()
     base_sql = """SELECT r.*, u.username, u.first_name, u.last_name,
-                  e.code, e.name, e.location, w.name AS warehouse_name
+                  e.code, e.name, e.location, IFNULL(e.catalog,'main') AS catalog,
+                  w.name AS warehouse_name
                   FROM reservations r
                   JOIN users u ON u.id=r.user_id
                   JOIN equipment e ON e.id=r.equipment_id
@@ -234,15 +270,14 @@ def dashboard():
 
 # ---------- rejestr sprzętu ----------
 
-@app.route("/")
-@login_required
-def index():
+def _render_equipment_index(catalog="main"):
+    """Lista sprzętu dla katalogu main lub tcl."""
     q = request.args.get("q", "").strip()
     f_project = request.args.get("project", "").strip()
     f_owner = request.args.get("owner", "").strip()
     f_brand = request.args.get("brand", "").strip()
     f_warehouse = request.args.get("warehouse", "").strip()
-    f_own = request.args.get("own", "").strip()          # "1" = tylko materiały 00
+    f_own = request.args.get("own", "").strip()
     f_condition = request.args.get("condition", "").strip()
     per_page_raw = (request.args.get("per_page") or "all").strip().lower()
     page_raw = (request.args.get("page") or "1").strip()
@@ -250,7 +285,7 @@ def index():
     con = get_db()
     sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
              LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
-    where, params = [], []
+    where, params = ["IFNULL(e.catalog,'main')=?"], [catalog]
     if q:
         where.append("(e.code LIKE ? OR e.name LIKE ? OR e.location LIKE ?)")
         params += [f"%{q}%"] * 3
@@ -275,8 +310,7 @@ def index():
             params.append(f_condition)
         else:
             where.append("e.condition = ?"); params.append(f_condition)
-    if where:
-        sql += " WHERE " + " AND ".join(where)
+    sql += " WHERE " + " AND ".join(where)
     all_items = con.execute(sql + " ORDER BY e.code", params).fetchall()
 
     total = len(all_items)
@@ -300,13 +334,18 @@ def index():
         total_pages = 1
         items = all_items
 
-    # wartości do dropdownów filtrów
     projects = [r[0] for r in con.execute(
-        "SELECT DISTINCT project_number FROM equipment WHERE IFNULL(project_number,'')!='' ORDER BY 1")]
+        """SELECT DISTINCT project_number FROM equipment
+           WHERE IFNULL(project_number,'')!='' AND IFNULL(catalog,'main')=? ORDER BY 1""",
+        (catalog,))]
     owners = [r[0] for r in con.execute(
-        "SELECT DISTINCT owner FROM equipment WHERE IFNULL(owner,'')!='' ORDER BY 1")]
+        """SELECT DISTINCT owner FROM equipment
+           WHERE IFNULL(owner,'')!='' AND IFNULL(catalog,'main')=? ORDER BY 1""",
+        (catalog,))]
     brands = [r[0] for r in con.execute(
-        "SELECT DISTINCT brand FROM equipment WHERE IFNULL(brand,'')!='' ORDER BY 1")]
+        """SELECT DISTINCT brand FROM equipment
+           WHERE IFNULL(brand,'')!='' AND IFNULL(catalog,'main')=? ORDER BY 1""",
+        (catalog,))]
     warehouses = active_warehouses(con)
 
     today = local_today().isoformat()
@@ -315,7 +354,6 @@ def index():
         for it in items
     }
 
-    # rozkład stanu po magazynach dla każdej pozycji (do wyświetlenia w tabeli)
     eids = [it["id"] for it in items]
     stock_map = {}
     if eids:
@@ -331,15 +369,30 @@ def index():
             stock_map.setdefault(sr["equipment_id"], []).append(sr)
 
     con.close()
-    return render_template("index.html", items=items, availability=availability,
-                           stock_map=stock_map,
-                           q=q, f_project=f_project, f_owner=f_owner, f_brand=f_brand,
-                           f_warehouse=f_warehouse, f_own=f_own, f_condition=f_condition,
-                           projects=projects, owners=owners, brands=brands,
-                           warehouses=warehouses,
-                           page=page, per_page=per_page_value,
-                           per_page_choices=per_page_choices,
-                           total=total, total_pages=total_pages)
+    return render_template(
+        "index.html", items=items, availability=availability,
+        stock_map=stock_map,
+        q=q, f_project=f_project, f_owner=f_owner, f_brand=f_brand,
+        f_warehouse=f_warehouse, f_own=f_own, f_condition=f_condition,
+        projects=projects, owners=owners, brands=brands, warehouses=warehouses,
+        total=total, page=page, total_pages=total_pages,
+        per_page=per_page_value, per_page_choices=per_page_choices,
+        catalog=catalog,
+    )
+
+
+@app.route("/")
+@login_required
+def index():
+    return _render_equipment_index("main")
+
+
+@app.route("/tcl")
+@login_required
+@tcl_required
+def tcl_index():
+    return _render_equipment_index("tcl")
+
 
 
 def _equipment_form_values(form, files, current=None, primary_photo=None):
@@ -378,8 +431,18 @@ EQ_COLS = """code, project_number, name, dimensions, photo, packaging_photo,
 
 @app.route("/equipment/new", methods=["GET", "POST"])
 @login_required
-@admin_required
 def equipment_new():
+    catalog = (request.values.get("catalog") or "main").strip().lower()
+    if catalog not in ("main", "tcl"):
+        catalog = "main"
+    if catalog == "tcl":
+        if not can_manage_tcl():
+            flash("Brak dostępu do katalogu TCL.", "error")
+            return redirect(url_for("dashboard"))
+    elif session.get("role") != "admin":
+        flash("Wymagane uprawnienia administratora.", "error")
+        return redirect(url_for("index"))
+
     con = get_db()
     if request.method == "POST":
         try:
@@ -389,6 +452,7 @@ def equipment_new():
             cur = con.execute(
                 f"INSERT INTO equipment ({EQ_COLS}) VALUES ({','.join('?'*16)})", vals)
             eid = cur.lastrowid
+            con.execute("UPDATE equipment SET catalog=? WHERE id=?", (catalog, eid))
             for i, fn in enumerate(new_photos):
                 con.execute(
                     """INSERT INTO equipment_photos (equipment_id, filename, sort_order, kind)
@@ -397,26 +461,35 @@ def equipment_new():
             replace_equipment_stock(con, eid, vals[7], vals[6], vals[14])
             con.commit()
             flash("Sprzęt dodany.", "ok")
-            return redirect(url_for("index"))
+            return redirect(url_for("tcl_index" if catalog == "tcl" else "index"))
         except Exception as e:
             flash(f"Błąd: {'kod już istnieje' if 'UNIQUE' in str(e) else e}", "error")
         finally:
             con.close()
-        return redirect(url_for("equipment_new"))
+        return redirect(url_for("equipment_new", catalog=catalog))
     warehouses = active_warehouses(con)
     con.close()
     return render_template("equipment_form.html", eq=None, warehouses=warehouses,
-                           photos=[])
+                           photos=[], catalog=catalog)
 
 
 @app.route("/equipment/<int:eid>/edit", methods=["GET", "POST"])
 @login_required
-@admin_required
 def equipment_edit(eid):
     con = get_db()
     eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
     if not eq:
         abort(404)
+    cat = equipment_catalog(eq)
+    if cat == "tcl":
+        if not can_manage_tcl():
+            con.close()
+            flash("Brak dostępu do edycji sprzętu TCL.", "error")
+            return redirect(url_for("equipment_detail", eid=eid))
+    elif session.get("role") != "admin":
+        con.close()
+        flash("Wymagane uprawnienia administratora.", "error")
+        return redirect(url_for("equipment_detail", eid=eid))
     photos = equipment_photo_list(con, eid)
     photo_kinds = equipment_photo_kind_map(con, eid)
     if request.method == "POST":
@@ -481,9 +554,22 @@ def equipment_detail(eid):
 
 @app.route("/equipment/<int:eid>/delete", methods=["POST"])
 @login_required
-@admin_required
 def equipment_delete(eid):
     con = get_db()
+    eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
+    if not eq:
+        con.close()
+        abort(404)
+    cat = equipment_catalog(eq)
+    if cat == "tcl":
+        if not can_manage_tcl():
+            con.close()
+            flash("Brak dostępu do usuwania sprzętu TCL.", "error")
+            return redirect(url_for("equipment_detail", eid=eid))
+    elif session.get("role") != "admin":
+        con.close()
+        flash("Wymagane uprawnienia administratora.", "error")
+        return redirect(url_for("equipment_detail", eid=eid))
     active = con.execute(
         """SELECT COUNT(*) c FROM reservations WHERE equipment_id=?
            AND status IN ('rezerwacja','wydane')""", (eid,)).fetchone()["c"]
@@ -496,7 +582,7 @@ def equipment_delete(eid):
         con.commit()
         flash("Sprzęt usunięty.", "ok")
     con.close()
-    return redirect(url_for("index"))
+    return redirect(url_for("tcl_index" if cat == "tcl" else "index"))
 
 
 # ---------- rezerwacje ----------
@@ -510,7 +596,8 @@ def reservations():
     today = local_today().isoformat()
     con = get_db()
     sql = """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
-                    e.code, e.name, e.photo, e.location, w.name AS warehouse_name,
+                    e.code, e.name, e.photo, e.location, IFNULL(e.catalog,'main') AS catalog,
+                    w.name AS warehouse_name,
                     COALESCE(iw.name, w.name) AS issue_warehouse_name
              FROM reservations r
              JOIN users u ON u.id=r.user_id JOIN equipment e ON e.id=r.equipment_id
@@ -543,6 +630,10 @@ def reserve(eid):
     eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
     if not eq:
         abort(404)
+    if equipment_catalog(eq) == "tcl" and not can_manage_tcl():
+        con.close()
+        flash("Rezerwacje sprzętu TCL może tworzyć tylko dział Warrens lub admin.", "error")
+        return redirect(url_for("equipment_detail", eid=eid))
     form_data = None
     if request.method == "POST":
         form_data = request.form
@@ -621,6 +712,16 @@ def reserve_multi():
             LEFT JOIN warehouses w ON w.id=e.warehouse_id
             WHERE e.id IN ({','.join('?'*len(ids))}) ORDER BY e.code""",
         ids).fetchall()
+    catalogs = {equipment_catalog(it) for it in items}
+    if "tcl" in catalogs and not can_manage_tcl():
+        flash("Rezerwacje sprzętu TCL może tworzyć tylko dział Warrens lub admin.", "error")
+        con.close()
+        return redirect(url_for("index"))
+    if len(catalogs) > 1:
+        flash("Nie łącz w jednej rezerwacji pozycji z katalogu głównego i TCL.", "error")
+        con.close()
+        return redirect(url_for("tcl_index" if "tcl" in catalogs else "index"))
+    list_endpoint = "tcl_index" if catalogs == {"tcl"} else "index"
 
     wh_names = {it["warehouse_name"] for it in items if it["warehouse_name"]}
     multi_warehouse = len(wh_names) > 1
@@ -719,7 +820,7 @@ def _selected_reservations(con, rids):
         f"""SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
             e.code, e.name, e.location, e.owner, e.brand,
             e.photo, e.dimensions, e.project_number AS equipment_project_number,
-            e.storage_instructions,
+            e.storage_instructions, IFNULL(e.catalog,'main') AS catalog,
             w.name AS warehouse_name, w.address AS warehouse_address
             FROM reservations r JOIN users u ON u.id=r.user_id
             JOIN equipment e ON e.id=r.equipment_id
@@ -799,10 +900,13 @@ def _process_qty_from_form(form, r):
 
 
 def _split_partial(con, r, process_qty):
-    """Częściowy zwrot/utylizacja: reszta sztuk zostaje osobną rezerwacją „wydane”."""
+    """Częściowy zwrot/utylizacja: reszta sztuk zostaje osobną rezerwacją „wydane”.
+
+    Zwraca (processed_row, remaining_row_or_None).
+    """
     total = int(r["quantity"])
     if process_qty >= total:
-        return r
+        return r, None
     remaining = total - process_qty
 
     def g(key, default=None):
@@ -811,7 +915,7 @@ def _split_partial(con, r, process_qty):
         except (KeyError, IndexError):
             return default
 
-    con.execute(
+    cur = con.execute(
         """INSERT INTO reservations (
             equipment_id, user_id, client, date_from, date_to, quantity, status,
             group_id, receiver, permanent, project_number,
@@ -830,8 +934,120 @@ def _split_partial(con, r, process_qty):
             g("issued_at"), g("issued_by"),
         ),
     )
+    rem_id = cur.lastrowid
     con.execute("UPDATE reservations SET quantity=? WHERE id=?", (process_qty, r["id"]))
-    return con.execute("SELECT * FROM reservations WHERE id=?", (r["id"],)).fetchone()
+    processed = con.execute("SELECT * FROM reservations WHERE id=?", (r["id"],)).fetchone()
+    rem = con.execute("SELECT * FROM reservations WHERE id=?", (rem_id,)).fetchone()
+    return processed, rem
+
+
+def _parse_return_ok_damage_qty(form, r, force_damage=False):
+    """Zwraca (ok_qty, damage_qty) albo None przy błędzie.
+
+    Nowe pola: return_qty_ok + return_qty_damage (suma 1..total).
+    Legacy: return_qty / item_qty + flaga damage.
+    """
+    total = int(r["quantity"])
+    ok_raw = form.get("return_qty_ok")
+    dmg_raw = form.get("return_qty_damage")
+    if ok_raw is not None or dmg_raw is not None:
+        try:
+            ok = int(ok_raw) if ok_raw not in (None, "") else 0
+            dmg = int(dmg_raw) if dmg_raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            return None
+        if ok < 0 or dmg < 0 or ok + dmg < 1 or ok + dmg > total:
+            return None
+        return ok, dmg
+    qty = _process_qty_from_form(form, r)
+    if qty is None:
+        return None
+    if force_damage or form.get("damage"):
+        return 0, qty
+    return qty, 0
+
+
+def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage_notes=""):
+    """Zamyka jedną rezerwację jako zwrot (cała quantity wiersza)."""
+    if r["status"] != "wydane":
+        return False
+    wid = int((form.get("return_warehouse_id") or "").strip())
+    loc = (form.get("return_location") or "").strip()
+    returner = (form.get("returner") or "").strip() or (r["receiver"] or "")
+    try:
+        issue_wid = r["issue_warehouse_id"]
+    except (KeyError, IndexError, TypeError):
+        issue_wid = None
+    if not issue_wid:
+        eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
+                         (r["equipment_id"],)).fetchone()
+        if eq and eq["warehouse_id"]:
+            issue_loc = eq["loc"] or ""
+            if issue_loc and ("," in issue_loc or " szt" in issue_loc.lower()):
+                issue_loc = ""
+            con.execute("""UPDATE reservations SET issue_warehouse_id=?, issue_location=?
+                           WHERE id=?""", (eq["warehouse_id"], issue_loc, r["id"]))
+    now = local_now().isoformat(timespec="seconds")
+    dmg_flag = 1 if damage else 0
+    notes = damage_notes if damage else None
+    con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
+                   returned_by=?, damage=?, damage_notes=?,
+                   return_warehouse_id=?, return_location=?, returner=? WHERE id=?""",
+                (now, user_id, dmg_flag, notes, wid, loc, returner, r["id"]))
+    eid = r["equipment_id"]
+    move_equipment_stock_on_return(con, eid, r["quantity"], wid, loc)
+    if damage:
+        stamp = (f"[{local_today().isoformat()}] zwrot uszkodzony rez. #{r['id']} "
+                 f"({r['quantity']} szt.): {damage_notes}")
+        con.execute("""UPDATE equipment SET damaged_quantity=IFNULL(damaged_quantity,0)+?,
+                       condition='uszkodzony',
+                       condition_notes=IFNULL(condition_notes,'') ||
+                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+                       WHERE id=?""", (r["quantity"], stamp, eid))
+        _attach_damage_photo(con, eid, files, r["id"])
+    return True
+
+
+def _apply_return(con, r, user_id, form, files=None, force_damage=False):
+    """Przyjmuje zwrot. Można w jednym kroku: N sprawnych + M uszkodzonych.
+
+    force_damage=True – całość jako uszkodzona (zbiorczy item_action=damage).
+    Zwraca listę id zamkniętych rezerwacji albo False.
+    """
+    if r["status"] != "wydane":
+        return False
+    if not _return_form_valid(form):
+        return False
+    parsed = _parse_return_ok_damage_qty(form, r, force_damage=force_damage)
+    if parsed is None:
+        return False
+    ok_qty, dmg_qty = parsed
+    damage_notes = _damage_notes_for(form, r) if dmg_qty else ""
+    if dmg_qty and not damage_notes:
+        return False
+    process = ok_qty + dmg_qty
+    r, _stays = _split_partial(con, r, process)
+    done_ids = []
+    if dmg_qty > 0 and ok_qty > 0:
+        r_dmg, r_ok = _split_partial(con, r, dmg_qty)
+        if not _finalize_one_return(con, r_dmg, user_id, form, files=files,
+                                    damage=True, damage_notes=damage_notes):
+            return False
+        done_ids.append(r_dmg["id"])
+        if not r_ok or not _finalize_one_return(con, r_ok, user_id, form, files=None,
+                                               damage=False):
+            return False
+        done_ids.append(r_ok["id"])
+    elif dmg_qty > 0:
+        if not _finalize_one_return(con, r, user_id, form, files=files,
+                                    damage=True, damage_notes=damage_notes):
+            return False
+        done_ids.append(r["id"])
+    else:
+        if not _finalize_one_return(con, r, user_id, form, files=None, damage=False):
+            return False
+        done_ids.append(r["id"])
+    return done_ids
 
 
 def _apply_issue(con, r, user_id, permanent=None):
@@ -879,59 +1095,6 @@ def _apply_issue(con, r, user_id, permanent=None):
     return True
 
 
-def _apply_return(con, r, user_id, form, files=None, force_damage=False):
-    """Przyjmuje zwrot (możliwa częściowa liczba sztuk). Magazyn wymagany, miejsce opcjonalne.
-
-    force_damage=True – zwrot uszkodzony (opcja per pozycja w zbiorczym).
-    """
-    if r["status"] != "wydane":
-        return False
-    if not _return_form_valid(form):
-        return False
-    qty = _process_qty_from_form(form, r)
-    if qty is None:
-        return False
-    damage = 1 if (force_damage or form.get("damage")) else 0
-    damage_notes = _damage_notes_for(form, r) if damage else ""
-    if damage and not damage_notes:
-        return False
-    r = _split_partial(con, r, qty)
-    wid = int((form.get("return_warehouse_id") or "").strip())
-    loc = (form.get("return_location") or "").strip()
-    returner = (form.get("returner") or "").strip() or (r["receiver"] or "")
-    # backfill magazynu wydania dla starszych rezerwacji (sprzed zapisu issue_*)
-    try:
-        issue_wid = r["issue_warehouse_id"]
-    except (KeyError, IndexError, TypeError):
-        issue_wid = None
-    if not issue_wid:
-        eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
-                         (r["equipment_id"],)).fetchone()
-        if eq and eq["warehouse_id"]:
-            issue_loc = eq["loc"] or ""
-            if issue_loc and ("," in issue_loc or " szt" in issue_loc.lower()):
-                issue_loc = ""
-            con.execute("""UPDATE reservations SET issue_warehouse_id=?, issue_location=?
-                           WHERE id=?""", (eq["warehouse_id"], issue_loc, r["id"]))
-    now = local_now().isoformat(timespec="seconds")
-    con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
-                   returned_by=?, damage=?, damage_notes=?,
-                   return_warehouse_id=?, return_location=?, returner=? WHERE id=?""",
-                (now, user_id, damage, damage_notes or None, wid, loc, returner, r["id"]))
-    eid = r["equipment_id"]
-    move_equipment_stock_on_return(con, eid, r["quantity"], wid, loc)
-    if damage:
-        stamp = (f"[{local_today().isoformat()}] zwrot uszkodzony rez. #{r['id']} "
-                 f"({r['quantity']} szt.): {damage_notes}")
-        con.execute("""UPDATE equipment SET damaged_quantity=IFNULL(damaged_quantity,0)+?,
-                       condition='uszkodzony',
-                       condition_notes=IFNULL(condition_notes,'') ||
-                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
-                       WHERE id=?""", (r["quantity"], stamp, eid))
-        _attach_damage_photo(con, eid, files, r["id"])
-    return True
-
-
 def _apply_dispose(con, r, user_id, form):
     """Towar wydany nie wraca (utylizacja / zniszczenie). Schodzi ze stanu magazynowego.
 
@@ -946,7 +1109,7 @@ def _apply_dispose(con, r, user_id, form):
     qty = _process_qty_from_form(form, r)
     if qty is None:
         return False
-    r = _split_partial(con, r, qty)
+    r, _stays = _split_partial(con, r, qty)
     eq = con.execute("SELECT quantity, warehouse_id FROM equipment WHERE id=?",
                      (r["equipment_id"],)).fetchone()
     if not eq or eq["quantity"] < r["quantity"]:
@@ -1139,11 +1302,12 @@ def bulk_action(action):
                 elif r["status"] == "wydane":
                     stock_err.append(r["code"])
             else:
-                if _apply_return(con, r, session["user_id"], request.form,
-                                 files=request.files,
-                                 force_damage=(r["id"] in damage_ids)):
-                    returned_ids.append(r["id"])
-                    done_ids.append(r["id"])
+                done = _apply_return(con, r, session["user_id"], request.form,
+                                     files=request.files,
+                                     force_damage=(r["id"] in damage_ids))
+                if done:
+                    returned_ids.extend(done if isinstance(done, list) else [r["id"]])
+                    done_ids.extend(done if isinstance(done, list) else [r["id"]])
                 elif r["status"] == "wydane":
                     stock_err.append(r["code"])
     con.commit()
@@ -1308,25 +1472,33 @@ def return_item(rid):
         flash("Wypełnij pole.", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
-    if _process_qty_from_form(request.form, r) is None:
-        flash(f"Podaj poprawną liczbę sztuk (1–{r['quantity']}).", "error")
+    parsed = _parse_return_ok_damage_qty(request.form, r)
+    if parsed is None:
+        flash(f"Podaj poprawne liczby sztuk (sprawne + uszkodzone = 1–{r['quantity']}).", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
-    damaged = bool(request.form.get("damage"))
-    if damaged and not (request.form.get("damage_notes") or "").strip():
+    ok_qty, dmg_qty = parsed
+    if dmg_qty and not (request.form.get("damage_notes") or "").strip():
         flash("Podaj opis uszkodzenia.", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
     ret_wid = (request.form.get("return_warehouse_id") or "").strip()
     ret_loc = (request.form.get("return_location") or "").strip()
-    if _apply_return(con, r, session["user_id"], request.form, files=request.files,
-                     force_damage=damaged):
+    done = _apply_return(con, r, session["user_id"], request.form, files=request.files)
+    if done:
         con.commit()
         con.close()
-        flash("Oznaczono jako zwrócone." + (" Odnotowano uszkodzenie." if damaged else "")
-              + " Pobieranie PDF…", "ok")
-        return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid,
-                                ret_wid=ret_wid, ret_loc=ret_loc))
+        parts = []
+        if ok_qty:
+            parts.append(f"{ok_qty} sprawne")
+        if dmg_qty:
+            parts.append(f"{dmg_qty} uszkodzone")
+        flash("Oznaczono jako zwrócone (" + ", ".join(parts) + "). Pobieranie PDF…", "ok")
+        # PDF dla wszystkich zamkniętych wierszy (gdy split sprawne+uszkodzone)
+        q = [("auto_pdf", "przyjecie"), ("ret_wid", ret_wid), ("ret_loc", ret_loc)]
+        for did in done:
+            q.append(("rid", str(did)))
+        return redirect(url_for("reservations") + "?" + urlencode(q))
     con.close()
     flash("Nie udało się przyjąć zwrotu.", "error")
     return redirect(request.referrer or url_for("reservations"))
@@ -1686,12 +1858,11 @@ def user_name(uid):
     return redirect(url_for("users"))
 
 
-@app.route("/catalog-import", methods=["GET", "POST"])
-@login_required
-@admin_required
-def catalog_import():
-    """Import katalogu z Excela + ZIP ze zdjęciami (tylko admin)."""
-    status_path = Path(__file__).parent / "data" / "catalog_import_status.json"
+def _catalog_import_flow(catalog="main", endpoint="catalog_import"):
+    """Wspólna logika importu Excel+ZIP dla katalogu main lub tcl."""
+    status_name = "catalog_import_status.json" if catalog == "main" else "tcl_import_status.json"
+    work_name = "catalog_import_work" if catalog == "main" else "tcl_import_work"
+    status_path = Path(__file__).parent / "data" / status_name
     result = None
     if status_path.exists():
         try:
@@ -1707,12 +1878,12 @@ def catalog_import():
         also_new = bool(request.form.get("also_new_codes"))
         if not xlsx or not xlsx.filename:
             flash("Wybierz plik Excel (.xlsx).", "error")
-            return redirect(url_for("catalog_import"))
+            return redirect(url_for(endpoint))
         if not xlsx.filename.lower().endswith(".xlsx"):
             flash("Plik katalogu musi mieć rozszerzenie .xlsx.", "error")
-            return redirect(url_for("catalog_import"))
+            return redirect(url_for(endpoint))
 
-        work = Path(__file__).parent / "data" / "catalog_import_work"
+        work = Path(__file__).parent / "data" / work_name
         if work.exists():
             shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True, exist_ok=True)
@@ -1738,7 +1909,6 @@ def catalog_import():
                 if zip_path and zip_path.exists():
                     extract_dir = work / "extracted"
                     extract_dir.mkdir(exist_ok=True)
-                    # Mac ZIP często ma UTF-8 / NFD w nazwach — wymuś utf-8 przy odczycie
                     try:
                         zf = zipfile.ZipFile(zip_path, "r", metadata_encoding="utf-8")
                     except TypeError:
@@ -1764,13 +1934,13 @@ def catalog_import():
 
                 r1 = run_import(
                     xlsx_path, photos_dir=photos_dir, sheet="Import",
-                    update=do_update, log=messages,
+                    update=do_update, log=messages, catalog=catalog,
                 )
                 totals = dict(r1)
                 if also_new:
                     r2 = run_import(
                         xlsx_path, photos_dir=photos_dir, sheet="Nowe kody",
-                        update=False, log=messages,
+                        update=False, log=messages, catalog=catalog,
                     )
                     totals = {
                         "added": r1["added"] + r2["added"],
@@ -1799,9 +1969,26 @@ def catalog_import():
 
         threading.Thread(target=job, daemon=True).start()
         flash("Import uruchomiony w tle. Odśwież tę stronę za 1–3 minuty.", "ok")
-        return redirect(url_for("catalog_import"))
+        return redirect(url_for(endpoint))
 
-    return render_template("catalog_import.html", result=result)
+    return render_template(
+        "catalog_import.html", result=result, catalog=catalog, endpoint=endpoint)
+
+
+@app.route("/catalog-import", methods=["GET", "POST"])
+@login_required
+@admin_required
+def catalog_import():
+    """Import katalogu głównego z Excela + ZIP (tylko admin)."""
+    return _catalog_import_flow("main", "catalog_import")
+
+
+@app.route("/tcl/import", methods=["GET", "POST"])
+@login_required
+@tcl_required
+def tcl_import():
+    """Import katalogu TCL – dział Warrens + admin."""
+    return _catalog_import_flow("tcl", "tcl_import")
 
 
 if __name__ == "__main__":

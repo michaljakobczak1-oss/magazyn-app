@@ -1,9 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edycja' if eq else 'Nowy sprzęt' }} – Magazyn{% endblock %}
+{% set form_catalog = catalog if catalog is defined else ((eq.catalog if eq else 'main') or 'main') %}
+{% block title %}{{ 'Edycja' if eq else ('Nowy sprzęt TCL' if form_catalog == 'tcl' else 'Nowy sprzęt') }} – Magazyn{% endblock %}
 {% block content %}
-<h1>{{ 'Edycja: ' + eq.code if eq else 'Nowy sprzęt' }}</h1>
+<h1>{% if eq %}Edycja: {{ eq.code }}{% elif form_catalog == 'tcl' %}Nowy sprzęt TCL <span class="badge tcl">TCL</span>{% else %}Nowy sprzęt{% endif %}</h1>
 <div class="card">
   <form method="post" enctype="multipart/form-data">
+    {% if not eq %}<input type="hidden" name="catalog" value="{{ form_catalog }}">{% endif %}
     <label>Kod w aplikacji *</label>
     <input name="code" required value="{{ eq.code if eq else '' }}">
     <label>Rodzaj materiału *</label>

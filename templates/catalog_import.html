@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Import katalogu – Magazyn{% endblock %}
+{% block title %}{% if catalog == 'tcl' %}Import TCL{% else %}Import katalogu{% endif %} – Magazyn{% endblock %}
 {% block content %}
-<h1>Import katalogu produktów</h1>
+<h1>{% if catalog == 'tcl' %}Import katalogu TCL <span class="badge tcl">TCL</span>{% else %}Import katalogu produktów{% endif %}</h1>
 <p style="font-size:14px;color:#555;max-width:720px;">
   Wgraj plik Excel (arkusz <strong>Import</strong>) oraz ZIP ze zdjęciami.
   Nazwy plików w kolumnie „Plik zdjęcia” muszą być takie jak w ZIP.
+  {% if catalog == 'tcl' %}Pozycje trafią do katalogu <strong>TCL</strong> (osobnego od głównego sprzętu).{% endif %}
   Import może potrwać kilka minut (setki zdjęć).
 </p>
 
@@ -27,7 +28,7 @@
 
     <div style="margin-top:18px;display:flex;gap:10px;">
       <button class="btn ok">Uruchom import</button>
-      <a class="btn ghost" href="{{ url_for('dictionaries') }}">Wróć</a>
+      <a class="btn ghost" href="{{ url_for('tcl_index') if catalog == 'tcl' else 'dictionaries' }}">Wróć</a>
     </div>
   </form>
 </div>

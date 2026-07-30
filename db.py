@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS equipment (
     storage_instructions TEXT,                   -- jak składować / pakować / transportować
     quantity INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
+    catalog TEXT NOT NULL DEFAULT 'main',        -- main | tcl
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -152,6 +153,7 @@ MIGRATIONS = {
         "condition_notes": "TEXT",
         "damaged_quantity": "INTEGER NOT NULL DEFAULT 0",
         "storage_instructions": "TEXT",
+        "catalog": "TEXT NOT NULL DEFAULT 'main'",
     },
     "reservations": {
         "group_id": "TEXT",
@@ -209,6 +211,11 @@ def init_db():
             "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,0)",
             (row["id"], row["photo"]))
     if orphans:
+        con.commit()
+
+    # migracja: dział Warrens (zarządzanie TCL)
+    if con.execute("SELECT COUNT(*) c FROM departments WHERE name=?", ("Warrens",)).fetchone()["c"] == 0:
+        con.execute("INSERT INTO departments (name, active) VALUES (?,1)", ("Warrens",))
         con.commit()
 
     # migracja: dotychczasowa sztywna lista odbierających -> słownik podwykonawców

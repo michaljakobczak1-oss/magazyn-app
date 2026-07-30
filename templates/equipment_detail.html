@@ -2,6 +2,7 @@
 {% block title %}{{ eq.code }} – Magazyn{% endblock %}
 {% block content %}
 <h1>{{ eq.code }} – {{ eq.name }}
+  {% if (eq.catalog or 'main') == 'tcl' %}<span class="badge tcl">TCL</span>{% endif %}
   {% if eq.material_type == 'wlasny' %}<span class="badge own">materiał własny</span>{% endif %}
   {% if (eq.damaged_quantity or 0) == 0 and eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
 </h1>
@@ -32,8 +33,11 @@
       {% if eq.notes %}<dt>Uwagi</dt><dd>{{ eq.notes }}</dd>{% endif %}
     </dl>
     <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+      {% if not ((eq.catalog or 'main') == 'tcl' and not can_manage_tcl) %}
       <a class="btn" href="{{ url_for('reserve', eid=eq.id) }}">Rezerwuj</a>
-      {% if session.role == 'admin' %}
+      {% endif %}
+      {% set is_tcl = (eq.catalog or 'main') == 'tcl' %}
+      {% if (is_tcl and can_manage_tcl) or (not is_tcl and session.role == 'admin') %}
       <a class="btn ghost" href="{{ url_for('equipment_edit', eid=eq.id) }}">Edytuj</a>
       <form class="inline" method="post" action="{{ url_for('equipment_delete', eid=eq.id) }}"
             onsubmit="return confirm('Usunąć ten sprzęt i historię jego rezerwacji?');">

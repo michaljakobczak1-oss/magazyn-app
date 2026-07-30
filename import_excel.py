@@ -268,8 +268,14 @@ def pick_sheet(wb, preferred):
 
 
 def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
-               update=False, dry_run=False, log=None):
-    """Uruchamia import. Zwraca dict: added, updated, skipped, no_photo, messages."""
+               update=False, dry_run=False, log=None, catalog="main"):
+    """Uruchamia import. Zwraca dict: added, updated, skipped, no_photo, messages.
+
+    catalog: 'main' | 'tcl' – zapisuje / aktualizuje tylko w tym katalogu.
+    """
+    catalog = (catalog or "main").strip().lower()
+    if catalog not in ("main", "tcl"):
+        catalog = "main"
     messages = log if log is not None else []
     init_db()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -282,7 +288,7 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
     ws = pick_sheet(wb, sheet)
     headers = map_headers(ws)
     embedded = extract_embedded_images(ws)
-    messages.append(f"Arkusz: {ws.title} | kolumny: {sorted(headers)}")
+    messages.append(f"Arkusz: {ws.title} | katalog: {catalog} | kolumny: {sorted(headers)}")
     messages.append(f"Indeks zdjęć: {len(photo_index)} plików")
 
     con = get_db()
@@ -302,8 +308,13 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
             continue
 
         existing = con.execute(
-            "SELECT id FROM equipment WHERE code=?", (code,)
+            "SELECT id, IFNULL(catalog,'main') AS catalog FROM equipment WHERE code=?", (code,)
         ).fetchone()
+        if existing and (existing["catalog"] or "main") != catalog:
+            messages.append(
+                f"POMIJAM (kod w innym katalogu: {existing['catalog']}): {code}")
+            skipped += 1
+            continue
         if existing and not update:
             messages.append(f"POMIJAM (kod istnieje): {code}")
             skipped += 1
@@ -424,8 +435,8 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
             cur = con.execute(
                 """INSERT INTO equipment (code, project_number, name, dimensions, photo,
                    location, warehouse_id, owner, brand, material_type,
-                   condition, storage_instructions, quantity)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   condition, storage_instructions, quantity, catalog)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     code,
                     project_number or "",
@@ -440,6 +451,7 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
                     condition or "sprawny",
                     storage or "",
                     0 if qty is None else qty,
+                    catalog,
                 ),
             )
             eid = cur.lastrowid
