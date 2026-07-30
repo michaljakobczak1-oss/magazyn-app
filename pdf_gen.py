@@ -250,16 +250,29 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
     if wh:
         wh_txt = wh + (f" ({wh_addr})" if wh_addr else "")
 
+    issue_wh = _get(eq, "issue_warehouse_name")
+    issue_addr = _get(eq, "issue_warehouse_address")
+    issue_txt = "-"
+    if issue_wh:
+        issue_txt = issue_wh + (f" ({issue_addr})" if issue_addr else "")
+
     left = [
         ("Kod sprzętu", eq["code"]),
         ("Nazwa", eq["name"]),
         ("Numer projektu", _get(res, "project_number") or _get(eq, "project_number") or "-"),
         ("Wymiary", eq["dimensions"] or "-"),
-        ("Magazyn" if kind == "wydanie" else "Magazyn przyjęcia", wh_txt),
-        ("Miejsce w magazynie", eq["location"] or "-"),
+    ]
+    if kind == "przyjecie":
+        left.append(("Magazyn wydania", issue_txt))
+        left.append(("Magazyn przyjęcia", wh_txt))
+        left.append(("Miejsce w magazynie", eq["location"] or "-"))
+    else:
+        left.append(("Magazyn", wh_txt))
+        left.append(("Miejsce w magazynie", eq["location"] or "-"))
+    left.extend([
         ("Własność", eq["owner"] or "-"),
         ("Brand", _get(eq, "brand") or "-"),
-    ]
+    ])
     right = [
         ("Ilość sztuk", str(res["quantity"])),
         ("Termin planowany", f"{res['date_from']} – {res['date_to']}"),
@@ -267,6 +280,10 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
         ("Odbiera towar", res["receiver"] or "-"),
         ("Rezerwujący", user_name),
     ]
+    if kind == "przyjecie":
+        returner = _get(res, "returner") or res["receiver"] or "-"
+        # wstaw po "Odbiera towar"
+        right.insert(4, ("Oddaje towar", returner))
     if operator_name:
         right.append(("Obsługa magazynu", operator_name))
     issued = _fmt_ts(_get(res, "issued_at"))

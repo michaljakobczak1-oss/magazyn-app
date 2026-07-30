@@ -164,6 +164,9 @@ MIGRATIONS = {
         "return_warehouse_id": "INTEGER REFERENCES warehouses(id)",
         "return_location": "TEXT",
         "project_number": "TEXT",
+        "issue_warehouse_id": "INTEGER REFERENCES warehouses(id)",
+        "issue_location": "TEXT",
+        "returner": "TEXT",
     },
 }
 

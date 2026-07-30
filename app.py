@@ -500,10 +500,12 @@ def reservations():
     today = local_today().isoformat()
     con = get_db()
     sql = """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
-                    e.code, e.name, e.photo, e.location, w.name AS warehouse_name
+                    e.code, e.name, e.photo, e.location, w.name AS warehouse_name,
+                    COALESCE(iw.name, w.name) AS issue_warehouse_name
              FROM reservations r
              JOIN users u ON u.id=r.user_id JOIN equipment e ON e.id=r.equipment_id
-             LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
+             LEFT JOIN warehouses w ON w.id=e.warehouse_id
+             LEFT JOIN warehouses iw ON iw.id=r.issue_warehouse_id"""
     where, params = [], []
     if f:
         where.append("r.status=?"); params.append(f)
@@ -515,11 +517,13 @@ def reservations():
         sql += " WHERE " + " AND ".join(where)
     rows = con.execute(sql + " ORDER BY r.date_from DESC", params).fetchall()
     warehouses = active_warehouses(con)
+    receivers = active_partners(con)
     manage_ids = {r["id"] for r in rows if can_manage_reservation(r)}
     con.close()
     return render_template("reservations.html", rows=rows, f=f, mine=mine,
                            overdue=overdue, today=today, dn=display_name,
-                           warehouses=warehouses, manage_ids=manage_ids)
+                           warehouses=warehouses, receivers=receivers,
+                           manage_ids=manage_ids)
 
 
 @app.route("/equipment/<int:eid>/reserve", methods=["GET", "POST"])
@@ -752,14 +756,16 @@ def _split_partial(con, r, process_qty):
         """INSERT INTO reservations (
             equipment_id, user_id, client, date_from, date_to, quantity, status,
             group_id, receiver, permanent, project_number,
+            issue_warehouse_id, issue_location,
             recipient_name, recipient_contact,
             recipient_phone, recipient_address, recipient_email, notes,
             issued_at, issued_by
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             r["equipment_id"], r["user_id"], g("client"), r["date_from"], r["date_to"],
             remaining, "wydane", g("group_id"), g("receiver"),
             1 if g("permanent") else 0, g("project_number"),
+            g("issue_warehouse_id"), g("issue_location"),
             g("recipient_name"), g("recipient_contact"), g("recipient_phone"),
             g("recipient_address"), g("recipient_email"), g("notes"),
             g("issued_at"), g("issued_by"),
@@ -788,7 +794,7 @@ def _apply_issue(con, r, user_id, permanent=None):
         date_from = today
     status = "wydane trwale" if permanent else "wydane"
     if permanent:
-        eq = con.execute("SELECT quantity, warehouse_id FROM equipment WHERE id=?",
+        eq = con.execute("SELECT quantity, warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
                          (r["equipment_id"],)).fetchone()
         if not eq or eq["quantity"] < r["quantity"]:
             return False
@@ -798,10 +804,19 @@ def _apply_issue(con, r, user_id, permanent=None):
         con.execute("UPDATE equipment SET quantity = quantity - ? WHERE id=?",
                     (r["quantity"], r["equipment_id"]))
         sync_equipment_from_stock(con, r["equipment_id"], keep_total=True)
+    else:
+        eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
+                         (r["equipment_id"],)).fetchone()
+    issue_wid = eq["warehouse_id"] if eq else None
+    issue_loc = (eq["loc"] if eq else "") or ""
+    # nie zapisuj sklejonych multi-lokalizacji jako miejsca wydania
+    if issue_loc and ("," in issue_loc or " szt" in issue_loc.lower()):
+        issue_loc = ""
     con.execute("""UPDATE reservations SET status=?, issued_at=?, issued_by=?,
-                   date_from=?, permanent=? WHERE id=?""",
+                   date_from=?, permanent=?,
+                   issue_warehouse_id=?, issue_location=? WHERE id=?""",
                 (status, now.isoformat(timespec="seconds"), user_id, date_from,
-                 1 if permanent else 0, r["id"]))
+                 1 if permanent else 0, issue_wid, issue_loc, r["id"]))
     return True
 
 
@@ -817,13 +832,28 @@ def _apply_return(con, r, user_id, form):
     r = _split_partial(con, r, qty)
     wid = int((form.get("return_warehouse_id") or "").strip())
     loc = (form.get("return_location") or "").strip()
+    returner = (form.get("returner") or "").strip() or (r["receiver"] or "")
+    # backfill magazynu wydania dla starszych rezerwacji (sprzed zapisu issue_*)
+    try:
+        issue_wid = r["issue_warehouse_id"]
+    except (KeyError, IndexError, TypeError):
+        issue_wid = None
+    if not issue_wid:
+        eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
+                         (r["equipment_id"],)).fetchone()
+        if eq and eq["warehouse_id"]:
+            issue_loc = eq["loc"] or ""
+            if issue_loc and ("," in issue_loc or " szt" in issue_loc.lower()):
+                issue_loc = ""
+            con.execute("""UPDATE reservations SET issue_warehouse_id=?, issue_location=?
+                           WHERE id=?""", (eq["warehouse_id"], issue_loc, r["id"]))
     damage = 1 if form.get("damage") else 0
     damage_notes = (form.get("damage_notes") or "").strip()
     now = local_now().isoformat(timespec="seconds")
     con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
                    returned_by=?, damage=?, damage_notes=?,
-                   return_warehouse_id=?, return_location=? WHERE id=?""",
-                (now, user_id, damage, damage_notes, wid, loc, r["id"]))
+                   return_warehouse_id=?, return_location=?, returner=? WHERE id=?""",
+                (now, user_id, damage, damage_notes, wid, loc, returner, r["id"]))
     eid = r["equipment_id"]
     move_equipment_stock_on_return(con, eid, r["quantity"], wid, loc)
     if damage:
@@ -879,7 +909,11 @@ def _apply_dispose(con, r, user_id, form):
 
 
 def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, ret_loc=None):
-    """Dane sprzętu do PDF. Dla PZ używa magazynu przyjęcia ze zwrotu, nie głównego stocku."""
+    """Dane sprzętu do PDF.
+
+    WZ: magazyn z momentu wydania (issue_*), jeśli zapisany.
+    PZ: Magazyn przyjęcia ze zwrotu; Magazyn wydania z issue_*.
+    """
     eq = con.execute(
         """SELECT e.*, w.name AS warehouse_name, w.address AS warehouse_address
            FROM equipment e LEFT JOIN warehouses w ON w.id=e.warehouse_id
@@ -887,6 +921,31 @@ def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, re
         (equipment_id,)).fetchone()
     if not eq:
         return None
+    eq = dict(eq)
+
+    issue_wid = None
+    issue_loc = ""
+    if reservation is not None:
+        try:
+            issue_wid = reservation["issue_warehouse_id"]
+            issue_loc = (reservation["issue_location"] or "").strip()
+        except (KeyError, IndexError, TypeError):
+            pass
+    if issue_wid:
+        iss_wh = con.execute("SELECT name, address FROM warehouses WHERE id=?",
+                             (issue_wid,)).fetchone()
+        if iss_wh:
+            eq["issue_warehouse_name"] = iss_wh["name"]
+            eq["issue_warehouse_address"] = iss_wh["address"] or ""
+            eq["issue_location"] = issue_loc
+
+    if kind == "wydanie" and eq.get("issue_warehouse_name"):
+        eq["warehouse_name"] = eq["issue_warehouse_name"]
+        eq["warehouse_address"] = eq.get("issue_warehouse_address") or ""
+        if "issue_location" in eq:
+            eq["location"] = eq["issue_location"]
+        return eq
+
     if kind != "przyjecie":
         return eq
 
@@ -906,7 +965,6 @@ def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, re
                          (wid,)).fetchone()
     if not ret_wh:
         return eq
-    eq = dict(eq)
     eq["warehouse_name"] = ret_wh["name"]
     eq["warehouse_address"] = ret_wh["address"] or ""
     eq["location"] = (loc or "").strip()
