@@ -716,11 +716,12 @@ def _selected_reservations(con, rids):
 
 
 def _return_form_valid(form):
-    """Magazyn wymagany przy zwrocie; przy utylizacji – nie."""
+    """Magazyn i oddający wymagani przy zwrocie; przy utylizacji – nie."""
     if form.get("dispose"):
         return True
     wid = (form.get("return_warehouse_id") or "").strip()
-    return wid.isdigit()
+    returner = (form.get("returner") or "").strip()
+    return wid.isdigit() and bool(returner)
 
 
 def _process_qty_from_form(form, r):

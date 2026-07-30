@@ -130,14 +130,13 @@
             </select>
             <label>Miejsce w magazynie (opcjonalnie)</label>
             <input name="return_location" id="rm-location" placeholder="np. Regał B2">
-            <label>Oddaje towar</label>
-            <input name="returner" id="rm-returner" list="returner-list"
-                   placeholder="wybierz z listy lub wpisz">
-            <datalist id="returner-list">
+            <label>Oddaje towar *</label>
+            <select name="returner" id="rm-returner" required>
+              <option value="" disabled selected>– wybierz –</option>
               {% for p in receivers %}
-              <option value="{{ p.name }}"></option>
+              <option value="{{ p.name }}">{{ p.name }}</option>
               {% endfor %}
-            </datalist>
+            </select>
             <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
               <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="syncReturnModalUI()">
               towar wrócił uszkodzony
@@ -176,14 +175,13 @@
         </select>
         <label>Miejsce w magazynie (opcjonalnie)</label>
         <input id="rm-location-bulk" placeholder="np. Regał B2">
-        <label>Oddaje towar</label>
-        <input id="rm-returner-bulk" list="returner-list-bulk"
-               placeholder="wybierz z listy lub wpisz">
-        <datalist id="returner-list-bulk">
+        <label>Oddaje towar *</label>
+        <select id="rm-returner-bulk" required>
+          <option value="" disabled selected>– wybierz –</option>
           {% for p in receivers %}
-          <option value="{{ p.name }}"></option>
+          <option value="{{ p.name }}">{{ p.name }}</option>
           {% endfor %}
-        </datalist>
+        </select>
         <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
           <input type="checkbox" id="rm-damage-bulk" style="width:auto;" onchange="syncReturnModalUI()">
           towar wrócił uszkodzony
@@ -364,7 +362,7 @@ function prepareBulkSubmit(){
   const ret = document.getElementById('rm-returner-bulk');
   if (wh.value) addHidden('return_warehouse_id', wh.value);
   if (loc.value) addHidden('return_location', loc.value);
-  if (ret && ret.value) addHidden('returner', ret.value.trim());
+  if (ret && ret.value) addHidden('returner', ret.value);
   if (document.getElementById('rm-damage-bulk').checked) addHidden('damage', '1');
   addHidden('damage_notes', (document.getElementById('rm-damage-notes-bulk').value || '').trim());
 }
@@ -399,7 +397,8 @@ function resetReturnModal(){
   const wh = document.getElementById('rm-warehouse');
   wh.selectedIndex = 0; wh.value = '';
   document.getElementById('rm-location').value = '';
-  document.getElementById('rm-returner').value = '';
+  const retSel = document.getElementById('rm-returner');
+  retSel.selectedIndex = 0; retSel.value = '';
   document.getElementById('rm-damage').checked = false;
   document.getElementById('rm-damage-notes-return').value = '';
   document.getElementById('rm-damage-notes-dispose').value = '';
@@ -407,7 +406,8 @@ function resetReturnModal(){
   document.getElementById('rm-warehouse-bulk').selectedIndex = 0;
   document.getElementById('rm-warehouse-bulk').value = '';
   document.getElementById('rm-location-bulk').value = '';
-  document.getElementById('rm-returner-bulk').value = '';
+  const retBulk = document.getElementById('rm-returner-bulk');
+  retBulk.selectedIndex = 0; retBulk.value = '';
   document.getElementById('rm-damage-bulk').checked = false;
   document.getElementById('rm-damage-notes-bulk').value = '';
   document.getElementById('rm-error').style.display = 'none';
@@ -449,6 +449,11 @@ function validateReturnForm(){
       err.style.display = 'block';
       return false;
     }
+    if (anyReturn && !document.getElementById('rm-returner-bulk').value) {
+      err.textContent = 'Wybierz, kto oddaje towar.';
+      err.style.display = 'block';
+      return false;
+    }
     prepareBulkSubmit();
     return true;
   }
@@ -471,6 +476,10 @@ function validateReturnForm(){
     err.textContent = 'Wybierz magazyn przyjęcia.';
     err.style.display = 'block';
     return false;
+  } else if (!document.getElementById('rm-returner').value) {
+    err.textContent = 'Wybierz, kto oddaje towar.';
+    err.style.display = 'block';
+    return false;
   }
   prepareSingleSubmit();
   return true;
@@ -484,11 +493,33 @@ document.getElementById('rm-qty-dispose').addEventListener('input', function(){
 document.getElementById('rm-qty').addEventListener('input', function(){
   document.getElementById('rm-qty-dispose').value = this.value;
 });
+function setReturnerSelect(sel, name){
+  if (!sel) return;
+  const val = (name || '').trim();
+  if (!val) {
+    sel.selectedIndex = 0;
+    sel.value = '';
+    return;
+  }
+  let found = false;
+  for (let i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === val) {
+      sel.selectedIndex = i;
+      sel.value = val;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    sel.selectedIndex = 0;
+    sel.value = '';
+  }
+}
 function openReturn(rid, code, qty, receiver, issueWh){
   resetReturnModal();
   setSingleQty(parseInt(qty, 10) || 1);
   document.getElementById('rm-code').textContent = code;
-  document.getElementById('rm-returner').value = receiver || '';
+  setReturnerSelect(document.getElementById('rm-returner'), receiver);
   const whWrap = document.getElementById('rm-issue-wh-wrap');
   const whEl = document.getElementById('rm-issue-wh');
   if (issueWh) {
@@ -518,7 +549,7 @@ function openReturnBulk(){
   const receivers = checked.map(function(cb){ return (cb.getAttribute('data-receiver') || '').trim(); })
     .filter(function(v){ return v; });
   const uniq = Array.from(new Set(receivers));
-  document.getElementById('rm-returner-bulk').value = (uniq.length === 1) ? uniq[0] : '';
+  setReturnerSelect(document.getElementById('rm-returner-bulk'), (uniq.length === 1) ? uniq[0] : '');
   const box = document.getElementById('rm-rids');
   const itemsBox = document.getElementById('rm-items');
   itemsBox.style.display = 'block';
