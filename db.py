@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS equipment (
     material_type TEXT NOT NULL DEFAULT 'klient',-- 'klient' | 'wlasny'
     condition TEXT NOT NULL DEFAULT 'sprawny',   -- sprawny | uszkodzony | do utylizacji
     condition_notes TEXT,
+    damaged_quantity INTEGER NOT NULL DEFAULT 0, -- ile szt. ze stanu jest uszkodzonych
     storage_instructions TEXT,                   -- jak składować / pakować / transportować
     quantity INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
@@ -117,7 +118,8 @@ CREATE TABLE IF NOT EXISTS equipment_photos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'normal'          -- normal | damage
 );
 CREATE INDEX IF NOT EXISTS idx_eq_photos ON equipment_photos(equipment_id, sort_order);
 
@@ -148,6 +150,7 @@ MIGRATIONS = {
         "material_type": "TEXT NOT NULL DEFAULT 'klient'",
         "condition": "TEXT NOT NULL DEFAULT 'sprawny'",
         "condition_notes": "TEXT",
+        "damaged_quantity": "INTEGER NOT NULL DEFAULT 0",
         "storage_instructions": "TEXT",
     },
     "reservations": {
@@ -167,6 +170,9 @@ MIGRATIONS = {
         "issue_warehouse_id": "INTEGER REFERENCES warehouses(id)",
         "issue_location": "TEXT",
         "returner": "TEXT",
+    },
+    "equipment_photos": {
+        "kind": "TEXT NOT NULL DEFAULT 'normal'",
     },
 }
 
@@ -310,11 +316,23 @@ def upsert_recipient(con, name, contact, phone, address, email):
                      (address or "").strip(), (email or "").strip()))
 
 
+def equipment_photo_rows(con, equipment_id):
+    """Wiersze galerii: filename + kind (normal|damage)."""
+    return con.execute(
+        """SELECT filename, IFNULL(kind, 'normal') AS kind
+           FROM equipment_photos WHERE equipment_id=?
+           ORDER BY sort_order, id""",
+        (equipment_id,)).fetchall()
+
+
 def equipment_photo_list(con, equipment_id):
     """Lista nazw plików zdjęć sprzętu (kolejność sort_order)."""
-    return [r["filename"] for r in con.execute(
-        "SELECT filename FROM equipment_photos WHERE equipment_id=? ORDER BY sort_order, id",
-        (equipment_id,)).fetchall()]
+    return [r["filename"] for r in equipment_photo_rows(con, equipment_id)]
+
+
+def equipment_photo_kind_map(con, equipment_id):
+    """filename -> kind, do zachowania typu przy edycji karty."""
+    return {r["filename"]: r["kind"] for r in equipment_photo_rows(con, equipment_id)}
 
 
 def sync_equipment_primary_photo(con, equipment_id):

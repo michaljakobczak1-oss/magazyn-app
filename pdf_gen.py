@@ -182,18 +182,44 @@ def _boxed_section(c, x, y, w, title, rows, font_size=9):
     return top - box_h - 4 * mm
 
 
+def _normalize_photo_entries(photo_names):
+    """Lista (filename, kind) – akceptuje stringi lub dict/Row z filename+kind."""
+    out = []
+    for p in (photo_names or []):
+        if not p:
+            continue
+        if isinstance(p, str):
+            out.append((p, "normal"))
+            continue
+        try:
+            fn = p["filename"] if "filename" in p.keys() else None
+            kind = p["kind"] if "kind" in p.keys() else "normal"
+        except (TypeError, AttributeError, KeyError):
+            try:
+                fn = p.get("filename")
+                kind = p.get("kind") or "normal"
+            except AttributeError:
+                fn, kind = None, "normal"
+        if fn:
+            out.append((fn, kind or "normal"))
+    return out[:5]
+
+
 def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
-    """Rysuje do 5 zdjęć w jednym rzędzie. Zwraca nowe y."""
-    names = [p for p in (photo_names or []) if p][:5]
-    if not names:
+    """Rysuje do 5 zdjęć w jednym rzędzie. Zwraca nowe y.
+
+    photo_names: nazwy plików albo wpisy {filename, kind} (kind=damage → etykieta).
+    """
+    entries = _normalize_photo_entries(photo_names)
+    if not entries:
         return y
     gap = 3 * mm
-    n = len(names)
+    n = len(entries)
     cell_w = (w - 2 * m - gap * (n - 1)) / n
     max_ph = max_h
     drawn_h = 0
     images = []
-    for fn in names:
+    for fn, kind in entries:
         path = _resolve_photo(fn)
         if not path:
             images.append(None)
@@ -203,24 +229,38 @@ def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
             iw, ih = img.getSize()
             scale = min(cell_w / iw, max_ph / ih)
             dw, dh = iw * scale, ih * scale
-            images.append((img, dw, dh))
+            images.append((img, dw, dh, kind))
             drawn_h = max(drawn_h, dh)
         except Exception:
             images.append(None)
     if drawn_h <= 0:
         return y
+    caption_h = 4 * mm
     y -= drawn_h + 2 * mm
     x = m
     for item in images:
         if item:
-            img, dw, dh = item
-            c.drawImage(img, x + (cell_w - dw) / 2, y, dw, dh,
+            img, dw, dh, kind = item
+            ix = x + (cell_w - dw) / 2
+            c.drawImage(img, ix, y, dw, dh,
                         preserveAspectRatio=True, anchor="sw")
+            if kind == "damage":
+                c.setStrokeColor(colors.Color(0.75, 0.12, 0.12))
+                c.setLineWidth(1.2)
+                c.rect(ix - 0.6 * mm, y - 0.6 * mm, dw + 1.2 * mm, dh + 1.2 * mm, stroke=1, fill=0)
+                c.setFillColor(colors.Color(0.75, 0.12, 0.12))
+                c.setFont(FONT_B, 6.5)
+                c.drawCentredString(x + cell_w / 2, y - 3.2 * mm, "zdjęcie uszkodzenia")
+                c.setFillColor(colors.black)
+                c.setStrokeColor(colors.black)
+                c.setLineWidth(1)
         x += cell_w + gap
+    any_damage = any(item and item[3] == "damage" for item in images)
+    label_y = y - (caption_h if any_damage else 3.5 * mm)
     c.setFont(FONT, 7)
-    c.drawString(m, y - 3.5 * mm, "Zdjęcie sprzętu" if n == 1 else f"Zdjęcia sprzętu ({n})")
-    return y - 6 * mm
-
+    c.setFillColor(colors.black)
+    c.drawString(m, label_y, "Zdjęcie sprzętu" if n == 1 else f"Zdjęcia sprzętu ({n})")
+    return label_y - 4 * mm
 
 def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=None):
     """Rysuje jedną stronę protokołu (WZ/PZ) na istniejącym canvasie."""

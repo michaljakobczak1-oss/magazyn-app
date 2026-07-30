@@ -49,6 +49,9 @@
       <label>
         <img src="{{ url_for('static', filename='uploads/' + fn) }}" alt="">
         <span><input type="checkbox" name="keep_photo" value="{{ fn }}" checked style="width:auto;"> zachowaj</span>
+        {% if photo_kinds is defined and photo_kinds.get(fn) == 'damage' %}
+        <span class="badge damaged">uszkodzenie</span>
+        {% endif %}
       </label>
       {% endfor %}
     </div>

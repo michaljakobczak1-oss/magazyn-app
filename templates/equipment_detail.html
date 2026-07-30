@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ eq.code }} – {{ eq.name }}
   {% if eq.material_type == 'wlasny' %}<span class="badge own">materiał własny</span>{% endif %}
-  {% if eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
+  {% if (eq.damaged_quantity or 0) == 0 and eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
 </h1>
 <div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:20px;">
   <div class="card" style="flex:1; min-width:300px;">
@@ -15,10 +15,19 @@
       <dt>Własność</dt><dd>{{ eq.owner or '–' }}</dd>
       <dt>Brand</dt><dd>{{ eq.brand or '–' }}</dd>
       <dt>Rodzaj materiału</dt><dd>{{ 'własny agencji (00)' if eq.material_type == 'wlasny' else 'materiał klienta' }}</dd>
-      <dt>Stan techniczny</dt><dd>{{ eq.condition }}</dd>
+      {% set dmg = eq.damaged_quantity or 0 %}
+      {% set ok = eq.quantity - dmg %}
+      <dt>Stan techniczny</dt>
+      <dd>
+        {% if dmg > 0 %}
+          {{ ok }} szt. sprawne i {{ dmg }} szt. {% if dmg == 1 %}uszkodzona{% else %}uszkodzone{% endif %}
+        {% else %}
+          {{ eq.condition }}
+        {% endif %}
+      </dd>
       {% if eq.condition_notes %}<dt>Notatka o stanie</dt><dd style="white-space:pre-line;">{{ eq.condition_notes }}</dd>{% endif %}
       <dt>Stan magazynowy</dt><dd>{{ eq.quantity }} szt.</dd>
-      <dt>Dostępne dziś</dt><dd><span class="badge {{ 'avail-ok' if avail_today > 0 else 'avail-no' }}">{{ avail_today }} szt.</span></dd>
+      <dt>Dostępne dziś</dt><dd><span class="badge {{ 'avail-ok' if avail_today > 0 else 'avail-no' }}">{{ avail_today }} szt.{% if dmg > 0 %} sprawne{% endif %}</span></dd>
       {% if eq.storage_instructions %}<dt>Składowanie / pakowanie</dt><dd style="white-space:pre-line;">{{ eq.storage_instructions }}</dd>{% endif %}
       {% if eq.notes %}<dt>Uwagi</dt><dd>{{ eq.notes }}</dd>{% endif %}
     </dl>
@@ -34,10 +43,15 @@
     </div>
   </div>
   <div style="display:flex; flex-direction:column; gap:12px; max-width:640px;">
-    {% if photos %}
+    {% if photo_rows %}
     <div class="photo-gallery">
-      {% for fn in photos %}
-      <img class="photo-lg" src="{{ url_for('static', filename='uploads/' + fn) }}" alt="">
+      {% for p in photo_rows %}
+      <figure class="photo-item {{ 'photo-damage' if p.kind == 'damage' else '' }}">
+        <img class="photo-lg" src="{{ url_for('static', filename='uploads/' + p.filename) }}" alt="">
+        {% if p.kind == 'damage' %}
+        <figcaption><span class="badge damaged">zdjęcie uszkodzenia</span></figcaption>
+        {% endif %}
+      </figure>
       {% endfor %}
     </div>
     {% endif %}

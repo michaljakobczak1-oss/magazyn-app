@@ -19,10 +19,10 @@
   </form>
 </div>
 <form method="post" id="bulk">
-<div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+<div id="bulk-top-actions" style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <span style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
-  <button class="btn small ok" formaction="{{ url_for('bulk_action', action='issue') }}">Zbiorcze wydanie</button>
-  <button type="button" class="btn small ok" onclick="openReturnBulk()">Zbiorcze przyjęcie</button>
+  <button class="btn small ok" id="bulk-issue-btn" formaction="{{ url_for('bulk_action', action='issue') }}">Zbiorcze wydanie</button>
+  <button type="button" class="btn small ok" id="bulk-return-btn" onclick="openReturnBulk()">Zbiorcze przyjęcie</button>
 </div>
 <table>
   <tr><th></th><th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
@@ -79,6 +79,11 @@
 </table>
 </form>
 
+<div id="float-bulk-rail" class="float-rail" aria-label="Akcje zbiorcze">
+  <button type="button" class="float-rail-btn ok" id="float-bulk-issue" title="Zbiorcze wydanie zaznaczonych">Zbiorcze wydanie</button>
+  <button type="button" class="float-rail-btn ok" id="float-bulk-return" title="Zbiorcze przyjęcie zaznaczonych">Zbiorcze przyjęcie</button>
+</div>
+
 <div id="change-return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
   <div class="card" style="width:min(420px, 94vw);">
     <h2 style="margin-top:0;">Zmień termin zwrotu <span id="cr-code"></span></h2>
@@ -100,7 +105,7 @@
 <div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
   <div class="card" style="width:min(520px, 94vw); max-height:90vh; overflow:auto;">
     <h2 style="margin-top:0;">Przyjęcie zwrotu <span id="rm-code"></span></h2>
-    <form method="post" id="return-form" novalidate>
+    <form method="post" id="return-form" enctype="multipart/form-data" novalidate>
       <div id="rm-rids"></div>
       <div id="rm-error" class="flash error" style="display:none; margin-bottom:10px;">Wypełnij pole.</div>
 
@@ -114,41 +119,48 @@
         </p>
 
         <div id="rm-card-return" style="border:2px solid #86efac; background:#f0fdf4; border-radius:10px; padding:12px; margin-bottom:10px;">
-          <label style="display:flex; align-items:center; gap:8px; font-weight:700; margin:0 0 10px; cursor:pointer;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:700; margin:0; cursor:pointer;">
             <input type="radio" name="rm_action" value="return" id="rm-action-return" checked style="width:auto;" onchange="syncReturnModalUI()">
             Zwrot na magazyn
           </label>
-          <div id="rm-return-body">
-            <label style="margin-top:0;">Ile sztuk wraca *</label>
-            <input type="number" name="return_qty" id="rm-qty" min="1" value="1" required style="max-width:120px;">
-            <label>Magazyn przyjęcia *</label>
-            <select name="return_warehouse_id" id="rm-warehouse">
-              <option value="" disabled selected>– wybierz magazyn –</option>
-              {% for w in warehouses %}
-              <option value="{{ w.id }}">{{ w.name }}</option>
-              {% endfor %}
-            </select>
-            <label>Miejsce w magazynie (opcjonalnie)</label>
-            <input name="return_location" id="rm-location" placeholder="np. Regał B2">
-            <label>Oddaje towar *</label>
-            <select name="returner" id="rm-returner" required>
-              <option value="" disabled selected>– wybierz –</option>
-              {% for p in receivers %}
-              <option value="{{ p.name }}">{{ p.name }}</option>
-              {% endfor %}
-            </select>
-            <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
-              <input type="checkbox" name="damage" value="1" id="rm-damage" style="width:auto;" onchange="syncReturnModalUI()">
-              towar wrócił uszkodzony
-            </label>
-            <div id="rm-damage-notes-wrap" style="display:none; margin-top:8px;">
-              <label>Opis uszkodzenia</label>
-              <textarea id="rm-damage-notes-return" rows="2" placeholder="np. pęknięta ścianka skrzyni"></textarea>
-            </div>
+        </div>
+
+        <div id="rm-card-damage" style="border:1px solid #fca5a5; background:#fef2f2; border-radius:10px; padding:12px; margin-bottom:10px; opacity:0.55;">
+          <label style="display:flex; align-items:flex-start; gap:8px; font-weight:700; margin:0 0 6px; cursor:pointer;">
+            <input type="radio" name="rm_action" value="damage" id="rm-action-damage" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
+            <span>Towar wraca uszkodzony</span>
+          </label>
+          <p style="font-size:12px; color:#991b1b; margin:0 0 0 24px;">Przyjęcie na magazyn + oznaczenie uszkodzenia (opis i opcjonalnie zdjęcie).</p>
+        </div>
+
+        <div id="rm-return-body">
+          <label style="margin-top:0;">Ile sztuk wraca *</label>
+          <input type="number" name="return_qty" id="rm-qty" min="1" value="1" required style="max-width:120px;">
+          <label>Magazyn przyjęcia *</label>
+          <select name="return_warehouse_id" id="rm-warehouse">
+            <option value="" disabled selected>– wybierz magazyn –</option>
+            {% for w in warehouses %}
+            <option value="{{ w.id }}">{{ w.name }}</option>
+            {% endfor %}
+          </select>
+          <label>Miejsce w magazynie (opcjonalnie)</label>
+          <input name="return_location" id="rm-location" placeholder="np. Regał B2">
+          <label>Oddaje towar *</label>
+          <select name="returner" id="rm-returner" required>
+            <option value="" disabled selected>– wybierz –</option>
+            {% for p in receivers %}
+            <option value="{{ p.name }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <div id="rm-damage-extra" style="display:none; margin-top:12px; padding-top:10px; border-top:1px dashed #fca5a5;">
+            <label>Opis uszkodzenia *</label>
+            <textarea id="rm-damage-notes-return" name="damage_notes_ui" rows="2" placeholder="np. pęknięta ścianka skrzyni"></textarea>
+            <label>Zdjęcie uszkodzenia (opcjonalnie)</label>
+            <input type="file" name="damage_photo" id="rm-damage-photo" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
           </div>
         </div>
 
-        <div id="rm-card-dispose" style="border:1px solid #fcd34d; background:#fffbeb; border-radius:10px; padding:12px; opacity:0.55;">
+        <div id="rm-card-dispose" style="border:1px solid #fcd34d; background:#fffbeb; border-radius:10px; padding:12px; margin-top:10px; opacity:0.55;">
           <label style="display:flex; align-items:flex-start; gap:8px; font-weight:700; margin:0 0 6px; cursor:pointer;">
             <input type="radio" name="rm_action" value="dispose" id="rm-action-dispose" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
             <span>Towar nie wraca (utylizacja)</span>
@@ -162,6 +174,7 @@
           </div>
         </div>
         <input type="hidden" name="dispose" id="rm-dispose" value="">
+        <input type="hidden" name="damage" id="rm-damage" value="">
         <input type="hidden" name="damage_notes" id="rm-damage-notes" value="">
       </div>
 
@@ -182,14 +195,10 @@
           <option value="{{ p.name }}">{{ p.name }}</option>
           {% endfor %}
         </select>
-        <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:12px;">
-          <input type="checkbox" id="rm-damage-bulk" style="width:auto;" onchange="syncReturnModalUI()">
-          towar wrócił uszkodzony
-        </label>
       </div>
       <div id="rm-notes" style="display:none;">
-        <label id="rm-notes-label">Opis / powód</label>
-        <textarea id="rm-damage-notes-bulk" rows="3" placeholder=""></textarea>
+        <label id="rm-notes-label">Powód utylizacji *</label>
+        <textarea id="rm-damage-notes-bulk" rows="3" placeholder="np. zniszczone na evencie"></textarea>
       </div>
       <div style="margin-top:16px; display:flex; gap:10px;">
         <button class="btn ok" id="rm-submit">Przyjmij zwrot</button>
@@ -202,6 +211,25 @@
 {% block scripts %}
 <script>
 let rmBulkMode = false;
+
+(function(){
+  const rail = document.getElementById('float-bulk-rail');
+  if (!rail) return;
+  function sync(){ rail.classList.toggle('visible', window.scrollY > 280); }
+  window.addEventListener('scroll', sync, { passive: true });
+  sync();
+  const issueFloat = document.getElementById('float-bulk-issue');
+  const returnFloat = document.getElementById('float-bulk-return');
+  if (issueFloat) {
+    issueFloat.addEventListener('click', function(){
+      const btn = document.getElementById('bulk-issue-btn');
+      if (btn) btn.click();
+    });
+  }
+  if (returnFloat) {
+    returnFloat.addEventListener('click', function(){ openReturnBulk(); });
+  }
+})();
 
 function openChangeReturn(rid, code, dateFrom, dateTo){
   document.getElementById('cr-code').textContent = code;
@@ -270,46 +298,59 @@ function syncReturnModalUI(){
 
   if (rmBulkMode) {
     const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
-    let anyReturn = false, anyDispose = false;
+    let anyReturn = false, anyDispose = false, anyDamage = false;
     items.forEach(function(sel){
-      if (sel.value === 'dispose') anyDispose = true;
-      else anyReturn = true;
       const row = sel.closest('.rm-item-row');
+      const val = sel.value;
+      if (val === 'dispose') anyDispose = true;
+      else if (val === 'damage') { anyDamage = true; anyReturn = true; }
+      else anyReturn = true;
       if (row) {
-        const isDisp = sel.value === 'dispose';
+        const isDisp = val === 'dispose';
+        const isDmg = val === 'damage';
         row.querySelector('.rm-item-return-hint').style.display = isDisp ? 'none' : 'inline';
         row.querySelector('.rm-item-dispose-hint').style.display = isDisp ? 'inline' : 'none';
-        row.style.borderColor = isDisp ? '#fcd34d' : '#86efac';
-        row.style.background = isDisp ? '#fffbeb' : '#f0fdf4';
+        const dmgBox = row.querySelector('.rm-item-damage-fields');
+        if (dmgBox) dmgBox.style.display = isDmg ? 'block' : 'none';
+        if (isDisp) {
+          row.style.borderColor = '#fcd34d';
+          row.style.background = '#fffbeb';
+        } else if (isDmg) {
+          row.style.borderColor = '#fca5a5';
+          row.style.background = '#fef2f2';
+        } else {
+          row.style.borderColor = '#86efac';
+          row.style.background = '#f0fdf4';
+        }
       }
     });
     document.getElementById('rm-return-fields').style.display = anyReturn ? 'block' : 'none';
-    const showNotes = anyDispose || (anyReturn && document.getElementById('rm-damage-bulk').checked);
-    document.getElementById('rm-notes').style.display = showNotes ? 'block' : 'none';
-    document.getElementById('rm-notes-label').textContent = anyDispose
-      ? (anyReturn ? 'Powód utylizacji / opis uszkodzenia *' : 'Powód utylizacji *')
-      : 'Opis uszkodzenia';
-    document.getElementById('rm-damage-notes-bulk').placeholder = anyDispose
-      ? 'np. zniszczone na evencie – utylizacja'
-      : 'np. pęknięta ścianka skrzyni';
+    document.getElementById('rm-notes').style.display = anyDispose ? 'block' : 'none';
+    document.getElementById('rm-notes-label').textContent = 'Powód utylizacji *';
+    document.getElementById('rm-damage-notes-bulk').placeholder = 'np. zniszczone na evencie – utylizacja';
     let btn = 'Przyjmij zwrot';
     if (anyDispose && anyReturn) btn = 'Zapisz (zwrot + utylizacja)';
     else if (anyDispose) btn = 'Oznacz jako utylizacja';
+    else if (anyDamage && !anyDispose) btn = 'Przyjmij zwrot (z uszkodzeniem)';
     document.getElementById('rm-submit').textContent = btn;
     return;
   }
 
-  const dispose = document.getElementById('rm-action-dispose').checked;
+  const action = document.querySelector('input[name="rm_action"]:checked').value;
+  const dispose = action === 'dispose';
+  const damage = action === 'damage';
   document.getElementById('rm-dispose').value = dispose ? '1' : '';
+  document.getElementById('rm-damage').value = damage ? '1' : '';
   document.getElementById('rm-return-body').style.display = dispose ? 'none' : 'block';
   document.getElementById('rm-dispose-body').style.display = dispose ? 'block' : 'none';
-  document.getElementById('rm-card-return').style.opacity = dispose ? '0.55' : '1';
-  document.getElementById('rm-card-dispose').style.opacity = dispose ? '1' : '0.55';
-  document.getElementById('rm-card-return').style.borderWidth = dispose ? '1px' : '2px';
-  document.getElementById('rm-card-dispose').style.borderWidth = dispose ? '2px' : '1px';
+  document.getElementById('rm-damage-extra').style.display = damage ? 'block' : 'none';
 
-  document.getElementById('rm-damage-notes-wrap').style.display =
-    (!dispose && document.getElementById('rm-damage').checked) ? 'block' : 'none';
+  document.getElementById('rm-card-return').style.opacity = (!dispose && !damage) ? '1' : '0.55';
+  document.getElementById('rm-card-damage').style.opacity = damage ? '1' : '0.55';
+  document.getElementById('rm-card-dispose').style.opacity = dispose ? '1' : '0.55';
+  document.getElementById('rm-card-return').style.borderWidth = (!dispose && !damage) ? '2px' : '1px';
+  document.getElementById('rm-card-damage').style.borderWidth = damage ? '2px' : '1px';
+  document.getElementById('rm-card-dispose').style.borderWidth = dispose ? '2px' : '1px';
 
   const qtyMain = document.getElementById('rm-qty');
   const qtyDisp = document.getElementById('rm-qty-dispose');
@@ -319,14 +360,23 @@ function syncReturnModalUI(){
   } else {
     qtyDisp.value = qtyMain.value;
   }
-  document.getElementById('rm-submit').textContent = dispose ? 'Oznacz jako utylizacja' : 'Przyjmij zwrot';
+  let btn = 'Przyjmij zwrot';
+  if (dispose) btn = 'Oznacz jako utylizacja';
+  else if (damage) btn = 'Przyjmij zwrot uszkodzony';
+  document.getElementById('rm-submit').textContent = btn;
 }
 
 function prepareSingleSubmit(){
-  const dispose = document.getElementById('rm-action-dispose').checked;
+  const action = document.querySelector('input[name="rm_action"]:checked').value;
+  const dispose = action === 'dispose';
+  const damage = action === 'damage';
   const disposeFlag = document.getElementById('rm-dispose');
   disposeFlag.disabled = false;
   disposeFlag.value = dispose ? '1' : '';
+  const damageFlag = document.getElementById('rm-damage');
+  damageFlag.disabled = false;
+  damageFlag.name = 'damage';
+  damageFlag.value = damage ? '1' : '';
 
   const qtyMain = document.getElementById('rm-qty');
   qtyMain.disabled = false;
@@ -338,11 +388,13 @@ function prepareSingleSubmit(){
   notes.disabled = false;
   if (dispose) {
     notes.value = (document.getElementById('rm-damage-notes-dispose').value || '').trim();
-  } else if (document.getElementById('rm-damage').checked) {
+  } else if (damage) {
     notes.value = (document.getElementById('rm-damage-notes-return').value || '').trim();
   } else {
     notes.value = '';
   }
+  const photo = document.getElementById('rm-damage-photo');
+  if (photo) photo.disabled = !damage;
 }
 
 function prepareBulkSubmit(){
@@ -352,8 +404,7 @@ function prepareBulkSubmit(){
     i.type = 'hidden'; i.name = name; i.value = value; i.className = 'rm-bulk-sync';
     document.getElementById('return-form').appendChild(i);
   }
-  // wyłącz pola z trybu pojedynczego, żeby puste nie nadpisywały POST
-  ['rm-dispose', 'rm-damage-notes', 'rm-qty', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage'].forEach(function(id){
+  ['rm-dispose', 'rm-damage-notes', 'rm-qty', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-damage-photo'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.disabled = true;
   });
@@ -363,7 +414,6 @@ function prepareBulkSubmit(){
   if (wh.value) addHidden('return_warehouse_id', wh.value);
   if (loc.value) addHidden('return_location', loc.value);
   if (ret && ret.value) addHidden('returner', ret.value);
-  if (document.getElementById('rm-damage-bulk').checked) addHidden('damage', '1');
   addHidden('damage_notes', (document.getElementById('rm-damage-notes-bulk').value || '').trim());
 }
 
@@ -376,7 +426,7 @@ function setSingleQty(maxQty){
 }
 
 function setSingleFormEnabled(on){
-  ['rm-qty', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-dispose', 'rm-damage-notes'].forEach(function(id){
+  ['rm-qty', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-dispose', 'rm-damage-notes', 'rm-damage-photo'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.disabled = !on;
   });
@@ -392,23 +442,25 @@ function resetReturnModal(){
   document.getElementById('rm-notes').style.display = 'none';
   setSingleFormEnabled(true);
   document.getElementById('rm-action-return').checked = true;
+  document.getElementById('rm-action-damage').checked = false;
   document.getElementById('rm-action-dispose').checked = false;
   document.getElementById('rm-dispose').value = '';
+  document.getElementById('rm-damage').value = '';
   const wh = document.getElementById('rm-warehouse');
   wh.selectedIndex = 0; wh.value = '';
   document.getElementById('rm-location').value = '';
   const retSel = document.getElementById('rm-returner');
   retSel.selectedIndex = 0; retSel.value = '';
-  document.getElementById('rm-damage').checked = false;
   document.getElementById('rm-damage-notes-return').value = '';
   document.getElementById('rm-damage-notes-dispose').value = '';
   document.getElementById('rm-damage-notes').value = '';
+  const photo = document.getElementById('rm-damage-photo');
+  if (photo) photo.value = '';
   document.getElementById('rm-warehouse-bulk').selectedIndex = 0;
   document.getElementById('rm-warehouse-bulk').value = '';
   document.getElementById('rm-location-bulk').value = '';
   const retBulk = document.getElementById('rm-returner-bulk');
   retBulk.selectedIndex = 0; retBulk.value = '';
-  document.getElementById('rm-damage-bulk').checked = false;
   document.getElementById('rm-damage-notes-bulk').value = '';
   document.getElementById('rm-error').style.display = 'none';
   document.querySelectorAll('#return-form .rm-bulk-sync').forEach(function(el){ el.remove(); });
@@ -424,9 +476,10 @@ function validateQtyInput(inp, maxQty){
 function validateReturnForm(){
   const err = document.getElementById('rm-error');
   if (rmBulkMode) {
-    let anyReturn = false, anyDispose = false;
+    let anyReturn = false, anyDispose = false, anyDamage = false;
     document.querySelectorAll('#rm-items .rm-item-action:checked').forEach(function(sel){
       if (sel.value === 'dispose') anyDispose = true;
+      else if (sel.value === 'damage') { anyDamage = true; anyReturn = true; }
       else anyReturn = true;
     });
     const qtyInputs = document.querySelectorAll('#rm-items .rm-item-qty');
@@ -444,6 +497,19 @@ function validateReturnForm(){
       err.style.display = 'block';
       return false;
     }
+    if (anyDamage) {
+      const dmgNotes = document.querySelectorAll('#rm-items .rm-item-damage-notes');
+      for (let i = 0; i < dmgNotes.length; i++) {
+        const ta = dmgNotes[i];
+        const row = ta.closest('.rm-item-row');
+        const sel = row && row.querySelector('.rm-item-action:checked');
+        if (sel && sel.value === 'damage' && !ta.value.trim()) {
+          err.textContent = 'Podaj opis uszkodzenia dla każdej pozycji wracającej uszkodzonej.';
+          err.style.display = 'block';
+          return false;
+        }
+      }
+    }
     if (anyReturn && !document.getElementById('rm-warehouse-bulk').value) {
       err.textContent = 'Wybierz magazyn przyjęcia dla pozycji wracających.';
       err.style.display = 'block';
@@ -458,7 +524,9 @@ function validateReturnForm(){
     return true;
   }
 
-  const dispose = document.getElementById('rm-action-dispose').checked;
+  const action = document.querySelector('input[name="rm_action"]:checked').value;
+  const dispose = action === 'dispose';
+  const damage = action === 'damage';
   const qtyInp = dispose ? document.getElementById('rm-qty-dispose') : document.getElementById('rm-qty');
   const maxQ = parseInt(document.getElementById('rm-qty').max, 10) || 1;
   if (!validateQtyInput(qtyInp, maxQ)) {
@@ -478,6 +546,10 @@ function validateReturnForm(){
     return false;
   } else if (!document.getElementById('rm-returner').value) {
     err.textContent = 'Wybierz, kto oddaje towar.';
+    err.style.display = 'block';
+    return false;
+  } else if (damage && !document.getElementById('rm-damage-notes-return').value.trim()) {
+    err.textContent = 'Podaj opis uszkodzenia.';
     err.style.display = 'block';
     return false;
   }
@@ -553,7 +625,7 @@ function openReturnBulk(){
   const box = document.getElementById('rm-rids');
   const itemsBox = document.getElementById('rm-items');
   itemsBox.style.display = 'block';
-  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: zwrot albo utylizacja + liczba sztuk. Niewybrane zostają wydane.</p>';
+  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: zwrot, zwrot uszkodzony albo utylizacja + liczba sztuk. Niewybrane zostają wydane.</p>';
   checked.forEach(function(cb){
     const h = document.createElement('input');
     h.type = 'hidden'; h.name = 'rid'; h.value = cb.value;
@@ -573,17 +645,27 @@ function openReturnBulk(){
       (name ? ' <span style="font-weight:400;color:#666;">– ' + name + '</span>' : '') +
       ' <span style="font-weight:400;font-size:12px;color:#666;">(wydano ' + maxQty + ' szt.)</span>' +
       issueHint + '</div>' +
-      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;margin-right:14px;">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:8px;">' +
+      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
       '<input type="radio" name="item_action_' + cb.value + '" value="return" class="rm-item-action" checked style="width:auto;" onchange="syncReturnModalUI()"> Zwrot na magazyn</label>' +
       '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
+      '<input type="radio" name="item_action_' + cb.value + '" value="damage" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Towar wraca uszkodzony</label>' +
+      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
       '<input type="radio" name="item_action_' + cb.value + '" value="dispose" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Towar nie wraca</label>' +
-      '<div style="margin-top:10px;">' +
+      '</div>' +
+      '<div>' +
       '<label style="font-weight:400;display:inline-flex;align-items:center;gap:8px;margin:0;">' +
       '<span class="rm-item-return-hint">Ile sztuk wraca</span>' +
       '<span class="rm-item-dispose-hint" style="display:none;">Ile sztuk nie wraca</span>' +
       '<input type="number" name="item_qty_' + cb.value + '" class="rm-item-qty" min="1" max="' + maxQty +
       '" value="' + maxQty + '" required style="width:72px;margin:0;">' +
-      '<span style="font-size:12px;color:#666;">z ' + maxQty + '</span></label></div>';
+      '<span style="font-size:12px;color:#666;">z ' + maxQty + '</span></label></div>' +
+      '<div class="rm-item-damage-fields" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed #fca5a5;">' +
+      '<label style="font-weight:400;margin-top:0;">Opis uszkodzenia *</label>' +
+      '<textarea name="item_damage_notes_' + cb.value + '" class="rm-item-damage-notes" rows="2" placeholder="np. pęknięta ścianka"></textarea>' +
+      '<label style="font-weight:400;">Zdjęcie uszkodzenia (opcjonalnie)</label>' +
+      '<input type="file" name="item_damage_photo_' + cb.value + '" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">' +
+      '</div>';
     itemsBox.appendChild(row);
   });
   document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';

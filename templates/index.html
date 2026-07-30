@@ -107,9 +107,9 @@
 </div>
 {% endif %}
 
-<form method="get" action="{{ url_for('reserve_multi') }}">
+<form method="get" action="{{ url_for('reserve_multi') }}" id="equip-multi-form">
 <div style="margin-bottom:10px;">
-  <button class="btn">Zarezerwuj zaznaczone razem</button>
+  <button class="btn" id="reserve-selected-btn" type="submit">Zarezerwuj zaznaczone razem</button>
   <span style="font-size:13px; color:#666;">– zaznacz kilka pozycji, aby stworzyć wspólną rezerwację na jeden termin</span>
 </div>
 <table>
@@ -122,7 +122,9 @@
       <div><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a></div>
       <div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">
         {% if it.material_type == 'wlasny' %}<span class="badge own">własny</span>{% endif %}
-        {% if it.condition != 'sprawny' %}<span class="badge damaged">{{ it.condition }}</span>{% endif %}
+        {% if (it.damaged_quantity or 0) == 0 and it.condition != 'sprawny' %}
+          <span class="badge damaged">{{ it.condition }}</span>
+        {% endif %}
       </div>
     </td>
     <td>{{ it.name }}</td>
@@ -144,7 +146,16 @@
     </td>
     <td>{{ it.owner or '–' }}</td>
     <td>{{ it.brand or '–' }}</td>
-    <td>{{ it.quantity }} szt.</td>
+    <td>
+      {% set dmg = it.damaged_quantity or 0 %}
+      {% set ok = it.quantity - dmg %}
+      {% if dmg > 0 %}
+        <div>{{ ok }} szt. sprawne</div>
+        <div style="margin-top:2px;"><span class="badge damaged">{{ dmg }} szt. {% if dmg == 1 %}uszkodzona{% else %}uszkodzone{% endif %}</span></div>
+      {% else %}
+        <div>{{ it.quantity }} szt.</div>
+      {% endif %}
+    </td>
     <td><span class="badge {{ 'avail-ok' if availability[it.id] > 0 else 'avail-no' }}">{{ availability[it.id] }} szt.</span></td>
     <td><a class="btn small" href="{{ url_for('reserve', eid=it.id) }}">Rezerwuj</a></td>
   </tr>
@@ -168,4 +179,31 @@
   </div>
 </div>
 {% endif %}
+
+<div id="float-bulk-rail" class="float-rail" aria-label="Rezerwacja zbiorcza">
+  <button type="button" class="float-rail-btn dark" id="float-reserve-selected" title="Zarezerwuj zaznaczone razem">Zarezerwuj zaznaczone razem</button>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  const rail = document.getElementById('float-bulk-rail');
+  if (!rail) return;
+  function sync(){ rail.classList.toggle('visible', window.scrollY > 280); }
+  window.addEventListener('scroll', sync, { passive: true });
+  sync();
+  const floatBtn = document.getElementById('float-reserve-selected');
+  const form = document.getElementById('equip-multi-form');
+  if (floatBtn && form) {
+    floatBtn.addEventListener('click', function(){
+      const n = form.querySelectorAll('input[name="eid"]:checked').length;
+      if (!n) {
+        alert('Zaznacz przynajmniej jedną pozycję.');
+        return;
+      }
+      form.submit();
+    });
+  }
+})();
+</script>
 {% endblock %}

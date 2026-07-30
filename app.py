@@ -10,10 +10,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
-                equipment_photo_list, local_now, local_today, handoff_conflict,
+                equipment_photo_list, equipment_photo_rows, equipment_photo_kind_map,
+                local_now, local_today, handoff_conflict,
                 next_free_after_return, replace_equipment_stock,
                 move_equipment_stock_on_return, take_equipment_stock,
-                add_equipment_stock, sync_equipment_from_stock)
+                add_equipment_stock, sync_equipment_from_stock,
+                sync_equipment_primary_photo)
 from pdf_gen import protocol_pdf, group_pdf
 from import_excel import run_import
 import tempfile
@@ -268,7 +270,11 @@ def index():
     if f_own == "1":
         where.append("e.material_type = 'wlasny'")
     if f_condition:
-        where.append("e.condition = ?"); params.append(f_condition)
+        if f_condition == "uszkodzony":
+            where.append("(e.condition = ? OR IFNULL(e.damaged_quantity,0) > 0)")
+            params.append(f_condition)
+        else:
+            where.append("e.condition = ?"); params.append(f_condition)
     if where:
         sql += " WHERE " + " AND ".join(where)
     all_items = con.execute(sql + " ORDER BY e.code", params).fetchall()
@@ -305,7 +311,7 @@ def index():
 
     today = local_today().isoformat()
     availability = {
-        it["id"]: it["quantity"] - reserved_qty(con, it["id"], today, today)
+        it["id"]: _usable_qty(it) - reserved_qty(con, it["id"], today, today)
         for it in items
     }
 
@@ -385,7 +391,8 @@ def equipment_new():
             eid = cur.lastrowid
             for i, fn in enumerate(new_photos):
                 con.execute(
-                    "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,?)",
+                    """INSERT INTO equipment_photos (equipment_id, filename, sort_order, kind)
+                       VALUES (?,?,?,'normal')""",
                     (eid, fn, i))
             replace_equipment_stock(con, eid, vals[7], vals[6], vals[14])
             con.commit()
@@ -411,6 +418,7 @@ def equipment_edit(eid):
     if not eq:
         abort(404)
     photos = equipment_photo_list(con, eid)
+    photo_kinds = equipment_photo_kind_map(con, eid)
     if request.method == "POST":
         try:
             # które istniejące zostawić
@@ -425,9 +433,11 @@ def equipment_edit(eid):
             con.execute(f"UPDATE equipment SET {sets} WHERE id=?", vals + (eid,))
             con.execute("DELETE FROM equipment_photos WHERE equipment_id=?", (eid,))
             for i, fn in enumerate(final):
+                kind = photo_kinds.get(fn, "normal") if fn in kept else "normal"
                 con.execute(
-                    "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,?)",
-                    (eid, fn, i))
+                    """INSERT INTO equipment_photos (equipment_id, filename, sort_order, kind)
+                       VALUES (?,?,?,?)""",
+                    (eid, fn, i, kind))
             # ręczna edycja karty: jeden magazyn/miejsce zgodne z formularzem
             replace_equipment_stock(con, eid, vals[7], vals[6], vals[14])
             con.commit()
@@ -441,7 +451,7 @@ def equipment_edit(eid):
     warehouses = active_warehouses(con)
     con.close()
     return render_template("equipment_form.html", eq=eq, warehouses=warehouses,
-                           photos=photos)
+                           photos=photos, photo_kinds=photo_kinds)
 
 
 @app.route("/equipment/<int:eid>")
@@ -453,20 +463,20 @@ def equipment_detail(eid):
                         WHERE e.id=?""", (eid,)).fetchone()
     if not eq:
         abort(404)
-    photos = equipment_photo_list(con, eid)
-    if not photos and eq["photo"]:
-        photos = [eq["photo"]]
+    photo_rows = list(equipment_photo_rows(con, eid))
+    if not photo_rows and eq["photo"]:
+        photo_rows = [{"filename": eq["photo"], "kind": "normal"}]
     res = con.execute(
         """SELECT r.*, u.username, u.first_name, u.last_name FROM reservations r
            JOIN users u ON u.id=r.user_id
            WHERE r.equipment_id=? AND r.status != 'anulowana'
            ORDER BY r.date_from DESC""", (eid,)).fetchall()
     today = local_today().isoformat()
-    avail_today = eq["quantity"] - reserved_qty(con, eid, today, today)
+    avail_today = _usable_qty(eq) - reserved_qty(con, eid, today, today)
     con.close()
     return render_template("equipment_detail.html", eq=eq, reservations=res,
                            avail_today=avail_today, today=today, dn=display_name,
-                           photos=photos)
+                           photo_rows=photo_rows)
 
 
 @app.route("/equipment/<int:eid>/delete", methods=["POST"])
@@ -557,9 +567,11 @@ def reserve(eid):
                       f"Ustaw start najwcześniej na dzień po zwrocie.", "error")
         else:
             taken = reserved_qty(con, eid, d_from, d_to)
-            free = eq["quantity"] - taken
+            usable = _usable_qty(eq)
+            free = usable - taken
             if qty > free:
-                flash(f"Brak dostępności w tym terminie. Wolne sztuki: {free} z {eq['quantity']}.", "error")
+                flash(f"Brak dostępności w tym terminie. Wolne sztuki: {free} z {usable} sprawnych "
+                      f"({eq['quantity']} łącznie).", "error")
             else:
                 rec = recipient_form_fields(request.form)
                 permanent = 1 if request.form.get("permanent") else 0
@@ -646,9 +658,10 @@ def reserve_multi():
                         errors.append(f"{it['code']}: termin styka się z inną rezerwacją "
                                       f"(zwrot i wydanie tego samego dnia)")
                     continue
-                free = it["quantity"] - reserved_qty(con, it["id"], d_from, d_to)
+                usable = _usable_qty(it)
+                free = usable - reserved_qty(con, it["id"], d_from, d_to)
                 if qty > free:
-                    errors.append(f"{it['code']}: wolne {free} z {it['quantity']} szt.")
+                    errors.append(f"{it['code']}: wolne {free} z {usable} sprawnych szt.")
                 wanted[it["id"]] = qty
             if not wanted:
                 flash("Zostaw przynajmniej jedną pozycję z ilością > 0."
@@ -722,6 +735,51 @@ def _return_form_valid(form):
     wid = (form.get("return_warehouse_id") or "").strip()
     returner = (form.get("returner") or "").strip()
     return wid.isdigit() and bool(returner)
+
+
+def _eq_damaged_qty(eq):
+    try:
+        return max(0, int(eq["damaged_quantity"] or 0))
+    except (KeyError, IndexError, TypeError, ValueError):
+        return 0
+
+
+def _usable_qty(eq):
+    """Sztuki sprawne (do rezerwacji) = stan − uszkodzone."""
+    return max(0, int(eq["quantity"]) - _eq_damaged_qty(eq))
+
+
+def _damage_notes_for(form, r):
+    notes = (form.get(f"item_damage_notes_{r['id']}") or "").strip()
+    if not notes:
+        notes = (form.get("damage_notes") or "").strip()
+    return notes
+
+
+def _attach_damage_photo(con, eid, files, rid=None):
+    """Dodaje zdjęcie uszkodzenia do galerii karty produktu. Zwraca filename lub None."""
+    if not files:
+        return None
+    f = None
+    if rid is not None:
+        f = files.get(f"item_damage_photo_{rid}")
+    if (not f or not getattr(f, "filename", None)) and files.get("damage_photo"):
+        f = files.get("damage_photo")
+    fname = save_photo(f)
+    if not fname:
+        return None
+    order = con.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM equipment_photos WHERE equipment_id=?",
+        (eid,)).fetchone()["n"]
+    con.execute(
+        """INSERT INTO equipment_photos (equipment_id, filename, sort_order, kind)
+           VALUES (?,?,?,'damage')""",
+        (eid, fname, order))
+    # uzupełnij miniaturę tylko gdy karta nie miała jeszcze zdjęcia
+    eq = con.execute("SELECT photo FROM equipment WHERE id=?", (eid,)).fetchone()
+    if eq and not eq["photo"]:
+        sync_equipment_primary_photo(con, eid)
+    return fname
 
 
 def _process_qty_from_form(form, r):
@@ -821,14 +879,21 @@ def _apply_issue(con, r, user_id, permanent=None):
     return True
 
 
-def _apply_return(con, r, user_id, form):
-    """Przyjmuje zwrot (możliwa częściowa liczba sztuk). Magazyn wymagany, miejsce opcjonalne."""
+def _apply_return(con, r, user_id, form, files=None, force_damage=False):
+    """Przyjmuje zwrot (możliwa częściowa liczba sztuk). Magazyn wymagany, miejsce opcjonalne.
+
+    force_damage=True – zwrot uszkodzony (opcja per pozycja w zbiorczym).
+    """
     if r["status"] != "wydane":
         return False
     if not _return_form_valid(form):
         return False
     qty = _process_qty_from_form(form, r)
     if qty is None:
+        return False
+    damage = 1 if (force_damage or form.get("damage")) else 0
+    damage_notes = _damage_notes_for(form, r) if damage else ""
+    if damage and not damage_notes:
         return False
     r = _split_partial(con, r, qty)
     wid = int((form.get("return_warehouse_id") or "").strip())
@@ -848,21 +913,22 @@ def _apply_return(con, r, user_id, form):
                 issue_loc = ""
             con.execute("""UPDATE reservations SET issue_warehouse_id=?, issue_location=?
                            WHERE id=?""", (eq["warehouse_id"], issue_loc, r["id"]))
-    damage = 1 if form.get("damage") else 0
-    damage_notes = (form.get("damage_notes") or "").strip()
     now = local_now().isoformat(timespec="seconds")
     con.execute("""UPDATE reservations SET status='zwrócone', returned_at=?,
                    returned_by=?, damage=?, damage_notes=?,
                    return_warehouse_id=?, return_location=?, returner=? WHERE id=?""",
-                (now, user_id, damage, damage_notes, wid, loc, returner, r["id"]))
+                (now, user_id, damage, damage_notes or None, wid, loc, returner, r["id"]))
     eid = r["equipment_id"]
     move_equipment_stock_on_return(con, eid, r["quantity"], wid, loc)
     if damage:
-        stamp = f"[{local_today().isoformat()}] zwrot rez. #{r['id']}: {damage_notes or 'uszkodzenie'}"
-        con.execute("""UPDATE equipment SET condition='uszkodzony',
+        stamp = (f"[{local_today().isoformat()}] zwrot uszkodzony rez. #{r['id']} "
+                 f"({r['quantity']} szt.): {damage_notes}")
+        con.execute("""UPDATE equipment SET damaged_quantity=IFNULL(damaged_quantity,0)+?,
+                       condition='uszkodzony',
                        condition_notes=IFNULL(condition_notes,'') ||
                        CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
-                       WHERE id=?""", (stamp, eid))
+                       WHERE id=?""", (r["quantity"], stamp, eid))
+        _attach_damage_photo(con, eid, files, r["id"])
     return True
 
 
@@ -986,9 +1052,9 @@ def _pdf_for_rids(con, kind, rids, ret_wid=None, ret_loc=None):
             op = con.execute("SELECT * FROM users WHERE id=?", (r["issued_by"],)).fetchone()
         elif kind == "przyjecie" and r["returned_by"]:
             op = con.execute("SELECT * FROM users WHERE id=?", (r["returned_by"],)).fetchone()
-        photos = equipment_photo_list(con, r["equipment_id"])
+        photos = list(equipment_photo_rows(con, r["equipment_id"]))
         if not photos and eq and eq["photo"]:
-            photos = [eq["photo"]]
+            photos = [{"filename": eq["photo"], "kind": "normal"}]
         buf = protocol_pdf(kind, r, eq, display_name(r),
                            display_name(op) if op else None, photos=photos)
         name = f"{prefix}_{r['code']}_{local_now():%Y%m%d_%H%M}.pdf"
@@ -1014,20 +1080,33 @@ def bulk_action(action):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
-    # per-pozycja: item_action_<id> = return|dispose; albo globalne dispose=1
+    # per-pozycja: item_action_<id> = return|dispose|damage; albo globalne dispose=1
     global_dispose = bool(request.form.get("dispose"))
     dispose_ids = set()
     return_ids = set()
+    damage_ids = set()
     if action == "return":
         for r in rows:
             choice = (request.form.get(f"item_action_{r['id']}") or "").strip()
             if choice == "dispose" or (not choice and global_dispose):
                 dispose_ids.add(r["id"])
+            elif choice == "damage":
+                damage_ids.add(r["id"])
+                return_ids.add(r["id"])
             else:
                 return_ids.add(r["id"])
         if dispose_ids and not (request.form.get("damage_notes") or "").strip():
             con.close()
             flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
+            return redirect(url_for("reservations"))
+        missing_dmg = []
+        for rid in damage_ids:
+            if not ((request.form.get(f"item_damage_notes_{rid}") or "").strip()
+                    or (request.form.get("damage_notes") or "").strip()):
+                missing_dmg.append(str(rid))
+        if missing_dmg:
+            con.close()
+            flash("Dla zwrotu uszkodzonego podaj opis uszkodzenia przy każdej takiej pozycji.", "error")
             return redirect(url_for("reservations"))
         if return_ids and not (request.form.get("return_warehouse_id") or "").strip().isdigit():
             con.close()
@@ -1060,9 +1139,13 @@ def bulk_action(action):
                 elif r["status"] == "wydane":
                     stock_err.append(r["code"])
             else:
-                if _apply_return(con, r, session["user_id"], request.form):
+                if _apply_return(con, r, session["user_id"], request.form,
+                                 files=request.files,
+                                 force_damage=(r["id"] in damage_ids)):
                     returned_ids.append(r["id"])
                     done_ids.append(r["id"])
+                elif r["status"] == "wydane":
+                    stock_err.append(r["code"])
     con.commit()
     if stock_err:
         flash(f"Brak stanu magazynowego / nie udało się dla: {', '.join(stock_err)}.", "error")
@@ -1229,12 +1312,17 @@ def return_item(rid):
         flash(f"Podaj poprawną liczbę sztuk (1–{r['quantity']}).", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
+    damaged = bool(request.form.get("damage"))
+    if damaged and not (request.form.get("damage_notes") or "").strip():
+        flash("Podaj opis uszkodzenia.", "error")
+        con.close()
+        return redirect(request.referrer or url_for("reservations"))
     ret_wid = (request.form.get("return_warehouse_id") or "").strip()
     ret_loc = (request.form.get("return_location") or "").strip()
-    if _apply_return(con, r, session["user_id"], request.form):
+    if _apply_return(con, r, session["user_id"], request.form, files=request.files,
+                     force_damage=damaged):
         con.commit()
         con.close()
-        damaged = bool(request.form.get("damage"))
         flash("Oznaczono jako zwrócone." + (" Odnotowano uszkodzenie." if damaged else "")
               + " Pobieranie PDF…", "ok")
         return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid,
@@ -1316,7 +1404,7 @@ def change_return_date(rid):
     eid = r["equipment_id"]
     eq = con.execute("SELECT quantity, code FROM equipment WHERE id=?", (eid,)).fetchone()
     taken = reserved_qty(con, eid, r["date_from"], new_to, exclude_id=rid)
-    free = eq["quantity"] - taken
+    free = _usable_qty(eq) - taken
     if r["quantity"] > free or handoff_conflict(con, eid, r["date_from"], new_to, exclude_id=rid):
         con.close()
         return respond(
@@ -1340,9 +1428,9 @@ def reservation_pdf(rid, kind):
     con = get_db()
     r = _get_reservation(con, rid)
     eq = _eq_for_pdf(con, r["equipment_id"], kind=kind, reservation=r)
-    photos = equipment_photo_list(con, r["equipment_id"])
+    photos = list(equipment_photo_rows(con, r["equipment_id"]))
     if not photos and eq and eq["photo"]:
-        photos = [eq["photo"]]
+        photos = [{"filename": eq["photo"], "kind": "normal"}]
     op_id = r["issued_by"] if kind == "wydanie" else r["returned_by"]
     op = None
     if op_id:
