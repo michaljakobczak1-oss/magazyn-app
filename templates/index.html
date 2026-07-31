@@ -5,9 +5,6 @@
 {% block title %}{{ 'Sprzęt TCL' if is_tcl else 'Sprzęt' }} – Magazyn{% endblock %}
 {% block content %}
 <h1>{% if is_tcl %}Sprzęt TCL <span class="badge tcl">TCL</span>{% else %}Rejestr sprzętu{% endif %}</h1>
-{% if is_tcl %}
-<p style="color:#555; margin-top:-8px; font-size:14px;">Osobny katalog TCL – zarządzanie: dział Warrens i admin.</p>
-{% endif %}
 
 {# 1.1 – filtry łączone, zachowywane w URL #}
 <form method="get" class="filters" action="{{ url_for(list_ep) }}">
