@@ -116,7 +116,7 @@
         <p style="font-size:13px;color:#555;margin:0 0 12px;">
           Wydano <strong><span id="rm-qty-max">1</span></strong> szt.
           <span id="rm-issue-wh-wrap" style="display:none;"> · wydano z: <strong id="rm-issue-wh"></strong></span>
-          Możesz jednocześnie zwrócić sztuki sprawne i uszkodzone. Suma ≤ wydane; reszta zostaje wydana.
+          Możesz jednocześnie: zwrot sprawny, uszkodzony i utylizację. Suma ≤ wydane; reszta zostaje wydana.
         </p>
 
         <div id="rm-card-return" style="border:2px solid #86efac; background:#f0fdf4; border-radius:10px; padding:12px; margin-bottom:10px;">
@@ -135,6 +135,17 @@
             <textarea id="rm-damage-notes-return" name="damage_notes_ui" rows="2" placeholder="np. pęknięta ścianka skrzyni"></textarea>
             <label>Zdjęcie uszkodzenia (opcjonalnie)</label>
             <input type="file" name="damage_photo" id="rm-damage-photo" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
+          </div>
+        </div>
+
+        <div id="rm-card-dispose" style="border:2px solid #fcd34d; background:#fffbeb; border-radius:10px; padding:12px; margin-bottom:10px;">
+          <div style="font-weight:700; margin-bottom:6px;">Utylizacja – towar nie wraca</div>
+          <p style="font-size:12px; color:#92400e; margin:0 0 10px;">Sztuki schodzą ze stanu (bez przyjęcia na magazyn).</p>
+          <label style="margin-top:0;">Ile sztuk nie wraca</label>
+          <input type="number" name="return_qty_dispose" id="rm-qty-dispose" min="0" value="0" style="max-width:120px;" oninput="syncReturnModalUI()">
+          <div id="rm-dispose-extra" style="display:none; margin-top:12px; padding-top:10px; border-top:1px dashed #fcd34d;">
+            <label>Powód utylizacji *</label>
+            <textarea id="rm-damage-notes-dispose" rows="2" placeholder="np. zniszczone na evencie"></textarea>
           </div>
         </div>
 
@@ -157,22 +168,10 @@
           </select>
         </div>
 
-        <div id="rm-card-dispose" style="border:1px solid #fcd34d; background:#fffbeb; border-radius:10px; padding:12px; margin-top:10px; opacity:0.55;">
-          <label style="display:flex; align-items:flex-start; gap:8px; font-weight:700; margin:0 0 6px; cursor:pointer;">
-            <input type="checkbox" id="rm-action-dispose" style="width:auto; margin-top:3px;" onchange="syncReturnModalUI()">
-            <span>Tylko utylizacja – towar nie wraca</span>
-          </label>
-          <p style="font-size:12px; color:#92400e; margin:0 0 0 24px;">Zamiast zwrotu: sztuki schodzą ze stanu (bez przyjęcia na magazyn).</p>
-          <div id="rm-dispose-body" style="display:none; margin-left:24px; margin-top:10px;">
-            <label style="margin-top:0;">Ile sztuk nie wraca *</label>
-            <input type="number" id="rm-qty-dispose" min="1" value="1" style="max-width:120px;">
-            <label>Powód utylizacji *</label>
-            <textarea id="rm-damage-notes-dispose" rows="2" placeholder="np. zniszczone na evencie"></textarea>
-          </div>
-        </div>
         <input type="hidden" name="dispose" id="rm-dispose" value="">
         <input type="hidden" name="damage" id="rm-damage" value="">
         <input type="hidden" name="damage_notes" id="rm-damage-notes" value="">
+        <input type="hidden" name="dispose_notes" id="rm-dispose-notes" value="">
         <input type="hidden" name="return_qty" id="rm-qty" value="">
       </div>
 
@@ -295,100 +294,96 @@ function syncReturnModalUI(){
   document.getElementById('rm-error').style.display = 'none';
 
   if (rmBulkMode) {
-    const items = document.querySelectorAll('#rm-items .rm-item-action:checked');
+    const rows = document.querySelectorAll('#rm-items .rm-item-row');
     let anyReturn = false, anyDispose = false, anyDamage = false;
-    items.forEach(function(sel){
-      const row = sel.closest('.rm-item-row');
-      const val = sel.value;
-      if (val === 'dispose') anyDispose = true;
-      else if (val === 'damage') { anyDamage = true; anyReturn = true; }
-      else anyReturn = true;
-      if (row) {
-        const isDisp = val === 'dispose';
-        const isDmg = val === 'damage';
-        row.querySelector('.rm-item-return-hint').style.display = isDisp ? 'none' : 'inline';
-        row.querySelector('.rm-item-dispose-hint').style.display = isDisp ? 'inline' : 'none';
-        const dmgBox = row.querySelector('.rm-item-damage-fields');
-        if (dmgBox) dmgBox.style.display = isDmg ? 'block' : 'none';
-        if (isDisp) {
-          row.style.borderColor = '#fcd34d';
-          row.style.background = '#fffbeb';
-        } else if (isDmg) {
-          row.style.borderColor = '#fca5a5';
-          row.style.background = '#fef2f2';
-        } else {
-          row.style.borderColor = '#86efac';
-          row.style.background = '#f0fdf4';
-        }
+    rows.forEach(function(row){
+      const ok = parseInt((row.querySelector('.rm-item-qty-ok') || {}).value, 10) || 0;
+      const dmg = parseInt((row.querySelector('.rm-item-qty-damage') || {}).value, 10) || 0;
+      const disp = parseInt((row.querySelector('.rm-item-qty-dispose') || {}).value, 10) || 0;
+      if (ok > 0 || dmg > 0) anyReturn = true;
+      if (dmg > 0) anyDamage = true;
+      if (disp > 0) anyDispose = true;
+      const dmgBox = row.querySelector('.rm-item-damage-fields');
+      if (dmgBox) dmgBox.style.display = (dmg > 0 && disp === 0) ? 'block' : 'none';
+      const dispBox = row.querySelector('.rm-item-dispose-fields');
+      if (dispBox) dispBox.style.display = disp > 0 ? 'block' : 'none';
+      if (disp > 0 && (ok > 0 || dmg > 0)) {
+        row.style.borderColor = '#f59e0b';
+        row.style.background = '#fffbeb';
+      } else if (disp > 0) {
+        row.style.borderColor = '#fcd34d';
+        row.style.background = '#fffbeb';
+      } else if (dmg > 0) {
+        row.style.borderColor = '#fca5a5';
+        row.style.background = '#fef2f2';
+      } else {
+        row.style.borderColor = '#86efac';
+        row.style.background = '#f0fdf4';
       }
     });
     document.getElementById('rm-return-fields').style.display = anyReturn ? 'block' : 'none';
-    document.getElementById('rm-notes').style.display = anyDispose ? 'block' : 'none';
-    document.getElementById('rm-notes-label').textContent = 'Powód utylizacji *';
-    document.getElementById('rm-damage-notes-bulk').placeholder = 'np. zniszczone na evencie – utylizacja';
+    document.getElementById('rm-notes').style.display = 'none';
     let btn = 'Przyjmij zwrot';
     if (anyDispose && anyReturn) btn = 'Zapisz (zwrot + utylizacja)';
     else if (anyDispose) btn = 'Oznacz jako utylizacja';
-    else if (anyDamage && !anyDispose) btn = 'Przyjmij zwrot (z uszkodzeniem)';
+    else if (anyDamage) btn = 'Przyjmij zwrot (z uszkodzeniem)';
     document.getElementById('rm-submit').textContent = btn;
     return;
   }
 
-  const dispose = document.getElementById('rm-action-dispose').checked;
   const qtyOk = parseInt(document.getElementById('rm-qty-ok').value, 10) || 0;
   const qtyDmg = parseInt(document.getElementById('rm-qty-damage').value, 10) || 0;
-  document.getElementById('rm-dispose').value = dispose ? '1' : '';
-  document.getElementById('rm-damage').value = (!dispose && qtyDmg > 0) ? '1' : '';
-  document.getElementById('rm-card-return').style.display = dispose ? 'none' : 'block';
-  document.getElementById('rm-card-damage').style.display = dispose ? 'none' : 'block';
-  document.getElementById('rm-return-body').style.display = dispose ? 'none' : 'block';
-  document.getElementById('rm-dispose-body').style.display = dispose ? 'block' : 'none';
-  document.getElementById('rm-damage-extra').style.display = (!dispose && qtyDmg > 0) ? 'block' : 'none';
-  document.getElementById('rm-card-dispose').style.opacity = dispose ? '1' : '0.55';
-  document.getElementById('rm-card-dispose').style.borderWidth = dispose ? '2px' : '1px';
+  const qtyDisp = parseInt(document.getElementById('rm-qty-dispose').value, 10) || 0;
+  document.getElementById('rm-dispose').value = (qtyOk === 0 && qtyDmg === 0 && qtyDisp > 0) ? '1' : '';
+  document.getElementById('rm-damage').value = qtyDmg > 0 ? '1' : '';
+  document.getElementById('rm-damage-extra').style.display = (qtyDmg > 0 && qtyDisp === 0) ? 'block' : 'none';
+  document.getElementById('rm-dispose-extra').style.display = qtyDisp > 0 ? 'block' : 'none';
+  document.getElementById('rm-return-body').style.display = (qtyOk > 0 || qtyDmg > 0) ? 'block' : 'none';
 
   let btn = 'Przyjmij zwrot';
-  if (dispose) btn = 'Oznacz jako utylizacja';
-  else if (qtyOk > 0 && qtyDmg > 0) btn = 'Przyjmij zwrot (sprawne + uszkodzone)';
+  const parts = [];
+  if (qtyOk > 0) parts.push('sprawne');
+  if (qtyDmg > 0) parts.push('uszkodzone');
+  if (qtyDisp > 0) parts.push('utylizacja');
+  if (parts.length > 1) btn = 'Zapisz (' + parts.join(' + ') + ')';
+  else if (qtyDisp > 0) btn = 'Oznacz jako utylizacja';
   else if (qtyDmg > 0) btn = 'Przyjmij zwrot uszkodzony';
   document.getElementById('rm-submit').textContent = btn;
 }
 
 function prepareSingleSubmit(){
-  const dispose = document.getElementById('rm-action-dispose').checked;
-  const disposeFlag = document.getElementById('rm-dispose');
-  disposeFlag.disabled = false;
-  disposeFlag.value = dispose ? '1' : '';
-
   const qtyOkEl = document.getElementById('rm-qty-ok');
   const qtyDmgEl = document.getElementById('rm-qty-damage');
+  const qtyDispEl = document.getElementById('rm-qty-dispose');
+  const ok = parseInt(qtyOkEl.value, 10) || 0;
+  const dmg = parseInt(qtyDmgEl.value, 10) || 0;
+  const disp = parseInt(qtyDispEl.value, 10) || 0;
+
+  document.getElementById('rm-dispose').disabled = false;
+  document.getElementById('rm-dispose').value = (ok === 0 && dmg === 0 && disp > 0) ? '1' : '';
+  document.getElementById('rm-damage').disabled = false;
+  document.getElementById('rm-damage').value = dmg > 0 ? '1' : '';
+
   const qtyLegacy = document.getElementById('rm-qty');
-  qtyOkEl.disabled = dispose;
-  qtyDmgEl.disabled = dispose;
+  qtyLegacy.disabled = false;
+  qtyLegacy.value = String(ok + dmg + disp);
 
   const notes = document.getElementById('rm-damage-notes');
   notes.disabled = false;
-  const damageFlag = document.getElementById('rm-damage');
-  damageFlag.disabled = false;
+  notes.value = dmg > 0 ? (document.getElementById('rm-damage-notes-return').value || '').trim() : '';
 
-  if (dispose) {
-    const qd = document.getElementById('rm-qty-dispose').value;
-    qtyLegacy.disabled = false;
-    qtyLegacy.value = qd;
-    notes.value = (document.getElementById('rm-damage-notes-dispose').value || '').trim();
-    damageFlag.value = '';
-  } else {
-    const ok = parseInt(qtyOkEl.value, 10) || 0;
-    const dmg = parseInt(qtyDmgEl.value, 10) || 0;
-    qtyLegacy.disabled = false;
-    qtyLegacy.value = String(ok + dmg);
-    damageFlag.value = dmg > 0 ? '1' : '';
-    notes.value = dmg > 0
-      ? (document.getElementById('rm-damage-notes-return').value || '').trim()
-      : '';
-  }
+  const dispNotes = document.getElementById('rm-dispose-notes');
+  dispNotes.disabled = false;
+  dispNotes.value = disp > 0 ? (document.getElementById('rm-damage-notes-dispose').value || '').trim() : '';
+
   const photo = document.getElementById('rm-damage-photo');
-  if (photo) photo.disabled = dispose || !(parseInt(qtyDmgEl.value, 10) > 0);
+  if (photo) photo.disabled = !(dmg > 0);
+
+  // magazyn/oddający nie wymagane przy samej utylizacji
+  const needWh = ok > 0 || dmg > 0;
+  document.getElementById('rm-warehouse').disabled = !needWh;
+  document.getElementById('rm-returner').disabled = !needWh;
+  document.getElementById('rm-location').disabled = !needWh;
 }
 
 function prepareBulkSubmit(){
@@ -398,7 +393,7 @@ function prepareBulkSubmit(){
     i.type = 'hidden'; i.name = name; i.value = value; i.className = 'rm-bulk-sync';
     document.getElementById('return-form').appendChild(i);
   }
-  ['rm-dispose', 'rm-damage-notes', 'rm-qty', 'rm-qty-ok', 'rm-qty-damage', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-damage-photo'].forEach(function(id){
+  ['rm-dispose', 'rm-damage-notes', 'rm-dispose-notes', 'rm-qty', 'rm-qty-ok', 'rm-qty-damage', 'rm-qty-dispose', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-damage-photo'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.disabled = true;
   });
@@ -408,7 +403,6 @@ function prepareBulkSubmit(){
   if (wh.value) addHidden('return_warehouse_id', wh.value);
   if (loc.value) addHidden('return_location', loc.value);
   if (ret && ret.value) addHidden('returner', ret.value);
-  addHidden('damage_notes', (document.getElementById('rm-damage-notes-bulk').value || '').trim());
 }
 
 function setSingleQty(maxQty){
@@ -418,13 +412,13 @@ function setSingleQty(maxQty){
   const legacy = document.getElementById('rm-qty');
   ok.max = maxQty; ok.value = maxQty; ok.disabled = false;
   dmg.max = maxQty; dmg.value = 0; dmg.disabled = false;
-  disp.max = maxQty; disp.value = maxQty;
+  disp.max = maxQty; disp.value = 0; disp.disabled = false;
   legacy.max = maxQty; legacy.value = maxQty;
   document.getElementById('rm-qty-max').textContent = maxQty;
 }
 
 function setSingleFormEnabled(on){
-  ['rm-qty', 'rm-qty-ok', 'rm-qty-damage', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-dispose', 'rm-damage-notes', 'rm-damage-photo', 'rm-action-dispose'].forEach(function(id){
+  ['rm-qty', 'rm-qty-ok', 'rm-qty-damage', 'rm-qty-dispose', 'rm-warehouse', 'rm-location', 'rm-returner', 'rm-damage', 'rm-dispose', 'rm-damage-notes', 'rm-dispose-notes', 'rm-damage-photo'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.disabled = !on;
   });
@@ -439,7 +433,6 @@ function resetReturnModal(){
   document.getElementById('rm-return-fields').style.display = 'none';
   document.getElementById('rm-notes').style.display = 'none';
   setSingleFormEnabled(true);
-  document.getElementById('rm-action-dispose').checked = false;
   document.getElementById('rm-dispose').value = '';
   document.getElementById('rm-damage').value = '';
   const wh = document.getElementById('rm-warehouse');
@@ -450,6 +443,7 @@ function resetReturnModal(){
   document.getElementById('rm-damage-notes-return').value = '';
   document.getElementById('rm-damage-notes-dispose').value = '';
   document.getElementById('rm-damage-notes').value = '';
+  document.getElementById('rm-dispose-notes').value = '';
   const photo = document.getElementById('rm-damage-photo');
   if (photo) photo.value = '';
   document.getElementById('rm-warehouse-bulk').selectedIndex = 0;
@@ -472,35 +466,33 @@ function validateQtyInput(inp, maxQty){
 function validateReturnForm(){
   const err = document.getElementById('rm-error');
   if (rmBulkMode) {
-    let anyReturn = false, anyDispose = false, anyDamage = false;
-    document.querySelectorAll('#rm-items .rm-item-action:checked').forEach(function(sel){
-      if (sel.value === 'dispose') anyDispose = true;
-      else if (sel.value === 'damage') { anyDamage = true; anyReturn = true; }
-      else anyReturn = true;
-    });
-    const qtyInputs = document.querySelectorAll('#rm-items .rm-item-qty');
-    for (let i = 0; i < qtyInputs.length; i++) {
-      const inp = qtyInputs[i];
-      const maxQ = parseInt(inp.getAttribute('max'), 10) || 1;
-      if (!validateQtyInput(inp, maxQ)) {
-        err.textContent = 'Podaj poprawną liczbę sztuk (1–' + maxQ + ') dla każdej pozycji.';
+    let anyReturn = false;
+    const rows = document.querySelectorAll('#rm-items .rm-item-row');
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const maxQ = parseInt(row.getAttribute('data-max-qty'), 10) || 1;
+      const ok = parseInt(row.querySelector('.rm-item-qty-ok').value, 10);
+      const dmg = parseInt(row.querySelector('.rm-item-qty-damage').value, 10);
+      const disp = parseInt(row.querySelector('.rm-item-qty-dispose').value, 10);
+      if (isNaN(ok) || isNaN(dmg) || isNaN(disp) || ok < 0 || dmg < 0 || disp < 0
+          || ok + dmg + disp < 1 || ok + dmg + disp > maxQ) {
+        err.textContent = 'Dla każdej pozycji: sprawne + uszkodzone + utylizacja (suma 1–' + maxQ + ').';
         err.style.display = 'block';
         return false;
       }
-    }
-    if (anyDispose && !document.getElementById('rm-damage-notes-bulk').value.trim()) {
-      err.textContent = 'Podaj powód utylizacji.';
-      err.style.display = 'block';
-      return false;
-    }
-    if (anyDamage) {
-      const dmgNotes = document.querySelectorAll('#rm-items .rm-item-damage-notes');
-      for (let i = 0; i < dmgNotes.length; i++) {
-        const ta = dmgNotes[i];
-        const row = ta.closest('.rm-item-row');
-        const sel = row && row.querySelector('.rm-item-action:checked');
-        if (sel && sel.value === 'damage' && !ta.value.trim()) {
-          err.textContent = 'Podaj opis uszkodzenia dla każdej pozycji wracającej uszkodzonej.';
+      if (ok > 0 || dmg > 0) anyReturn = true;
+      if (dmg > 0) {
+        const ta = row.querySelector('.rm-item-damage-notes');
+        if (!ta || !ta.value.trim()) {
+          err.textContent = 'Podaj opis uszkodzenia przy pozycjach z uszkodzonymi sztukami.';
+          err.style.display = 'block';
+          return false;
+        }
+      }
+      if (disp > 0) {
+        const ta = row.querySelector('.rm-item-dispose-notes');
+        if (!ta || !ta.value.trim()) {
+          err.textContent = 'Podaj powód utylizacji przy pozycjach z utylizacją.';
           err.style.display = 'block';
           return false;
         }
@@ -520,43 +512,35 @@ function validateReturnForm(){
     return true;
   }
 
-  const dispose = document.getElementById('rm-action-dispose').checked;
   const maxQ = parseInt(document.getElementById('rm-qty').max, 10) || 1;
-
-  if (dispose) {
-    if (!validateQtyInput(document.getElementById('rm-qty-dispose'), maxQ)) {
-      err.textContent = 'Podaj poprawną liczbę sztuk (1–' + maxQ + ').';
-      err.style.display = 'block';
-      return false;
-    }
-    if (!document.getElementById('rm-damage-notes-dispose').value.trim()) {
-      err.textContent = 'Podaj powód utylizacji.';
-      err.style.display = 'block';
-      return false;
-    }
-  } else {
-    const ok = parseInt(document.getElementById('rm-qty-ok').value, 10);
-    const dmg = parseInt(document.getElementById('rm-qty-damage').value, 10);
-    if (isNaN(ok) || isNaN(dmg) || ok < 0 || dmg < 0 || ok + dmg < 1 || ok + dmg > maxQ) {
-      err.textContent = 'Podaj liczby sprawnych i uszkodzonych (suma 1–' + maxQ + ').';
-      err.style.display = 'block';
-      return false;
-    }
-    if (!document.getElementById('rm-warehouse').value) {
-      err.textContent = 'Wybierz magazyn przyjęcia.';
-      err.style.display = 'block';
-      return false;
-    }
-    if (!document.getElementById('rm-returner').value) {
-      err.textContent = 'Wybierz, kto oddaje towar.';
-      err.style.display = 'block';
-      return false;
-    }
-    if (dmg > 0 && !document.getElementById('rm-damage-notes-return').value.trim()) {
-      err.textContent = 'Podaj opis uszkodzenia.';
-      err.style.display = 'block';
-      return false;
-    }
+  const ok = parseInt(document.getElementById('rm-qty-ok').value, 10);
+  const dmg = parseInt(document.getElementById('rm-qty-damage').value, 10);
+  const disp = parseInt(document.getElementById('rm-qty-dispose').value, 10);
+  if (isNaN(ok) || isNaN(dmg) || isNaN(disp) || ok < 0 || dmg < 0 || disp < 0
+      || ok + dmg + disp < 1 || ok + dmg + disp > maxQ) {
+    err.textContent = 'Podaj liczby: sprawne + uszkodzone + utylizacja (suma 1–' + maxQ + ').';
+    err.style.display = 'block';
+    return false;
+  }
+  if ((ok > 0 || dmg > 0) && !document.getElementById('rm-warehouse').value) {
+    err.textContent = 'Wybierz magazyn przyjęcia.';
+    err.style.display = 'block';
+    return false;
+  }
+  if ((ok > 0 || dmg > 0) && !document.getElementById('rm-returner').value) {
+    err.textContent = 'Wybierz, kto oddaje towar.';
+    err.style.display = 'block';
+    return false;
+  }
+  if (dmg > 0 && !document.getElementById('rm-damage-notes-return').value.trim()) {
+    err.textContent = 'Podaj opis uszkodzenia.';
+    err.style.display = 'block';
+    return false;
+  }
+  if (disp > 0 && !document.getElementById('rm-damage-notes-dispose').value.trim()) {
+    err.textContent = 'Podaj powód utylizacji.';
+    err.style.display = 'block';
+    return false;
   }
   prepareSingleSubmit();
   return true;
@@ -624,7 +608,7 @@ function openReturnBulk(){
   const box = document.getElementById('rm-rids');
   const itemsBox = document.getElementById('rm-items');
   itemsBox.style.display = 'block';
-  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: zwrot, zwrot uszkodzony albo utylizacja + liczba sztuk. Niewybrane zostają wydane.</p>';
+  itemsBox.innerHTML = '<p style="font-size:13px;color:#555;margin:0 0 8px;">Dla każdej pozycji: sprawne + uszkodzone + utylizacja (suma ≤ wydane). Reszta zostaje wydana.</p>';
   checked.forEach(function(cb){
     const h = document.createElement('input');
     h.type = 'hidden'; h.name = 'rid'; h.value = cb.value;
@@ -638,32 +622,34 @@ function openReturnBulk(){
       : '';
     const row = document.createElement('div');
     row.className = 'rm-item-row';
+    row.setAttribute('data-max-qty', String(maxQty));
     row.style.cssText = 'border:2px solid #86efac;background:#f0fdf4;border-radius:10px;padding:12px;margin-bottom:8px;';
     row.innerHTML =
       '<div style="font-weight:700;margin-bottom:8px;">' + code +
       (name ? ' <span style="font-weight:400;color:#666;">– ' + name + '</span>' : '') +
       ' <span style="font-weight:400;font-size:12px;color:#666;">(wydano ' + maxQty + ' szt.)</span>' +
       issueHint + '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-bottom:8px;">' +
-      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
-      '<input type="radio" name="item_action_' + cb.value + '" value="return" class="rm-item-action" checked style="width:auto;" onchange="syncReturnModalUI()"> Zwrot na magazyn</label>' +
-      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
-      '<input type="radio" name="item_action_' + cb.value + '" value="damage" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Towar wraca uszkodzony</label>' +
-      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:6px;">' +
-      '<input type="radio" name="item_action_' + cb.value + '" value="dispose" class="rm-item-action" style="width:auto;" onchange="syncReturnModalUI()"> Towar nie wraca</label>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;">' +
+      '<label style="font-weight:400;margin:0;">Sprawne<br>' +
+      '<input type="number" name="item_qty_ok_' + cb.value + '" class="rm-item-qty-ok" min="0" max="' + maxQty +
+      '" value="' + maxQty + '" style="width:72px;margin-top:4px;" oninput="syncReturnModalUI()"></label>' +
+      '<label style="font-weight:400;margin:0;">Uszkodzone<br>' +
+      '<input type="number" name="item_qty_damage_' + cb.value + '" class="rm-item-qty-damage" min="0" max="' + maxQty +
+      '" value="0" style="width:72px;margin-top:4px;" oninput="syncReturnModalUI()"></label>' +
+      '<label style="font-weight:400;margin:0;">Utylizacja<br>' +
+      '<input type="number" name="item_qty_dispose_' + cb.value + '" class="rm-item-qty-dispose" min="0" max="' + maxQty +
+      '" value="0" style="width:72px;margin-top:4px;" oninput="syncReturnModalUI()"></label>' +
+      '<span style="font-size:12px;color:#666;padding-bottom:8px;">z ' + maxQty + '</span>' +
       '</div>' +
-      '<div>' +
-      '<label style="font-weight:400;display:inline-flex;align-items:center;gap:8px;margin:0;">' +
-      '<span class="rm-item-return-hint">Ile sztuk wraca</span>' +
-      '<span class="rm-item-dispose-hint" style="display:none;">Ile sztuk nie wraca</span>' +
-      '<input type="number" name="item_qty_' + cb.value + '" class="rm-item-qty" min="1" max="' + maxQty +
-      '" value="' + maxQty + '" required style="width:72px;margin:0;">' +
-      '<span style="font-size:12px;color:#666;">z ' + maxQty + '</span></label></div>' +
       '<div class="rm-item-damage-fields" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed #fca5a5;">' +
       '<label style="font-weight:400;margin-top:0;">Opis uszkodzenia *</label>' +
       '<textarea name="item_damage_notes_' + cb.value + '" class="rm-item-damage-notes" rows="2" placeholder="np. pęknięta ścianka"></textarea>' +
       '<label style="font-weight:400;">Zdjęcie uszkodzenia (opcjonalnie)</label>' +
       '<input type="file" name="item_damage_photo_' + cb.value + '" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">' +
+      '</div>' +
+      '<div class="rm-item-dispose-fields" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed #fcd34d;">' +
+      '<label style="font-weight:400;margin-top:0;">Powód utylizacji *</label>' +
+      '<textarea name="item_dispose_notes_' + cb.value + '" class="rm-item-dispose-notes" rows="2" placeholder="np. zniszczone na evencie"></textarea>' +
       '</div>';
     itemsBox.appendChild(row);
   });

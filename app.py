@@ -941,30 +941,57 @@ def _split_partial(con, r, process_qty):
     return processed, rem
 
 
-def _parse_return_ok_damage_qty(form, r, force_damage=False):
-    """Zwraca (ok_qty, damage_qty) albo None przy błędzie.
+def _dispose_notes_for(form, r):
+    notes = (form.get(f"item_dispose_notes_{r['id']}") or "").strip()
+    if not notes:
+        notes = (form.get("dispose_notes") or "").strip()
+    if not notes:
+        # legacy: wyłącznie utylizacja (flaga dispose / item_action) w damage_notes
+        if form.get("dispose") or (form.get(f"item_action_{r['id']}") or "") == "dispose":
+            notes = (form.get("damage_notes") or "").strip()
+    return notes
 
-    Nowe pola: return_qty_ok + return_qty_damage (suma 1..total).
-    Legacy: return_qty / item_qty + flaga damage.
+
+def _parse_return_ok_damage_qty(form, r, force_damage=False):
+    """Zwraca (ok_qty, damage_qty, dispose_qty) albo None.
+
+    Pola: item_qty_ok/damage/dispose_<id> albo return_qty_ok/damage/dispose.
+    Legacy: dispose / item_action=dispose + item_qty; damage + qty; zwykły return_qty.
     """
     total = int(r["quantity"])
-    ok_raw = form.get("return_qty_ok")
-    dmg_raw = form.get("return_qty_damage")
-    if ok_raw is not None or dmg_raw is not None:
+    rid = r["id"]
+    ok_raw = form.get(f"item_qty_ok_{rid}")
+    dmg_raw = form.get(f"item_qty_damage_{rid}")
+    disp_raw = form.get(f"item_qty_dispose_{rid}")
+    if ok_raw is None and dmg_raw is None and disp_raw is None:
+        ok_raw = form.get("return_qty_ok")
+        dmg_raw = form.get("return_qty_damage")
+        disp_raw = form.get("return_qty_dispose")
+    if ok_raw is not None or dmg_raw is not None or disp_raw is not None:
         try:
             ok = int(ok_raw) if ok_raw not in (None, "") else 0
             dmg = int(dmg_raw) if dmg_raw not in (None, "") else 0
+            disp = int(disp_raw) if disp_raw not in (None, "") else 0
         except (TypeError, ValueError):
             return None
-        if ok < 0 or dmg < 0 or ok + dmg < 1 or ok + dmg > total:
+        if ok < 0 or dmg < 0 or disp < 0:
             return None
-        return ok, dmg
+        if ok + dmg + disp < 1 or ok + dmg + disp > total:
+            return None
+        return ok, dmg, disp
+
+    if form.get("dispose") or (form.get(f"item_action_{rid}") or "") == "dispose":
+        qty = _process_qty_from_form(form, r)
+        if qty is None:
+            return None
+        return 0, 0, qty
+
     qty = _process_qty_from_form(form, r)
     if qty is None:
         return None
     if force_damage or form.get("damage"):
-        return 0, qty
-    return qty, 0
+        return 0, qty, 0
+    return qty, 0, 0
 
 
 def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage_notes=""):
@@ -1008,45 +1035,86 @@ def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage
     return True
 
 
-def _apply_return(con, r, user_id, form, files=None, force_damage=False):
-    """Przyjmuje zwrot. Można w jednym kroku: N sprawnych + M uszkodzonych.
+def _finalize_one_dispose(con, r, user_id, notes):
+    """Zamyka jedną rezerwację jako utylizacja (cała quantity wiersza)."""
+    if r["status"] != "wydane" or not notes:
+        return False
+    eq = con.execute("SELECT quantity, warehouse_id FROM equipment WHERE id=?",
+                     (r["equipment_id"],)).fetchone()
+    if not eq or eq["quantity"] < r["quantity"]:
+        return False
+    now = local_now().isoformat(timespec="seconds")
+    con.execute("""UPDATE reservations SET status='utylizacja', returned_at=?,
+                   returned_by=?, damage=1, damage_notes=?, permanent=1 WHERE id=?""",
+                (now, user_id, notes, r["id"]))
+    eid = r["equipment_id"]
+    new_qty = eq["quantity"] - r["quantity"]
+    stamp = f"[{local_today().isoformat()}] utylizacja rez. #{r['id']} ({r['quantity']} szt.): {notes}"
+    take_equipment_stock(con, eid, r["quantity"], prefer_warehouse_id=eq["warehouse_id"])
+    if new_qty <= 0:
+        con.execute("""UPDATE equipment SET quantity=0, condition='do utylizacji',
+                       condition_notes=IFNULL(condition_notes,'') ||
+                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+                       WHERE id=?""", (stamp, eid))
+        con.execute("DELETE FROM equipment_stock WHERE equipment_id=?", (eid,))
+    else:
+        con.execute("""UPDATE equipment SET quantity=?,
+                       condition_notes=IFNULL(condition_notes,'') ||
+                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+                       WHERE id=?""", (new_qty, stamp, eid))
+        sync_equipment_from_stock(con, eid, keep_total=True)
+    return True
 
-    force_damage=True – całość jako uszkodzona (zbiorczy item_action=damage).
+
+def _apply_return(con, r, user_id, form, files=None, force_damage=False):
+    """Przyjmuje zwrot. W jednym kroku: N sprawnych + M uszkodzonych + K utylizacja.
+
+    force_damage=True – całość jako uszkodzona (legacy zbiorczy item_action=damage).
     Zwraca listę id zamkniętych rezerwacji albo False.
     """
     if r["status"] != "wydane":
         return False
-    if not _return_form_valid(form):
-        return False
     parsed = _parse_return_ok_damage_qty(form, r, force_damage=force_damage)
     if parsed is None:
         return False
-    ok_qty, dmg_qty = parsed
+    ok_qty, dmg_qty, disp_qty = parsed
     damage_notes = _damage_notes_for(form, r) if dmg_qty else ""
+    dispose_notes = _dispose_notes_for(form, r) if disp_qty else ""
     if dmg_qty and not damage_notes:
         return False
-    process = ok_qty + dmg_qty
+    if disp_qty and not dispose_notes:
+        return False
+    if (ok_qty or dmg_qty) and not _return_form_valid(form):
+        return False
+    process = ok_qty + dmg_qty + disp_qty
     r, _stays = _split_partial(con, r, process)
     done_ids = []
-    if dmg_qty > 0 and ok_qty > 0:
-        r_dmg, r_ok = _split_partial(con, r, dmg_qty)
+    rest = r
+
+    if disp_qty > 0:
+        if ok_qty + dmg_qty > 0:
+            r_disp, rest = _split_partial(con, rest, disp_qty)
+        else:
+            r_disp, rest = rest, None
+        if not _finalize_one_dispose(con, r_disp, user_id, dispose_notes):
+            return False
+        done_ids.append(r_disp["id"])
+
+    if dmg_qty > 0 and rest is not None:
+        if ok_qty > 0:
+            r_dmg, rest = _split_partial(con, rest, dmg_qty)
+        else:
+            r_dmg, rest = rest, None
         if not _finalize_one_return(con, r_dmg, user_id, form, files=files,
                                     damage=True, damage_notes=damage_notes):
             return False
         done_ids.append(r_dmg["id"])
-        if not r_ok or not _finalize_one_return(con, r_ok, user_id, form, files=None,
-                                               damage=False):
+
+    if ok_qty > 0 and rest is not None:
+        if not _finalize_one_return(con, rest, user_id, form, files=None, damage=False):
             return False
-        done_ids.append(r_ok["id"])
-    elif dmg_qty > 0:
-        if not _finalize_one_return(con, r, user_id, form, files=files,
-                                    damage=True, damage_notes=damage_notes):
-            return False
-        done_ids.append(r["id"])
-    else:
-        if not _finalize_one_return(con, r, user_id, form, files=None, damage=False):
-            return False
-        done_ids.append(r["id"])
+        done_ids.append(rest["id"])
+
     return done_ids
 
 
@@ -1099,44 +1167,17 @@ def _apply_dispose(con, r, user_id, form):
     """Towar wydany nie wraca (utylizacja / zniszczenie). Schodzi ze stanu magazynowego.
 
     Możliwa częściowa liczba sztuk – reszta zostaje jako „wydane”.
-    Status „do utylizacji” na karcie sprzętu tylko gdy po odjęciu nie zostaje żadna sztuka.
     """
     if r["status"] != "wydane":
         return False
-    notes = (form.get("damage_notes") or form.get("dispose_notes") or "").strip()
+    notes = _dispose_notes_for(form, r)
     if not notes:
         return False
     qty = _process_qty_from_form(form, r)
     if qty is None:
         return False
     r, _stays = _split_partial(con, r, qty)
-    eq = con.execute("SELECT quantity, warehouse_id FROM equipment WHERE id=?",
-                     (r["equipment_id"],)).fetchone()
-    if not eq or eq["quantity"] < r["quantity"]:
-        return False
-    now = local_now().isoformat(timespec="seconds")
-    con.execute("""UPDATE reservations SET status='utylizacja', returned_at=?,
-                   returned_by=?, damage=1, damage_notes=?, permanent=1 WHERE id=?""",
-                (now, user_id, notes, r["id"]))
-    eid = r["equipment_id"]
-    new_qty = eq["quantity"] - r["quantity"]
-    stamp = f"[{local_today().isoformat()}] utylizacja rez. #{r['id']} ({r['quantity']} szt.): {notes}"
-    take_equipment_stock(con, eid, r["quantity"], prefer_warehouse_id=eq["warehouse_id"])
-    if new_qty <= 0:
-        con.execute("""UPDATE equipment SET quantity=0, condition='do utylizacji',
-                       condition_notes=IFNULL(condition_notes,'') ||
-                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
-                       WHERE id=?""", (stamp, eid))
-        con.execute("DELETE FROM equipment_stock WHERE equipment_id=?", (eid,))
-    else:
-        # pozostałe sztuki nadal sprawne – tylko notatka w historii
-        con.execute("""UPDATE equipment SET quantity=?,
-                       condition_notes=IFNULL(condition_notes,'') ||
-                       CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
-                       WHERE id=?""", (new_qty, stamp, eid))
-        sync_equipment_from_stock(con, eid, keep_total=True)
-    return True
-
+    return _finalize_one_dispose(con, r, user_id, notes)
 
 def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, ret_loc=None):
     """Dane sprzętu do PDF.
@@ -1243,37 +1284,45 @@ def bulk_action(action):
         abort(404)
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
-    # per-pozycja: item_action_<id> = return|dispose|damage; albo globalne dispose=1
-    global_dispose = bool(request.form.get("dispose"))
-    dispose_ids = set()
-    return_ids = set()
-    damage_ids = set()
+    # return: item_qty_ok/damage/dispose_<id> (mieszany zwrot + utylizacja w jednym kroku)
     if action == "return":
-        for r in rows:
-            choice = (request.form.get(f"item_action_{r['id']}") or "").strip()
-            if choice == "dispose" or (not choice and global_dispose):
-                dispose_ids.add(r["id"])
-            elif choice == "damage":
-                damage_ids.add(r["id"])
-                return_ids.add(r["id"])
-            else:
-                return_ids.add(r["id"])
-        if dispose_ids and not (request.form.get("damage_notes") or "").strip():
-            con.close()
-            flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
-            return redirect(url_for("reservations"))
+        need_wh = False
         missing_dmg = []
-        for rid in damage_ids:
-            if not ((request.form.get(f"item_damage_notes_{rid}") or "").strip()
-                    or (request.form.get("damage_notes") or "").strip()):
-                missing_dmg.append(str(rid))
+        missing_disp = []
+        bad_qty = []
+        for r in rows:
+            parsed = _parse_return_ok_damage_qty(request.form, r)
+            if parsed is None:
+                bad_qty.append(r["code"])
+                continue
+            ok, dmg, disp = parsed
+            if ok or dmg:
+                need_wh = True
+            if dmg and not ((request.form.get(f"item_damage_notes_{r['id']}") or "").strip()
+                            or (request.form.get("damage_notes") or "").strip()):
+                missing_dmg.append(r["code"])
+            if disp and not _dispose_notes_for(request.form, r):
+                missing_disp.append(r["code"])
+        if bad_qty:
+            con.close()
+            flash("Podaj poprawne liczby (sprawne + uszkodzone + utylizacja) dla: "
+                  + ", ".join(bad_qty) + ".", "error")
+            return redirect(url_for("reservations"))
         if missing_dmg:
             con.close()
-            flash("Dla zwrotu uszkodzonego podaj opis uszkodzenia przy każdej takiej pozycji.", "error")
+            flash("Podaj opis uszkodzenia przy: " + ", ".join(missing_dmg) + ".", "error")
             return redirect(url_for("reservations"))
-        if return_ids and not (request.form.get("return_warehouse_id") or "").strip().isdigit():
+        if missing_disp:
+            con.close()
+            flash("Podaj powód utylizacji przy: " + ", ".join(missing_disp) + ".", "error")
+            return redirect(url_for("reservations"))
+        if need_wh and not (request.form.get("return_warehouse_id") or "").strip().isdigit():
             con.close()
             flash("Wybierz magazyn przyjęcia dla pozycji wracających.", "error")
+            return redirect(url_for("reservations"))
+        if need_wh and not (request.form.get("returner") or "").strip():
+            con.close()
+            flash("Wybierz, kto oddaje towar.", "error")
             return redirect(url_for("reservations"))
     done_ids = []
     returned_ids = []
@@ -1295,21 +1344,26 @@ def bulk_action(action):
             if _apply_issue(con, r, session["user_id"]):
                 done_ids.append(r["id"])
         elif action == "return":
-            if r["id"] in dispose_ids:
-                if _apply_dispose(con, r, session["user_id"], request.form):
-                    disposed_ids.append(r["id"])
-                    done_ids.append(r["id"])
-                elif r["status"] == "wydane":
-                    stock_err.append(r["code"])
-            else:
-                done = _apply_return(con, r, session["user_id"], request.form,
-                                     files=request.files,
-                                     force_damage=(r["id"] in damage_ids))
-                if done:
-                    returned_ids.extend(done if isinstance(done, list) else [r["id"]])
-                    done_ids.extend(done if isinstance(done, list) else [r["id"]])
-                elif r["status"] == "wydane":
-                    stock_err.append(r["code"])
+            legacy_dmg = (request.form.get(f"item_action_{r['id']}") or "") == "damage"
+            has_split = (
+                request.form.get(f"item_qty_ok_{r['id']}") is not None
+                or request.form.get(f"item_qty_damage_{r['id']}") is not None
+                or request.form.get(f"item_qty_dispose_{r['id']}") is not None
+            )
+            done = _apply_return(con, r, session["user_id"], request.form,
+                                 files=request.files,
+                                 force_damage=(legacy_dmg and not has_split))
+            if done:
+                for did in (done if isinstance(done, list) else [r["id"]]):
+                    st = con.execute("SELECT status FROM reservations WHERE id=?",
+                                     (did,)).fetchone()
+                    if st and st["status"] == "utylizacja":
+                        disposed_ids.append(did)
+                    else:
+                        returned_ids.append(did)
+                    done_ids.append(did)
+            elif r["status"] == "wydane":
+                stock_err.append(r["code"])
     con.commit()
     if stock_err:
         flash(f"Brak stanu magazynowego / nie udało się dla: {', '.join(stock_err)}.", "error")
@@ -1450,36 +1504,23 @@ def return_item(rid):
         flash("Można zwrócić tylko wydany sprzęt.", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
-    dispose = bool(request.form.get("dispose"))
-    if dispose:
-        if not (request.form.get("damage_notes") or "").strip():
-            flash("Podaj powód utylizacji / dlaczego towar nie wraca.", "error")
-            con.close()
-            return redirect(request.referrer or url_for("reservations"))
-        if _process_qty_from_form(request.form, r) is None:
-            flash(f"Podaj poprawną liczbę sztuk (1–{r['quantity']}).", "error")
-            con.close()
-            return redirect(request.referrer or url_for("reservations"))
-        if _apply_dispose(con, r, session["user_id"], request.form):
-            con.commit()
-            con.close()
-            flash("Oznaczono jako utylizacja – towar nie wraca, stan magazynowy zmniejszony. Pobieranie PDF…", "ok")
-            return redirect(url_for("reservations", auto_pdf="przyjecie", rid=rid))
-        con.close()
-        flash("Nie udało się oznaczyć utylizacji (sprawdź stan magazynowy).", "error")
-        return redirect(request.referrer or url_for("reservations"))
-    if not _return_form_valid(request.form):
-        flash("Wypełnij pole.", "error")
-        con.close()
-        return redirect(request.referrer or url_for("reservations"))
     parsed = _parse_return_ok_damage_qty(request.form, r)
     if parsed is None:
-        flash(f"Podaj poprawne liczby sztuk (sprawne + uszkodzone = 1–{r['quantity']}).", "error")
+        flash(f"Podaj poprawne liczby sztuk (sprawne + uszkodzone + utylizacja = 1–{r['quantity']}).",
+              "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
-    ok_qty, dmg_qty = parsed
+    ok_qty, dmg_qty, disp_qty = parsed
     if dmg_qty and not (request.form.get("damage_notes") or "").strip():
         flash("Podaj opis uszkodzenia.", "error")
+        con.close()
+        return redirect(request.referrer or url_for("reservations"))
+    if disp_qty and not _dispose_notes_for(request.form, r):
+        flash("Podaj powód utylizacji.", "error")
+        con.close()
+        return redirect(request.referrer or url_for("reservations"))
+    if (ok_qty or dmg_qty) and not _return_form_valid(request.form):
+        flash("Wypełnij magazyn przyjęcia i kto oddaje towar.", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
     ret_wid = (request.form.get("return_warehouse_id") or "").strip()
@@ -1493,14 +1534,15 @@ def return_item(rid):
             parts.append(f"{ok_qty} sprawne")
         if dmg_qty:
             parts.append(f"{dmg_qty} uszkodzone")
-        flash("Oznaczono jako zwrócone (" + ", ".join(parts) + "). Pobieranie PDF…", "ok")
-        # PDF dla wszystkich zamkniętych wierszy (gdy split sprawne+uszkodzone)
+        if disp_qty:
+            parts.append(f"{disp_qty} utylizacja")
+        flash("Zapisano (" + ", ".join(parts) + "). Pobieranie PDF…", "ok")
         q = [("auto_pdf", "przyjecie"), ("ret_wid", ret_wid), ("ret_loc", ret_loc)]
         for did in done:
             q.append(("rid", str(did)))
         return redirect(url_for("reservations") + "?" + urlencode(q))
     con.close()
-    flash("Nie udało się przyjąć zwrotu.", "error")
+    flash("Nie udało się przyjąć zwrotu / utylizacji (sprawdź stan magazynowy).", "error")
     return redirect(request.referrer or url_for("reservations"))
 
 
