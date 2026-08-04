@@ -2,58 +2,81 @@
 {% block title %}Użytkownicy – Magazyn{% endblock %}
 {% block content %}
 <h1>Użytkownicy</h1>
-<p style="font-size:13px; color:#666; margin-top:-8px;">Każde konto = konkretny PM. Wydania/zwroty tylko w ramach tego samego działu (admin – wszystkie).</p>
-<div class="card wide" style="margin-bottom:20px;">
-  <h2 style="font-size:16px; margin:0 0 6px;">Dodaj użytkownika</h2>
-  <form method="post" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-    <div><label>Imię *</label><input name="first_name" required></div>
-    <div><label>Nazwisko *</label><input name="last_name" required></div>
-    <div><label>Login</label><input name="username" required></div>
-    <div><label>Hasło</label><input name="password" type="password" required minlength="6"></div>
-    <div><label>Dział</label>
+<p class="dict-hint" style="margin-top:-8px;">Każde konto = konkretny PM. Wydania/zwroty tylko w ramach tego samego działu (admin – wszystkie).</p>
+
+<div class="card wide dict-add-card" style="margin-bottom:20px;">
+  <h2 style="font-size:16px; margin:0 0 10px;">Dodaj użytkownika</h2>
+  <form method="post" class="dict-add-form users-add-form">
+    <div>
+      <label>Imię *</label>
+      <input name="first_name" required>
+    </div>
+    <div>
+      <label>Nazwisko *</label>
+      <input name="last_name" required>
+    </div>
+    <div>
+      <label>Login</label>
+      <input name="username" required>
+    </div>
+    <div>
+      <label>Hasło</label>
+      <input name="password" type="password" required minlength="6">
+    </div>
+    <div>
+      <label>Dział</label>
       <select name="department">
         <option value="">– brak –</option>
         {% for d in departments %}<option value="{{ d.name }}">{{ d.name }}</option>{% endfor %}
       </select>
     </div>
-    <div><label>Rola</label>
+    <div>
+      <label>Rola</label>
       <select name="role"><option value="user">użytkownik</option><option value="admin">admin</option></select>
     </div>
     <button class="btn">Dodaj</button>
   </form>
 </div>
-<table>
-  <tr><th>Imię i nazwisko / dział</th><th>Login</th><th>Rola</th><th>Status</th><th>Akcje</th></tr>
+
+<div class="dict-list users-list">
   {% for u in rows %}
-  <tr>
-    <td>
-      <form class="inline" method="post" action="{{ url_for('user_name', uid=u.id) }}" style="display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap;">
-        <input name="first_name" value="{{ u.first_name or '' }}" placeholder="imię" required style="width:110px; padding:4px 8px;">
-        <input name="last_name" value="{{ u.last_name or '' }}" placeholder="nazwisko" required style="width:130px; padding:4px 8px;">
-        <select name="department" style="padding:4px 8px;">
+  <div class="dict-item user-item">
+    <div class="user-item-head">
+      <strong>{{ u.username }}</strong>
+      <span class="dict-status">{{ u.role }} · {{ 'aktywny' if u.active else 'nieaktywny' }}</span>
+    </div>
+    <form method="post" action="{{ url_for('user_name', uid=u.id) }}" class="dict-edit-form">
+      <div>
+        <label>Imię</label>
+        <input name="first_name" value="{{ u.first_name or '' }}" placeholder="imię" required>
+      </div>
+      <div>
+        <label>Nazwisko</label>
+        <input name="last_name" value="{{ u.last_name or '' }}" placeholder="nazwisko" required>
+      </div>
+      <div class="dict-grow">
+        <label>Dział</label>
+        <select name="department">
           <option value="">– brak działu –</option>
           {% for d in departments %}
           <option value="{{ d.name }}" {{ 'selected' if u.department == d.name }}>{{ d.name }}</option>
           {% endfor %}
         </select>
-        <button class="btn small ghost">Zapisz</button>
-      </form>
-    </td>
-    <td><strong>{{ u.username }}</strong></td>
-    <td>{{ u.role }}</td>
-    <td>{{ 'aktywny' if u.active else 'nieaktywny' }}</td>
-    <td>
+      </div>
+      <button class="btn small ghost">Zapisz</button>
+    </form>
+    <div class="dict-meta user-item-actions">
       {% if u.id != session.user_id %}
-      <form class="inline" method="post" action="{{ url_for('user_toggle', uid=u.id) }}">
+      <form method="post" action="{{ url_for('user_toggle', uid=u.id) }}">
         <button class="btn small {{ 'danger' if u.active else 'ok' }}">{{ 'Dezaktywuj' if u.active else 'Aktywuj' }}</button>
       </form>
       {% endif %}
-      <form class="inline" method="post" action="{{ url_for('user_password', uid=u.id) }}" style="display:inline-flex; gap:6px;">
-        <input name="password" type="password" placeholder="nowe hasło" minlength="6" required style="width:140px; padding:4px 8px;">
+      <form method="post" action="{{ url_for('user_password', uid=u.id) }}" class="user-pwd-form">
+        <input name="password" type="password" placeholder="nowe hasło" minlength="6" required>
         <button class="btn small ghost">Zmień hasło</button>
       </form>
-    </td>
-  </tr>
+    </div>
+  </div>
   {% endfor %}
-</table>
+</div>
 {% endblock %}
