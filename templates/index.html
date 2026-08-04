@@ -6,67 +6,66 @@
 {% block content %}
 <h1>{% if is_tcl %}Sprzęt TCL <span class="badge tcl">TCL</span>{% else %}Rejestr sprzętu{% endif %}</h1>
 
-{# 1.1 – filtry łączone, zachowywane w URL; na mobile reszta pod „Więcej filtrów” #}
+{# 1.1 – filtry łączone; na mobile reszta pod „Więcej filtrów” (checkbox, nie details) #}
 {% set more_open = f_project or f_owner or f_brand or f_warehouse or f_condition or f_own == '1' %}
 <form method="get" class="filters" action="{{ url_for(list_ep) }}">
   <div class="filter-core">
     <label>Nazwa / kod</label>
     <input type="text" name="q" value="{{ q }}" placeholder="Szukaj…">
   </div>
-  <details class="filter-more" {% if more_open %}open{% endif %}>
-    <summary class="filter-more-summary">Więcej filtrów</summary>
-    <div class="filter-more-body">
-      <div>
-        <label>Numer projektu</label>
-        <select name="project">
-          <option value="">– wszystkie –</option>
-          {% for p in projects %}<option value="{{ p }}" {{ 'selected' if f_project == p }}>{{ p }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Własność</label>
-        <select name="owner">
-          <option value="">– wszystkie –</option>
-          {% for o in owners %}<option value="{{ o }}" {{ 'selected' if f_owner == o }}>{{ o }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Brand</label>
-        <select name="brand">
-          <option value="">– wszystkie –</option>
-          {% for b in brands %}<option value="{{ b }}" {{ 'selected' if f_brand == b }}>{{ b }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Magazyn</label>
-        <select name="warehouse">
-          <option value="">– wszystkie –</option>
-          {% for w in warehouses %}<option value="{{ w.id }}" {{ 'selected' if f_warehouse == w.id|string }}>{{ w.name }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Stan techniczny</label>
-        <select name="condition">
-          <option value="">– wszystkie –</option>
-          {% for c in ['sprawny','uszkodzony','do utylizacji'] %}
-          <option value="{{ c }}" {{ 'selected' if f_condition == c }}>{{ c }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>Na stronie</label>
-        <select name="per_page">
-          {% for n in per_page_choices %}
-          <option value="{{ n }}" {{ 'selected' if per_page == n|string }}>{{ 'wszystkie' if n == 'all' else n }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="chk">
-        <input type="checkbox" name="own" value="1" id="own" {{ 'checked' if f_own == '1' }}>
-        <label for="own" style="margin:0;">tylko materiały własne</label>
-      </div>
+  <input type="checkbox" id="filters-more-toggle" class="filters-more-toggle" {% if more_open %}checked{% endif %}>
+  <label for="filters-more-toggle" class="filter-more-summary">Więcej filtrów</label>
+  <div class="filter-more-body">
+    <div>
+      <label>Numer projektu</label>
+      <select name="project">
+        <option value="">– wszystkie –</option>
+        {% for p in projects %}<option value="{{ p }}" {{ 'selected' if f_project == p }}>{{ p }}</option>{% endfor %}
+      </select>
     </div>
-  </details>
+    <div>
+      <label>Własność</label>
+      <select name="owner">
+        <option value="">– wszystkie –</option>
+        {% for o in owners %}<option value="{{ o }}" {{ 'selected' if f_owner == o }}>{{ o }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Brand</label>
+      <select name="brand">
+        <option value="">– wszystkie –</option>
+        {% for b in brands %}<option value="{{ b }}" {{ 'selected' if f_brand == b }}>{{ b }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Magazyn</label>
+      <select name="warehouse">
+        <option value="">– wszystkie –</option>
+        {% for w in warehouses %}<option value="{{ w.id }}" {{ 'selected' if f_warehouse == w.id|string }}>{{ w.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Stan techniczny</label>
+      <select name="condition">
+        <option value="">– wszystkie –</option>
+        {% for c in ['sprawny','uszkodzony','do utylizacji'] %}
+        <option value="{{ c }}" {{ 'selected' if f_condition == c }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Na stronie</label>
+      <select name="per_page">
+        {% for n in per_page_choices %}
+        <option value="{{ n }}" {{ 'selected' if per_page == n|string }}>{{ 'wszystkie' if n == 'all' else n }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="chk">
+      <input type="checkbox" name="own" value="1" id="own" {{ 'checked' if f_own == '1' }}>
+      <label for="own" style="margin:0;">tylko materiały własne</label>
+    </div>
+  </div>
   <div class="filter-actions-core">
     <button class="btn">Filtruj</button>
     <a class="btn ghost" href="{{ url_for(list_ep) }}">Wyczyść</a>
