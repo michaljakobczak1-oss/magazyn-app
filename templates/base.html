@@ -127,7 +127,25 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 #thumb-preview.visible { display:block; }
 .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 24px; font-size:14px; }
 .grid dt { font-weight:600; color:#555; }
-.grid dd { margin:0 0 8px; }
+.grid dd { margin:0 0 8px; min-width:0; overflow-wrap:anywhere; word-break:break-word; }
+.condition-notes {
+  white-space:pre-line; overflow-wrap:anywhere; word-break:break-word;
+  max-width:100%;
+}
+.eq-detail-info { overflow:hidden; min-width:0; }
+.repair-box {
+  margin-top:14px; padding:12px 14px; border:1px solid #fca5a5;
+  background:#fef2f2; border-radius:8px;
+}
+.repair-box-title { font-weight:700; margin-bottom:4px; }
+.repair-box-hint { font-size:13px; color:#666; margin:0 0 10px; }
+.repair-box-row {
+  display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;
+}
+.repair-box-row > div { min-width:0; }
+.repair-box-grow { flex:1; min-width:160px; }
+.repair-box input[type=number] { width:100px; max-width:100%; }
+.repair-box-row .btn { white-space:nowrap; }
 .toolbar { display:flex; gap:10px; margin-bottom:16px; align-items:center; flex-wrap:wrap; }
 .toolbar input[type=text] { width:220px; }
 .filters { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; background:#fff; padding:12px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:16px; }
@@ -278,26 +296,41 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 
 /* Słowniki / użytkownicy */
 .dict-grid {
-  display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));
+  gap:28px 24px;
+  align-items:start;
 }
-.dict-section { flex:1; min-width:min(100%, 360px); }
-.dict-hint { font-size:12px; color:#666; margin-top:-6px; }
+.dict-section { min-width:0; }
+.dict-hint { font-size:12px; color:#666; margin-top:-6px; margin-bottom:12px; }
 .dict-empty { color:#666; font-size:14px; margin:8px 0; }
+.dict-add-card { margin-bottom:14px; max-width:none; }
 .dict-add-form,
 .dict-edit-form {
-  display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;
+  display:flex; flex-direction:column; align-items:stretch; gap:10px;
 }
 .dict-add-form > div,
-.dict-edit-form > div { min-width:0; }
-.dict-grow { flex:1; min-width:160px; }
-.dict-list { display:flex; flex-direction:column; gap:10px; }
+.dict-edit-form > div { min-width:0; width:100%; }
+.dict-grow { width:100%; min-width:0; }
+.dict-add-form input,
+.dict-add-form select,
+.dict-edit-form input,
+.dict-edit-form select {
+  width:100%; max-width:100%; box-sizing:border-box;
+}
+.dict-add-form .btn,
+.dict-edit-form .btn {
+  align-self:flex-start; width:auto; min-width:110px;
+}
+.dict-list { display:flex; flex-direction:column; gap:12px; }
 .dict-item {
-  background:#fff; border-radius:8px; padding:12px 14px;
+  background:#fff; border-radius:8px; padding:14px 16px;
   box-shadow:0 1px 3px rgba(0,0,0,.08); border:1px solid #ececec;
+  min-width:0; overflow:hidden;
 }
 .dict-meta {
   display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-  margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;
+  margin-top:12px; padding-top:12px; border-top:1px solid #f0f0f0;
 }
 .dict-status { font-size:13px; color:#555; }
 .user-item-head {
@@ -305,7 +338,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   margin-bottom:10px; align-items:baseline;
 }
 .user-pwd-form {
-  display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex:1;
+  display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; flex:1; width:100%;
 }
 .user-pwd-form input { flex:1; min-width:140px; width:auto; }
 
@@ -394,35 +427,29 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   .stat-cards { gap:10px; }
   .stat { min-width:0; flex:1 1 100%; }
 
-  /* Słowniki / użytkownicy – pełna szerokość, pola jedno pod drugim */
-  .dict-grid { flex-direction:column; gap:28px; }
-  .dict-section { min-width:0; width:100%; flex:none; }
-  .dict-add-form,
-  .dict-edit-form {
-    flex-direction:column; align-items:stretch; gap:10px;
+  /* Słowniki / użytkownicy – jedna kolumna, pełna szerokość pól i przycisków */
+  .dict-grid {
+    grid-template-columns:1fr; gap:28px;
   }
-  .dict-grow { min-width:0; width:100%; }
-  .dict-add-form input,
-  .dict-add-form select,
-  .dict-edit-form input,
-  .dict-edit-form select,
-  .user-pwd-form input {
-    width:100%; min-width:0;
-  }
+  .dict-section { min-width:0; width:100%; }
   .dict-add-form .btn,
   .dict-edit-form .btn,
   .dict-meta .btn,
   .user-pwd-form .btn {
-    width:100%; text-align:center;
+    width:100%; min-width:0; text-align:center; align-self:stretch;
   }
   .dict-meta { flex-direction:column; align-items:stretch; }
   .user-pwd-form { flex-direction:column; align-items:stretch; width:100%; }
-  .user-pwd-form input { min-width:0; }
+  .user-pwd-form input { min-width:0; width:100%; }
 
   /* Karta sprzętu: zdjęcie na górze, duży Rezerwuj */
   .eq-detail { flex-direction:column; gap:16px; }
   .eq-detail-photos { order:-1; max-width:100%; }
-  .eq-detail-info { max-width:100%; min-width:0; }
+  .eq-detail-info { max-width:100%; min-width:0; overflow:hidden; }
+  .repair-box-row { flex-direction:column; align-items:stretch; }
+  .repair-box input[type=number],
+  .repair-box input[type=text],
+  .repair-box .btn { width:100%; max-width:none; }
   .eq-detail-photos .photo-lg,
   .eq-detail-photos .photo-gallery .photo-lg {
     max-width:100%; width:100%; max-height:280px;
@@ -619,6 +646,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   <a href="{{ url_for('reservations') }}" class="{{ 'active' if request.endpoint == 'reservations' and not request.args.get('mine') }}">Rezerwacje</a>
   <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>
   {% if session.role == 'admin' %}
+  <a href="{{ url_for('archive_index') }}" class="{{ 'active' if request.endpoint == 'archive_index' }}">Archiwum</a>
   <a href="{{ url_for('dictionaries') }}" class="{{ 'active' if request.endpoint == 'dictionaries' }}">Słowniki</a>
   <a href="{{ url_for('catalog_import') }}" class="{{ 'active' if request.endpoint == 'catalog_import' }}">Import katalogu</a>
   <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Użytkownicy</a>

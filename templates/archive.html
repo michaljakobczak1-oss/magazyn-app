@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_thumb.html" import thumb %}
+{% block title %}Archiwum – Magazyn{% endblock %}
+{% block content %}
+<h1>Archiwum sprzętu</h1>
+
+<form method="get" class="filters" action="{{ url_for('archive_index') }}">
+  <div class="filter-core">
+    <label>Nazwa / kod</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Szukaj…">
+  </div>
+  <div class="filter-actions-core">
+    <button class="btn">Filtruj</button>
+    <a class="btn ghost" href="{{ url_for('archive_index') }}">Wyczyść</a>
+  </div>
+</form>
+
+{% if not items %}
+<p style="color:#666;">Archiwum jest puste.</p>
+{% else %}
+<div class="dict-list">
+  {% for it in items %}
+  <div class="dict-item">
+    <div class="user-item-head" style="align-items:flex-start;">
+      <div style="display:flex; gap:12px; align-items:flex-start;">
+        {{ thumb(it.photo) }}
+        <div>
+          <a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a>
+          {% if (it.catalog or 'main') == 'tcl' %}<span class="badge tcl">TCL</span>{% endif %}
+          <div style="font-size:14px;">{{ it.name }}</div>
+          <div style="font-size:12px; color:#666;">
+            {% if it.archived_at %}archiwum od {{ it.archived_at[:16].replace('T',' ') }} · {% endif %}
+            {{ it.warehouse_name or '–' }}{% if it.location %} / {{ it.location }}{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('equipment_restore', eid=it.id) }}" class="dict-edit-form" style="margin-top:10px;">
+      <div>
+        <label>Ilość szt. *</label>
+        <input type="number" name="quantity" min="1" value="1" required>
+      </div>
+      <div class="dict-grow">
+        <label>Magazyn</label>
+        <select name="warehouse_id">
+          <option value="">– brak –</option>
+          {% for w in warehouses %}
+          <option value="{{ w.id }}" {{ 'selected' if it.warehouse_id == w.id }}>{{ w.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="dict-grow">
+        <label>Miejsce</label>
+        <input name="location" value="{{ it.location or '' }}" placeholder="np. Regał B2">
+      </div>
+      <button class="btn ok">Przywróć</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

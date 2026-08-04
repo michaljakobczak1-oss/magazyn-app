@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS equipment (
     quantity INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
     catalog TEXT NOT NULL DEFAULT 'main',        -- main | tcl
+    archived INTEGER NOT NULL DEFAULT 0,        -- 1 = w archiwum (np. po wydaniu trwałym do 0)
+    archived_at TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -154,6 +156,8 @@ MIGRATIONS = {
         "damaged_quantity": "INTEGER NOT NULL DEFAULT 0",
         "storage_instructions": "TEXT",
         "catalog": "TEXT NOT NULL DEFAULT 'main'",
+        "archived": "INTEGER NOT NULL DEFAULT 0",
+        "archived_at": "TEXT",
     },
     "reservations": {
         "group_id": "TEXT",

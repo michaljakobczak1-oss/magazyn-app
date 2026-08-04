@@ -24,7 +24,7 @@
     <td data-label="Nazwa">{{ r.name }}</td>
     <td data-label="Magazyn / miejsce">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
-    <td data-label="Termin">{{ r.date_from }} – {{ r.date_to }}</td>
+    <td data-label="Termin">{% if r.permanent %}<span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
     <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
     <td data-label="PM">{{ dn(r) }}</td>

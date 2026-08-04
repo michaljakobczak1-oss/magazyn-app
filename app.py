@@ -39,6 +39,8 @@ MAX_PHOTOS = 5
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "zmien-mnie-w-produkcji")
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # import katalogu + zdjęcia (zip)
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.auto_reload = True
 
 init_db()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -143,6 +145,29 @@ def valid_dates(d_from, d_to):
         return f <= t
     except (ValueError, TypeError):
         return False
+
+
+SELF_PICKUP_VALUE = "__self__"
+
+
+def resolve_receiver(raw):
+    """Odbiór własny → zapis z imieniem zalogowanego użytkownika."""
+    v = (raw or "").strip()
+    if v == SELF_PICKUP_VALUE or v.lower() in ("odbiór własny", "odbior wlasny"):
+        name = (session.get("full_name") or session.get("username") or "").strip()
+        return f"Odbiór własny ({name})" if name else "Odbiór własny"
+    return v
+
+
+def reservation_dates_from_form(form):
+    """Przy wydaniu trwałym daty nie są wymagane – używamy dzisiejszej."""
+    permanent = 1 if form.get("permanent") else 0
+    if permanent:
+        today_s = date.today().isoformat()
+        return today_s, today_s, permanent
+    d_from = (form.get("date_from") or "").strip()
+    d_to = (form.get("date_to") or "").strip()
+    return d_from, d_to, permanent
 
 
 def active_partners(con):
@@ -285,7 +310,7 @@ def _render_equipment_index(catalog="main"):
     con = get_db()
     sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
              LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
-    where, params = ["IFNULL(e.catalog,'main')=?"], [catalog]
+    where, params = ["IFNULL(e.catalog,'main')=?", "IFNULL(e.archived,0)=0"], [catalog]
     if q:
         where.append("(e.code LIKE ? OR e.name LIKE ?)")
         params += [f"%{q}%"] * 2
@@ -336,15 +361,18 @@ def _render_equipment_index(catalog="main"):
 
     projects = [r[0] for r in con.execute(
         """SELECT DISTINCT project_number FROM equipment
-           WHERE IFNULL(project_number,'')!='' AND IFNULL(catalog,'main')=? ORDER BY 1""",
+           WHERE IFNULL(project_number,'')!='' AND IFNULL(catalog,'main')=?
+             AND IFNULL(archived,0)=0 ORDER BY 1""",
         (catalog,))]
     owners = [r[0] for r in con.execute(
         """SELECT DISTINCT owner FROM equipment
-           WHERE IFNULL(owner,'')!='' AND IFNULL(catalog,'main')=? ORDER BY 1""",
+           WHERE IFNULL(owner,'')!='' AND IFNULL(catalog,'main')=?
+             AND IFNULL(archived,0)=0 ORDER BY 1""",
         (catalog,))]
     brands = [r[0] for r in con.execute(
         """SELECT DISTINCT brand FROM equipment
-           WHERE IFNULL(brand,'')!='' AND IFNULL(catalog,'main')=? ORDER BY 1""",
+           WHERE IFNULL(brand,'')!='' AND IFNULL(catalog,'main')=?
+             AND IFNULL(archived,0)=0 ORDER BY 1""",
         (catalog,))]
     warehouses = active_warehouses(con)
 
@@ -463,7 +491,19 @@ def equipment_new():
             flash("Sprzęt dodany.", "ok")
             return redirect(url_for("tcl_index" if catalog == "tcl" else "index"))
         except Exception as e:
-            flash(f"Błąd: {'kod już istnieje' if 'UNIQUE' in str(e) else e}", "error")
+            msg = str(e)
+            if "UNIQUE" in msg:
+                code = (request.form.get("code") or "").strip()
+                arch = con.execute(
+                    "SELECT id FROM equipment WHERE code=? AND IFNULL(archived,0)=1",
+                    (code,)).fetchone() if code else None
+                if arch:
+                    flash(f"Kod {code} jest w archiwum – przywróć go zamiast dodawać nowy "
+                          f"(Archiwum → Przywróć).", "error")
+                else:
+                    flash("Błąd: kod już istnieje", "error")
+            else:
+                flash(f"Błąd: {e}", "error")
         finally:
             con.close()
         return redirect(url_for("equipment_new", catalog=catalog))
@@ -540,16 +580,83 @@ def equipment_detail(eid):
     if not photo_rows and eq["photo"]:
         photo_rows = [{"filename": eq["photo"], "kind": "normal"}]
     res = con.execute(
-        """SELECT r.*, u.username, u.first_name, u.last_name FROM reservations r
+        """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department
+           FROM reservations r
            JOIN users u ON u.id=r.user_id
            WHERE r.equipment_id=? AND r.status != 'anulowana'
            ORDER BY r.date_from DESC""", (eid,)).fetchall()
     today = local_today().isoformat()
     avail_today = _usable_qty(eq) - reserved_qty(con, eid, today, today)
+    manage_ids = {r["id"] for r in res if can_manage_reservation(r)}
+    is_archived = bool(eq["archived"]) if "archived" in eq.keys() else False
     con.close()
     return render_template("equipment_detail.html", eq=eq, reservations=res,
                            avail_today=avail_today, today=today, dn=display_name,
-                           photo_rows=photo_rows)
+                           photo_rows=photo_rows, manage_ids=manage_ids,
+                           is_archived=is_archived)
+
+
+@app.route("/equipment/<int:eid>/repair", methods=["POST"])
+@login_required
+def equipment_repair(eid):
+    """Oznacz część (lub wszystkie) uszkodzone sztuki jako naprawione."""
+    con = get_db()
+    eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
+    if not eq:
+        con.close()
+        abort(404)
+    dmg = int(eq["damaged_quantity"] or 0)
+    if dmg <= 0:
+        con.close()
+        flash("Brak uszkodzonych sztuk do oznaczenia.", "error")
+        return redirect(url_for("equipment_detail", eid=eid))
+    try:
+        qty = int(request.form.get("qty") or 0)
+    except (TypeError, ValueError):
+        qty = 0
+    note = (request.form.get("note") or "").strip()
+    if qty < 1 or qty > dmg:
+        con.close()
+        flash(f"Podaj liczbę sztuk od 1 do {dmg}.", "error")
+        return redirect(url_for("equipment_detail", eid=eid))
+    who = (session.get("full_name") or session.get("username") or "?").strip()
+    stamp = (f"[{local_today().isoformat()}] naprawione ({qty} szt.) – {who}"
+             + (f": {note}" if note else ""))
+    new_dmg = dmg - qty
+    if new_dmg == 0:
+        con.execute(
+            """UPDATE equipment SET damaged_quantity=0, condition='sprawny',
+               condition_notes=IFNULL(condition_notes,'') ||
+               CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+               WHERE id=?""",
+            (stamp, eid))
+        # brak uszkodzonych → usuń zdjęcia uszkodzeń z galerii
+        dmg_photos = con.execute(
+            "SELECT filename FROM equipment_photos WHERE equipment_id=? AND kind='damage'",
+            (eid,)).fetchall()
+        con.execute(
+            "DELETE FROM equipment_photos WHERE equipment_id=? AND kind='damage'",
+            (eid,))
+        for row in dmg_photos:
+            path = UPLOAD_DIR / secure_filename(row["filename"])
+            try:
+                if path.is_file():
+                    path.unlink()
+            except OSError:
+                pass
+        sync_equipment_primary_photo(con, eid)
+    else:
+        con.execute(
+            """UPDATE equipment SET damaged_quantity=?,
+               condition_notes=IFNULL(condition_notes,'') ||
+               CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
+               WHERE id=?""",
+            (new_dmg, stamp, eid))
+    con.commit()
+    con.close()
+    left = f" Pozostało uszkodzonych: {new_dmg} szt." if new_dmg else " Wszystkie uszkodzone oznaczono jako sprawne."
+    flash(f"Oznaczono jako naprawione: {qty} szt.{left}", "ok")
+    return redirect(url_for("equipment_detail", eid=eid))
 
 
 @app.route("/equipment/<int:eid>/delete", methods=["POST"])
@@ -630,6 +737,10 @@ def reserve(eid):
     eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
     if not eq:
         abort(404)
+    if "archived" in eq.keys() and eq["archived"]:
+        con.close()
+        flash("Ten sprzęt jest w archiwum – nie można tworzyć rezerwacji. Admin może go przywrócić.", "error")
+        return redirect(url_for("equipment_detail", eid=eid))
     if equipment_catalog(eq) == "tcl" and not can_manage_tcl():
         con.close()
         flash("Rezerwacje sprzętu TCL może tworzyć tylko dział Warrens lub admin.", "error")
@@ -637,14 +748,17 @@ def reserve(eid):
     form_data = None
     if request.method == "POST":
         form_data = request.form
-        d_from, d_to = request.form["date_from"], request.form["date_to"]
+        d_from, d_to, permanent = reservation_dates_from_form(request.form)
         qty = max(1, int(request.form.get("quantity") or 1))
         proj = (request.form.get("project_number") or "").strip()
+        receiver = resolve_receiver(request.form.get("receiver", ""))
         if not proj:
             flash("Podaj numer projektu.", "error")
-        elif not valid_dates(d_from, d_to):
+        elif not receiver:
+            flash("Wybierz, kto odbiera towar.", "error")
+        elif not permanent and not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
-        elif handoff_conflict(con, eid, d_from, d_to):
+        elif not permanent and handoff_conflict(con, eid, d_from, d_to):
             # znajdź konflikt, żeby podać konkretną datę
             row = con.execute(
                 """SELECT date_to FROM reservations
@@ -665,7 +779,6 @@ def reserve(eid):
                       f"({eq['quantity']} łącznie).", "error")
             else:
                 rec = recipient_form_fields(request.form)
-                permanent = 1 if request.form.get("permanent") else 0
                 con.execute(
                     """INSERT INTO reservations (equipment_id, user_id, client,
                        date_from, date_to, quantity, notes, receiver, permanent,
@@ -675,7 +788,7 @@ def reserve(eid):
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (eid, session["user_id"], request.form["client"].strip(),
                      d_from, d_to, qty, request.form["notes"].strip(),
-                     request.form.get("receiver", ""), permanent, proj,
+                     receiver, permanent, proj,
                      rec["recipient_name"], rec["recipient_contact"],
                      rec["recipient_phone"], rec["recipient_address"],
                      rec["recipient_email"]))
@@ -691,7 +804,8 @@ def reserve(eid):
     projects = project_suggestions(con)
     con.close()
     return render_template("reserve.html", eq=eq, receivers=receivers,
-                           recipients=recipients, projects=projects, form=form_data)
+                           recipients=recipients, projects=projects, form=form_data,
+                           self_pickup_value=SELF_PICKUP_VALUE)
 
 
 @app.route("/reserve-multi", methods=["GET", "POST"])
@@ -712,6 +826,10 @@ def reserve_multi():
             LEFT JOIN warehouses w ON w.id=e.warehouse_id
             WHERE e.id IN ({','.join('?'*len(ids))}) ORDER BY e.code""",
         ids).fetchall()
+    if any((it["archived"] if "archived" in it.keys() else 0) for it in items):
+        flash("Nie można rezerwować sprzętu z archiwum.", "error")
+        con.close()
+        return redirect(url_for("index"))
     catalogs = {equipment_catalog(it) for it in items}
     if "tcl" in catalogs and not can_manage_tcl():
         flash("Rezerwacje sprzętu TCL może tworzyć tylko dział Warrens lub admin.", "error")
@@ -727,13 +845,20 @@ def reserve_multi():
     multi_warehouse = len(wh_names) > 1
     form_data = None
 
-    if request.method == "POST" and "date_from" in request.form:
+    if request.method == "POST" and (
+            "receiver" in request.form
+            or "date_from" in request.form
+            or request.form.get("permanent")):
+        # POST z formularza wspólnej rezerwacji (daty opcjonalne przy trwałym)
         form_data = request.form
-        d_from, d_to = request.form["date_from"], request.form["date_to"]
+        d_from, d_to, permanent = reservation_dates_from_form(request.form)
         proj = (request.form.get("project_number") or "").strip()
+        receiver = resolve_receiver(request.form.get("receiver", ""))
         if not proj:
             flash("Podaj numer projektu.", "error")
-        elif not valid_dates(d_from, d_to):
+        elif not receiver:
+            flash("Wybierz, kto odbiera towar.", "error")
+        elif not permanent and not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
         else:
             errors = []
@@ -746,7 +871,7 @@ def reserve_multi():
                     qty = 0
                 if qty <= 0:
                     continue  # pomiń pozycję (usunięta / ilość 0)
-                if handoff_conflict(con, it["id"], d_from, d_to):
+                if not permanent and handoff_conflict(con, it["id"], d_from, d_to):
                     row = con.execute(
                         """SELECT date_to FROM reservations
                            WHERE equipment_id=? AND status IN ('rezerwacja','wydane')
@@ -772,7 +897,6 @@ def reserve_multi():
             else:
                 rec = recipient_form_fields(request.form)
                 gid = uuid.uuid4().hex[:8]
-                permanent = 1 if request.form.get("permanent") else 0
                 for it in items:
                     if it["id"] not in wanted:
                         continue
@@ -786,7 +910,7 @@ def reserve_multi():
                         (it["id"], session["user_id"], request.form["client"].strip(),
                          d_from, d_to, wanted[it["id"]],
                          request.form["notes"].strip(), gid,
-                         request.form.get("receiver", ""), permanent, proj,
+                         receiver, permanent, proj,
                          rec["recipient_name"], rec["recipient_contact"],
                          rec["recipient_phone"], rec["recipient_address"],
                          rec["recipient_email"]))
@@ -809,7 +933,8 @@ def reserve_multi():
                            recipients=recipients, projects=projects,
                            multi_warehouse=multi_warehouse,
                            wh_names=sorted(wh_names), form=form_data,
-                           default_project=default_proj)
+                           default_project=default_proj,
+                           self_pickup_value=SELF_PICKUP_VALUE)
 
 
 def _selected_reservations(con, rids):
@@ -1147,6 +1272,13 @@ def _apply_issue(con, r, user_id, permanent=None):
         con.execute("UPDATE equipment SET quantity = quantity - ? WHERE id=?",
                     (r["quantity"], r["equipment_id"]))
         sync_equipment_from_stock(con, r["equipment_id"], keep_total=True)
+        left = con.execute("SELECT quantity FROM equipment WHERE id=?",
+                           (r["equipment_id"],)).fetchone()
+        if left and int(left["quantity"] or 0) <= 0:
+            con.execute(
+                """UPDATE equipment SET archived=1, archived_at=?, quantity=0,
+                   damaged_quantity=0 WHERE id=?""",
+                (now.isoformat(timespec="seconds"), r["equipment_id"]))
     else:
         eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
                          (r["equipment_id"],)).fetchone()
@@ -1484,9 +1616,20 @@ def issue(rid):
         flash("Nie udało się wydać rezerwacji.", "error")
         return redirect(request.referrer or url_for("reservations"))
     con.commit()
+    archived = False
+    if is_perm:
+        eq_left = con.execute(
+            "SELECT IFNULL(archived,0) a FROM equipment WHERE id=?",
+            (r["equipment_id"],)).fetchone()
+        archived = bool(eq_left and eq_left["a"])
     con.close()
-    msg = ("Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…"
-           if is_perm else "Oznaczono jako wydane. Pobieranie PDF…")
+    if is_perm and archived:
+        msg = ("Oznaczono jako wydane trwale – sprzęt przeniesiony do archiwum "
+               "(stan 0). Przywrócenie: tylko admin. Pobieranie PDF…")
+    elif is_perm:
+        msg = "Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…"
+    else:
+        msg = "Oznaczono jako wydane. Pobieranie PDF…"
     flash(msg, "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
 
@@ -1655,6 +1798,60 @@ def reservation_pdf(rid, kind):
     prefix = "WZ" if kind == "wydanie" else "PZ"
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
                      download_name=f"{prefix}_{eq['code']}_{rid}.pdf")
+
+
+# ---------- archiwum sprzętu (admin) ----------
+
+@app.route("/archive")
+@login_required
+@admin_required
+def archive_index():
+    q = request.args.get("q", "").strip()
+    con = get_db()
+    sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
+             LEFT JOIN warehouses w ON w.id=e.warehouse_id
+             WHERE IFNULL(e.archived,0)=1"""
+    params = []
+    if q:
+        sql += " AND (e.code LIKE ? OR e.name LIKE ?)"
+        params += [f"%{q}%", f"%{q}%"]
+    sql += " ORDER BY e.archived_at DESC, e.code"
+    items = con.execute(sql, params).fetchall()
+    warehouses = active_warehouses(con)
+    con.close()
+    return render_template("archive.html", items=items, q=q, warehouses=warehouses)
+
+
+@app.route("/equipment/<int:eid>/restore", methods=["POST"])
+@login_required
+@admin_required
+def equipment_restore(eid):
+    con = get_db()
+    eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
+    if not eq:
+        con.close()
+        abort(404)
+    if not (eq["archived"] if "archived" in eq.keys() else 0):
+        con.close()
+        flash("Ten sprzęt nie jest w archiwum.", "error")
+        return redirect(url_for("archive_index"))
+    try:
+        qty = max(1, int(request.form.get("quantity") or 1))
+    except (TypeError, ValueError):
+        qty = 1
+    wid_raw = request.form.get("warehouse_id", "")
+    wid = int(wid_raw) if str(wid_raw).isdigit() else None
+    location = (request.form.get("location") or "").strip()
+    con.execute(
+        """UPDATE equipment SET archived=0, archived_at=NULL, quantity=?,
+           damaged_quantity=0, condition='sprawny',
+           warehouse_id=?, location=? WHERE id=?""",
+        (qty, wid, location, eid))
+    replace_equipment_stock(con, eid, wid, location, qty)
+    con.commit()
+    con.close()
+    flash(f"Przywrócono {eq['code']} na stan ({qty} szt.).", "ok")
+    return redirect(url_for("equipment_detail", eid=eid))
 
 
 # ---------- API: autouzupełnianie adresatów ----------

@@ -4,8 +4,18 @@
 <h1>{{ eq.code }} – {{ eq.name }}
   {% if (eq.catalog or 'main') == 'tcl' %}<span class="badge tcl">TCL</span>{% endif %}
   {% if eq.material_type == 'wlasny' %}<span class="badge own">materiał własny</span>{% endif %}
+  {% if is_archived %}<span class="badge" style="background:#eee;color:#444;">archiwum</span>{% endif %}
   {% if (eq.damaged_quantity or 0) == 0 and eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
 </h1>
+{% if is_archived %}
+<div class="flash warn">Ten sprzęt jest w archiwum.
+  {% if session.role == 'admin' %}
+  Przywrócenie: <a href="{{ url_for('archive_index') }}">Archiwum</a>.
+  {% else %}
+  Przywrócenie może wykonać tylko administrator.
+  {% endif %}
+</div>
+{% endif %}
 <div class="eq-detail">
   <div class="eq-detail-info card">
     <dl class="grid">
@@ -26,14 +36,31 @@
           {{ eq.condition }}
         {% endif %}
       </dd>
-      {% if eq.condition_notes %}<dt>Notatka o stanie</dt><dd style="white-space:pre-line;">{{ eq.condition_notes }}</dd>{% endif %}
+      {% if eq.condition_notes %}<dt>Notatka o stanie</dt><dd class="condition-notes">{{ eq.condition_notes }}</dd>{% endif %}
       <dt>Stan magazynowy</dt><dd>{{ eq.quantity }} szt.</dd>
       <dt>Dostępne dziś</dt><dd><span class="badge {{ 'avail-ok' if avail_today > 0 else 'avail-no' }}">{{ avail_today }} szt.{% if dmg > 0 %} sprawne{% endif %}</span></dd>
-      {% if eq.storage_instructions %}<dt>Składowanie / pakowanie</dt><dd style="white-space:pre-line;">{{ eq.storage_instructions }}</dd>{% endif %}
-      {% if eq.notes %}<dt>Uwagi</dt><dd>{{ eq.notes }}</dd>{% endif %}
+      {% if eq.storage_instructions %}<dt>Składowanie / pakowanie</dt><dd class="condition-notes">{{ eq.storage_instructions }}</dd>{% endif %}
+      {% if eq.notes %}<dt>Uwagi</dt><dd class="condition-notes">{{ eq.notes }}</dd>{% endif %}
     </dl>
+    {% if dmg > 0 and not is_archived %}
+    <form method="post" action="{{ url_for('equipment_repair', eid=eq.id) }}" class="repair-box">
+      <div class="repair-box-title">Oznacz jako naprawione</div>
+      <p class="repair-box-hint">Uszkodzonych: <strong>{{ dmg }}</strong> szt. Możesz oznaczyć część (np. 1 z {{ dmg }}).</p>
+      <div class="repair-box-row">
+        <div>
+          <label>Ile sztuk *</label>
+          <input type="number" name="qty" min="1" max="{{ dmg }}" value="{{ dmg }}" required>
+        </div>
+        <div class="repair-box-grow">
+          <label>Notatka (opcjonalnie)</label>
+          <input type="text" name="note" placeholder="np. wymieniono element / umyte">
+        </div>
+        <button class="btn ok" type="submit">Oznacz jako naprawione</button>
+      </div>
+    </form>
+    {% endif %}
     <div class="eq-detail-actions">
-      {% if not ((eq.catalog or 'main') == 'tcl' and not can_manage_tcl) %}
+      {% if not is_archived and not ((eq.catalog or 'main') == 'tcl' and not can_manage_tcl) %}
       <a class="btn btn-reserve" href="{{ url_for('reserve', eid=eq.id) }}">Rezerwuj</a>
       {% endif %}
       {% set is_tcl = (eq.catalog or 'main') == 'tcl' %}
@@ -83,7 +110,7 @@
   {% for r in reservations %}
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
   <tr class="{{ 'overdue' if is_overdue }}">
-    <td class="card-main" data-label="Termin">{{ r.date_from }} – {{ r.date_to }}
+    <td class="card-main" data-label="Termin">{% if r.permanent %}<span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
@@ -92,7 +119,8 @@
     <td data-label="Status"><span class="badge {{ r.status }}">{{ r.status }}</span>
       {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}</td>
     <td class="card-actions" data-label="Akcje">
-      {% if session.role == 'admin' and r.status == 'rezerwacja' %}
+      {% set can_m = r.id in manage_ids %}
+      {% if can_m and r.status == 'rezerwacja' %}
         {% if r.permanent %}
         <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"
               onsubmit="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu. Kontynuować?');">
@@ -102,9 +130,9 @@
         <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"><button class="btn small ok">Wydaj</button></form>
         {% endif %}
       {% endif %}
-      {% if r.status == 'rezerwacja' %}
+      {% if r.status == 'rezerwacja' and (r.user_id == session.user_id or session.role == 'admin') %}
       <form class="inline" method="post" action="{{ url_for('cancel', rid=r.id) }}"><button class="btn small ghost">Anuluj</button></form>
-      {% elif session.role == 'admin' and r.status == 'wydane' %}
+      {% elif can_m and r.status == 'wydane' %}
       <a class="btn small ok" href="{{ url_for('reservations') }}">Przyjmij zwrot →</a>
       {% endif %}
     </td>

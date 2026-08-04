@@ -42,7 +42,7 @@
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
       {% if r.group_id %}<br><span class="badge" style="background:#e3ecf7;color:#1e3a5f;" title="wspólna rezerwacja">grupa {{ r.group_id[:4] }}</span>{% endif %}</td>
-    <td data-label="Termin">{{ r.date_from }} – {{ r.date_to }}
+    <td data-label="Termin">{% if r.permanent %}<span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
