@@ -6,8 +6,8 @@
   {% if eq.material_type == 'wlasny' %}<span class="badge own">materiał własny</span>{% endif %}
   {% if (eq.damaged_quantity or 0) == 0 and eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
 </h1>
-<div style="display:flex; gap:24px; flex-wrap:wrap; margin-bottom:20px;">
-  <div class="card" style="flex:1; min-width:300px;">
+<div class="eq-detail">
+  <div class="eq-detail-info card">
     <dl class="grid">
       <dt>Numer projektu</dt><dd>{{ eq.project_number or '–' }}</dd>
       <dt>Wymiary</dt><dd>{{ eq.dimensions or '–' }}</dd>
@@ -32,9 +32,9 @@
       {% if eq.storage_instructions %}<dt>Składowanie / pakowanie</dt><dd style="white-space:pre-line;">{{ eq.storage_instructions }}</dd>{% endif %}
       {% if eq.notes %}<dt>Uwagi</dt><dd>{{ eq.notes }}</dd>{% endif %}
     </dl>
-    <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+    <div class="eq-detail-actions">
       {% if not ((eq.catalog or 'main') == 'tcl' and not can_manage_tcl) %}
-      <a class="btn" href="{{ url_for('reserve', eid=eq.id) }}">Rezerwuj</a>
+      <a class="btn btn-reserve" href="{{ url_for('reserve', eid=eq.id) }}">Rezerwuj</a>
       {% endif %}
       {% set is_tcl = (eq.catalog or 'main') == 'tcl' %}
       {% if (is_tcl and can_manage_tcl) or (not is_tcl and session.role == 'admin') %}
@@ -46,7 +46,7 @@
       {% endif %}
     </div>
   </div>
-  <div style="display:flex; flex-direction:column; gap:12px; max-width:640px;">
+  <div class="eq-detail-photos">
     {% if photo_rows %}
     <div class="photo-gallery">
       {% for p in photo_rows %}
@@ -67,20 +67,23 @@
 </div>
 
 <h1 style="font-size:18px;">Rezerwacje i wypożyczenia</h1>
-<table>
+<table class="data-cards">
+  <thead>
   <tr><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
+  </thead>
+  <tbody>
   {% for r in reservations %}
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
   <tr class="{{ 'overdue' if is_overdue }}">
-    <td>{{ r.date_from }} – {{ r.date_to }}
+    <td class="card-main" data-label="Termin">{{ r.date_from }} – {{ r.date_to }}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
-    <td>{{ r.quantity }}</td>
-    <td>{{ r.client or '–' }}</td>
-    <td>{{ r.recipient_name or '–' }}</td>
-    <td>{{ dn(r) }}</td>
-    <td><span class="badge {{ r.status }}">{{ r.status }}</span>
+    <td data-label="Szt.">{{ r.quantity }}</td>
+    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Adresat">{{ r.recipient_name or '–' }}</td>
+    <td data-label="Rezerwujący">{{ dn(r) }}</td>
+    <td data-label="Status"><span class="badge {{ r.status }}">{{ r.status }}</span>
       {% if r.damage %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}</td>
-    <td>
+    <td class="card-actions" data-label="Akcje">
       {% if session.role == 'admin' and r.status == 'rezerwacja' %}
         {% if r.permanent %}
         <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"
@@ -97,13 +100,14 @@
       <a class="btn small ok" href="{{ url_for('reservations') }}">Przyjmij zwrot →</a>
       {% endif %}
     </td>
-    <td>
-      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
-      {% if r.status == 'zwrócone' %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
+    <td class="card-actions" data-label="Dokumenty">
+      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status == 'zwrócone' %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="8">Brak rezerwacji.</td></tr>
+  <tr><td colspan="8" style="display:block;text-align:left;border:0;">Brak rezerwacji.</td></tr>
   {% endfor %}
+  </tbody>
 </table>
 {% endblock %}

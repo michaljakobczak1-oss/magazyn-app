@@ -13,22 +13,27 @@
 <div class="flash warn">Wśród pozycji są materiały klienta ({{ client_items | map(attribute='code') | join(', ') }}) – wypożyczenie wyłącznie na potrzeby tego klienta.</div>
 {% endif %}
 <form method="post" id="multi-form">
-  <table style="margin-bottom:20px;" id="multi-items">
+  <table class="data-cards" style="margin-bottom:20px;" id="multi-items">
+    <thead>
     <tr><th></th><th>Kod</th><th>Nazwa</th><th>Magazyn</th><th>Miejsce</th><th>Stan</th><th style="width:110px;">Ilość szt.</th><th></th></tr>
+    </thead>
+    <tbody>
     {% for it in items %}
     <tr data-eid="{{ it.id }}">
-      <td>{{ thumb(it.photo) }}</td>
-      <td><strong>{{ it.code }}</strong><input type="hidden" name="eid" value="{{ it.id }}"></td>
-      <td>{{ it.name }}</td>
-      <td>{{ it.warehouse_name or '–' }}</td>
-      <td>{{ it.location or '–' }}</td>
-      <td>{{ it.quantity }} szt.</td>
-      <td><input name="qty_{{ it.id }}" type="number" min="0" max="{{ it.quantity }}" value="{{ form.get('qty_' ~ it.id, 1) }}"></td>
-      <td><button type="button" class="btn small danger" onclick="removeRow(this)" title="Usuń z rezerwacji">Usuń</button></td>
+      <td class="card-thumb">{{ thumb(it.photo) }}</td>
+      <td class="card-main" data-label="Kod"><strong>{{ it.code }}</strong><input type="hidden" name="eid" value="{{ it.id }}"></td>
+      <td data-label="Nazwa">{{ it.name }}</td>
+      <td data-label="Magazyn">{{ it.warehouse_name or '–' }}</td>
+      <td data-label="Miejsce">{{ it.location or '–' }}</td>
+      <td data-label="Stan">{{ it.quantity }} szt.</td>
+      <td data-label="Ilość szt."><input name="qty_{{ it.id }}" type="number" min="0" max="{{ it.quantity }}" value="{{ form.get('qty_' ~ it.id, 1) }}"></td>
+      <td class="card-actions" data-label=""><button type="button" class="btn small danger" onclick="removeRow(this)" title="Usuń z rezerwacji">Usuń</button></td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
-  <div class="card">
+  <div class="card form-card">
+    <div class="touch-form">
     <label>Od *</label>
     <input name="date_from" type="date" required value="{{ form.get('date_from', '') }}">
     <label>Do *</label>
@@ -50,14 +55,15 @@
     </datalist>
     <label>Uwagi</label>
     <textarea name="notes" rows="2">{{ form.get('notes', '') }}</textarea>
-    <label style="display:flex; align-items:flex-start; gap:8px; font-weight:400; margin-top:12px;">
-      <input type="checkbox" name="permanent" value="1" style="width:auto; margin-top:3px;" {{ 'checked' if form.get('permanent') }}>
+    <label class="chk-row">
+      <input type="checkbox" name="permanent" value="1" {{ 'checked' if form.get('permanent') }}>
       <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu.</span>
     </label>
     {{ recipient_fields(recipients, form) }}
-    <div style="margin-top:16px; display:flex; gap:10px;">
+    <div class="sticky-form-actions">
       <button class="btn">Zarezerwuj wszystko</button>
       <a class="btn ghost" href="{{ url_for('index') }}">Anuluj</a>
+    </div>
     </div>
   </div>
 </form>

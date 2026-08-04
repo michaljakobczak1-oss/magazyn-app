@@ -11,25 +11,29 @@
 </div>
 
 {% macro res_table(rows, empty_msg) %}
-<table style="margin-bottom:24px;">
+<table class="data-cards" style="margin-bottom:24px;">
+  <thead>
   <tr><th>Kod</th><th>Nazwa</th><th>Magazyn / miejsce</th><th>Szt.</th><th>Termin</th><th>Klient / cel</th><th>Odbiera (podwykonawca)</th><th>PM</th><th></th></tr>
+  </thead>
+  <tbody>
   {% for r in rows %}
   <tr>
-    <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a>
+    <td class="card-main" data-label="Kod"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a>
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
     </td>
-    <td>{{ r.name }}</td>
-    <td>{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</td>
-    <td>{{ r.quantity }}</td>
-    <td>{{ r.date_from }} – {{ r.date_to }}</td>
-    <td>{{ r.client or '–' }}</td>
-    <td>{{ r.receiver or '–' }}</td>
-    <td>{{ dn(r) }}</td>
-    <td><a class="btn small ghost" href="{{ url_for('reservations') }}">przejdź</a></td>
+    <td data-label="Nazwa">{{ r.name }}</td>
+    <td data-label="Magazyn / miejsce">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</td>
+    <td data-label="Szt.">{{ r.quantity }}</td>
+    <td data-label="Termin">{{ r.date_from }} – {{ r.date_to }}</td>
+    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
+    <td data-label="PM">{{ dn(r) }}</td>
+    <td class="card-actions" data-label=""><a class="btn small" href="{{ url_for('reservations') }}">Przejdź</a></td>
   </tr>
   {% else %}
-  <tr><td colspan="9">{{ empty_msg }}</td></tr>
+  <tr><td colspan="9" style="display:block;text-align:left;border:0;">{{ empty_msg }}</td></tr>
   {% endfor %}
+  </tbody>
 </table>
 {% endmacro %}
 
@@ -41,21 +45,25 @@
 
 <h2 style="color:var(--err);">Po terminie zwrotu</h2>
 {% if overdue %}
-<table>
+<table class="data-cards">
+  <thead>
   <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>Odbiera</th><th>PM</th><th></th></tr>
+  </thead>
+  <tbody>
   {% for r in overdue %}
   <tr class="overdue">
-    <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
-    <td>{{ r.name }}</td>
-    <td>{{ r.quantity }}</td>
-    <td>{{ r.date_to }}</td>
-    <td><span class="badge overdue">{{ days_overdue[r.id] }} dni</span></td>
-    <td>{{ r.client or '–' }}</td>
-    <td>{{ r.receiver or '–' }}</td>
-    <td>{{ dn(r) }}</td>
-    <td><a class="btn small ghost" href="{{ url_for('reservations', overdue=1) }}">wszystkie po terminie</a></td>
+    <td class="card-main" data-label="Kod"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
+    <td data-label="Nazwa">{{ r.name }}</td>
+    <td data-label="Szt.">{{ r.quantity }}</td>
+    <td data-label="Termin zwrotu">{{ r.date_to }}</td>
+    <td data-label="Dni po terminie"><span class="badge overdue">{{ days_overdue[r.id] }} dni</span></td>
+    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
+    <td data-label="PM">{{ dn(r) }}</td>
+    <td class="card-actions" data-label=""><a class="btn small" href="{{ url_for('reservations', overdue=1) }}">Po terminie</a></td>
   </tr>
   {% endfor %}
+  </tbody>
 </table>
 {% else %}
 <p style="color:#666;">Brak przetrzymanych pozycji.</p>

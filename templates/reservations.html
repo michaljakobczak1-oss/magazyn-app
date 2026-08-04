@@ -73,8 +73,8 @@
       {% endif %}
     </td>
     <td class="card-actions" data-label="Dokumenty">
-      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
-      {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
+      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -84,9 +84,13 @@
 </table>
 </form>
 
-<div id="float-bulk-rail" class="float-rail" aria-label="Akcje zbiorcze">
-  <button type="button" class="float-rail-btn ok" id="float-bulk-issue" title="Zbiorcze wydanie zaznaczonych">Zbiorcze wydanie</button>
-  <button type="button" class="float-rail-btn ok" id="float-bulk-return" title="Zbiorcze przyjęcie zaznaczonych">Zbiorcze przyjęcie</button>
+<div id="float-bulk-rail" class="float-rail mobile-action-bar" aria-label="Akcje zbiorcze">
+  <button type="button" class="float-rail-btn ok" id="float-bulk-issue" title="Wydaj zaznaczone">
+    <span class="desktop-only">Zbiorcze wydanie</span><span class="mobile-only">Wydaj</span>
+  </button>
+  <button type="button" class="float-rail-btn ok" id="float-bulk-return" title="Przyjmij zwrot zaznaczonych">
+    <span class="desktop-only">Zbiorcze przyjęcie</span><span class="mobile-only">Przyjmij zwrot</span>
+  </button>
 </div>
 
 <div id="change-return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
@@ -201,7 +205,7 @@
         <label id="rm-notes-label">Powód utylizacji *</label>
         <textarea id="rm-damage-notes-bulk" rows="3" placeholder="np. zniszczone na evencie"></textarea>
       </div>
-      <div style="margin-top:16px; display:flex; gap:10px;">
+      <div class="sticky-form-actions modal-form-actions">
         <button class="btn ok" id="rm-submit">Przyjmij zwrot</button>
         <a class="btn ghost" href="#" onclick="closeReturnModal(); return false;">Anuluj</a>
       </div>
@@ -216,8 +220,17 @@ let rmBulkMode = false;
 (function(){
   const rail = document.getElementById('float-bulk-rail');
   if (!rail) return;
-  function sync(){ rail.classList.toggle('visible', window.scrollY > 280); }
+  document.body.classList.add('has-mobile-action-bar');
+  function isMobile(){ return window.matchMedia('(max-width:800px)').matches; }
+  function sync(){
+    if (isMobile()) {
+      rail.classList.add('visible');
+      return;
+    }
+    rail.classList.toggle('visible', window.scrollY > 280);
+  }
   window.addEventListener('scroll', sync, { passive: true });
+  window.addEventListener('resize', sync, { passive: true });
   sync();
   const issueFloat = document.getElementById('float-bulk-issue');
   const returnFloat = document.getElementById('float-bulk-return');
