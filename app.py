@@ -287,8 +287,8 @@ def _render_equipment_index(catalog="main"):
              LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
     where, params = ["IFNULL(e.catalog,'main')=?"], [catalog]
     if q:
-        where.append("(e.code LIKE ? OR e.name LIKE ? OR e.location LIKE ?)")
-        params += [f"%{q}%"] * 3
+        where.append("(e.code LIKE ? OR e.name LIKE ?)")
+        params += [f"%{q}%"] * 2
     if f_project:
         where.append("e.project_number = ?"); params.append(f_project)
     if f_owner:
