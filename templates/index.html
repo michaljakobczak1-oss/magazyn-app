@@ -13,10 +13,6 @@
     <label>Nazwa / kod</label>
     <input type="text" name="q" value="{{ q }}" placeholder="Szukaj…">
   </div>
-  <div class="filter-actions-core">
-    <button class="btn">Filtruj</button>
-    <a class="btn ghost" href="{{ url_for(list_ep) }}">Wyczyść</a>
-  </div>
   <details class="filter-more" {% if more_open %}open{% endif %}>
     <summary class="filter-more-summary">Więcej filtrów</summary>
     <div class="filter-more-body">
@@ -71,6 +67,10 @@
       </div>
     </div>
   </details>
+  <div class="filter-actions-core">
+    <button class="btn">Filtruj</button>
+    <a class="btn ghost" href="{{ url_for(list_ep) }}">Wyczyść</a>
+  </div>
 </form>
 
 {% set qs = {

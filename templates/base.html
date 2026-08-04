@@ -269,10 +269,11 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 }
 .btn.pdf-btn:hover { background:#333; color:#fff; }
 
-/* Filters: „Więcej filtrów” – desktop pokazuje wszystko w jednym rzędzie */
+/* Filters: „Więcej filtrów” – desktop pokazuje wszystko (także gdy details zamknięty) */
 .filters .filter-more { display:contents; }
-.filters .filter-more-summary { display:none; }
+.filters .filter-more-summary { display:none !important; }
 .filters .filter-more-body { display:contents; }
+.filters .filter-more:not([open]) > .filter-more-body { display:contents !important; }
 .filters .filter-actions-core { display:contents; }
 
 /* Słowniki / użytkownicy */
@@ -350,21 +351,21 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 
   /* Filtry: tylko Nazwa/kod + Filtruj; reszta pod „Więcej” */
   .filters .filter-core {
-    display:block; width:100%;
+    display:block; width:100%; order:1;
   }
   .filters .filter-actions-core {
-    display:flex; gap:8px; width:100%;
+    display:flex; gap:8px; width:100%; order:2;
   }
   .filters .filter-actions-core .btn,
   .filters .filter-actions-core .btn.ghost {
     flex:1; width:auto; min-width:0;
   }
   .filters .filter-more {
-    display:block; width:100%;
+    display:block; width:100%; order:3;
     border:1px solid #e5e5e5; border-radius:8px; background:#fafafa;
   }
   .filters .filter-more-summary {
-    display:block; list-style:none; cursor:pointer;
+    display:block !important; list-style:none; cursor:pointer;
     padding:12px 14px; font-weight:600; font-size:14px; color:#333;
   }
   .filters .filter-more-summary::-webkit-details-marker { display:none; }
@@ -372,8 +373,12 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     content:"▾"; float:right; color:#888; font-weight:400;
   }
   .filters .filter-more[open] > .filter-more-summary::after { content:"▴"; }
-  .filters .filter-more-body {
-    display:flex; flex-direction:column; gap:10px;
+  .filters .filter-more-body,
+  .filters .filter-more:not([open]) > .filter-more-body {
+    display:none;
+  }
+  .filters .filter-more[open] > .filter-more-body {
+    display:flex !important; flex-direction:column; gap:10px;
     padding:0 14px 14px;
   }
   .filters .filter-more-body > div { width:100%; }
