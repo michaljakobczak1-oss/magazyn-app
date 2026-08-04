@@ -51,7 +51,10 @@
     <div class="photo-gallery">
       {% for p in photo_rows %}
       <figure class="photo-item {{ 'photo-damage' if p.kind == 'damage' else '' }}">
-        <img class="photo-lg" src="{{ url_for('static', filename='uploads/' + p.filename) }}" alt="">
+        <span class="zoomable">
+          <img class="photo-lg photo-zoom" src="{{ url_for('static', filename='uploads/' + p.filename) }}"
+               data-full="{{ url_for('static', filename='uploads/' + p.filename) }}" alt="">
+        </span>
         {% if p.kind == 'damage' %}
         <figcaption><span class="badge damaged">zdjęcie uszkodzenia</span></figcaption>
         {% endif %}
@@ -60,8 +63,13 @@
     </div>
     {% endif %}
     {% if eq.packaging_photo %}
-    <div><img class="photo-lg" src="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}">
-      <div style="font-size:12px; color:#666;">Opakowanie / sposób pakowania</div></div>
+    <div>
+      <span class="zoomable">
+        <img class="photo-lg photo-zoom" src="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}"
+             data-full="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}" alt="">
+      </span>
+      <div style="font-size:12px; color:#666;">Opakowanie / sposób pakowania</div>
+    </div>
     {% endif %}
   </div>
 </div>
