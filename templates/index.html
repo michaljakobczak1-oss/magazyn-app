@@ -115,17 +115,20 @@
 {% endif %}
 
 <form method="get" action="{{ url_for('reserve_multi') }}" id="equip-multi-form">
-<div style="margin-bottom:10px;">
+<div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <button class="btn" id="reserve-selected-btn" type="submit">Zarezerwuj zaznaczone razem</button>
-  <span style="font-size:13px; color:#666;">– zaznacz kilka pozycji, aby stworzyć wspólną rezerwację na jeden termin</span>
+  <span class="desktop-only" style="font-size:13px; color:#666;">– zaznacz kilka pozycji, aby stworzyć wspólną rezerwację na jeden termin</span>
 </div>
-<table>
+<table class="data-cards">
+  <thead>
   <tr><th></th><th></th><th>Kod</th><th>Nazwa</th><th>Nr projektu</th><th>Magazyn / miejsce</th><th>Własność</th><th>Brand</th><th>Stan</th><th>Dostępne dziś</th><th></th></tr>
+  </thead>
+  <tbody>
   {% for it in items %}
   <tr>
-    <td><input type="checkbox" name="eid" value="{{ it.id }}" style="width:auto;"></td>
-    <td>{{ thumb(it.photo) }}</td>
-    <td>
+    <td class="card-check"><input type="checkbox" name="eid" value="{{ it.id }}" style="width:auto;"></td>
+    <td class="card-thumb">{{ thumb(it.photo) }}</td>
+    <td class="card-main" data-label="Kod">
       <div><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a></div>
       <div style="margin-top:4px; display:flex; flex-wrap:wrap; gap:4px;">
         {% if it.material_type == 'wlasny' %}<span class="badge own">własny</span>{% endif %}
@@ -133,14 +136,15 @@
           <span class="badge damaged">{{ it.condition }}</span>
         {% endif %}
       </div>
+      <div class="mobile-only" style="margin-top:6px; font-size:14px;">{{ it.name }}</div>
     </td>
-    <td>{{ it.name }}</td>
-    <td>{{ it.project_number or '–' }}</td>
-    <td>
+    <td class="desktop-only" data-label="Nazwa">{{ it.name }}</td>
+    <td data-label="Nr projektu">{{ it.project_number or '–' }}</td>
+    <td data-label="Magazyn / miejsce">
       {% set rows = stock_map.get(it.id, []) %}
       {% if rows | length > 1 %}
         {% for sr in rows %}
-          <div style="white-space:nowrap;">
+          <div>
             {{ sr.wh or '–' }}{% if sr.loc %} / {{ sr.loc }}{% endif %}
             <strong style="font-size:12px;"> {{ sr.quantity }} szt.</strong>
           </div>
@@ -151,9 +155,9 @@
         {{ it.warehouse_name or '–' }}{% if it.location %} / {{ it.location }}{% endif %}
       {% endif %}
     </td>
-    <td>{{ it.owner or '–' }}</td>
-    <td>{{ it.brand or '–' }}</td>
-    <td>
+    <td data-label="Własność">{{ it.owner or '–' }}</td>
+    <td data-label="Brand">{{ it.brand or '–' }}</td>
+    <td data-label="Stan">
       {% set dmg = it.damaged_quantity or 0 %}
       {% set ok = it.quantity - dmg %}
       {% if dmg > 0 %}
@@ -163,12 +167,13 @@
         <div>{{ it.quantity }} szt.</div>
       {% endif %}
     </td>
-    <td><span class="badge {{ 'avail-ok' if availability[it.id] > 0 else 'avail-no' }}">{{ availability[it.id] }} szt.</span></td>
-    <td><a class="btn small" href="{{ url_for('reserve', eid=it.id) }}">Rezerwuj</a></td>
+    <td data-label="Dostępne dziś"><span class="badge {{ 'avail-ok' if availability[it.id] > 0 else 'avail-no' }}">{{ availability[it.id] }} szt.</span></td>
+    <td class="card-actions" data-label="Akcja"><a class="btn small" href="{{ url_for('reserve', eid=it.id) }}">Rezerwuj</a></td>
   </tr>
   {% else %}
-  <tr><td colspan="12">Brak sprzętu spełniającego kryteria.</td></tr>
+  <tr><td colspan="12" style="display:block;text-align:left;border:0;">Brak sprzętu spełniającego kryteria.</td></tr>
   {% endfor %}
+  </tbody>
 </table>
 </form>
 

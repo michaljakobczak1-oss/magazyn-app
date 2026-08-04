@@ -20,40 +20,43 @@
 </div>
 <form method="post" id="bulk">
 <div id="bulk-top-actions" style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-  <span style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
+  <span class="desktop-only" style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
   <button class="btn small ok" id="bulk-issue-btn" formaction="{{ url_for('bulk_action', action='issue') }}">Zbiorcze wydanie</button>
   <button type="button" class="btn small ok" id="bulk-return-btn" onclick="openReturnBulk()">Zbiorcze przyjęcie</button>
 </div>
-<table>
+<table class="data-cards">
+  <thead>
   <tr><th></th><th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
+  </thead>
+  <tbody>
   {% for r in rows %}
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
   {% set can_m = r.id in manage_ids %}
   <tr class="{{ 'overdue' if is_overdue }}">
-    <td><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"
+    <td class="card-check"><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"
                data-code="{{ r.code }}" data-name="{{ r.name|e }}" data-qty="{{ r.quantity }}"
                data-receiver="{{ r.receiver or '' }}"
                data-issue-wh="{{ r.issue_warehouse_name or '' }}"></td>
-    <td>{{ thumb(r.photo) }}</td>
-    <td><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
+    <td class="card-thumb">{{ thumb(r.photo) }}</td>
+    <td class="card-main" data-label="Sprzęt"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
       {% if r.group_id %}<br><span class="badge" style="background:#e3ecf7;color:#1e3a5f;" title="wspólna rezerwacja">grupa {{ r.group_id[:4] }}</span>{% endif %}</td>
-    <td>{{ r.date_from }} – {{ r.date_to }}
+    <td data-label="Termin">{{ r.date_from }} – {{ r.date_to }}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
-    <td>{{ r.quantity }}</td>
-    <td>{{ r.client or '–' }}</td>
-    <td>{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
-    <td>{{ r.receiver or '–' }}</td>
-    <td>{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
-    <td><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else ('utylizacja' if r.status == 'utylizacja' else r.status) }}">{{ r.status }}</span>
+    <td data-label="Szt.">{{ r.quantity }}</td>
+    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Adresat">{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
+    <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
+    <td data-label="Rezerwujący">{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
+    <td data-label="Status"><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else ('utylizacja' if r.status == 'utylizacja' else r.status) }}">{{ r.status }}</span>
       {% if r.permanent and r.status == 'rezerwacja' %}<br><span class="badge wydane-trwale" style="font-size:10px;">do wydania trwałego</span>{% endif %}
       {% if r.damage and r.status != 'utylizacja' %}<br><span class="badge damaged" title="{{ r.damage_notes }}">uszkodzenie</span>{% endif %}
       {% if r.status == 'utylizacja' and r.damage_notes %}<br><span style="font-size:11px;color:#666;" title="{{ r.damage_notes }}">{{ r.damage_notes[:40] }}{% if r.damage_notes|length > 40 %}…{% endif %}</span>{% endif %}
       {% if r.issued_at %}<br><span style="font-size:11px;color:#666;">wyd. {{ r.issued_at[:16].replace('T',' ') }}</span>{% endif %}
       {% if r.returned_at %}<br><span style="font-size:11px;color:#666;">{{ 'utyl. ' if r.status == 'utylizacja' else 'zwr. ' }}{{ r.returned_at[:16].replace('T',' ') }}</span>{% endif %}
     </td>
-    <td>
+    <td class="card-actions" data-label="Akcje">
       {% if can_m and r.status == 'rezerwacja' %}
         {% if r.permanent %}
         <button class="btn small" style="background:#3949ab;color:#fff;" formaction="{{ url_for('issue', rid=r.id) }}" formmethod="post" onclick="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu. Kontynuować?');">Wydaj trwale</button>
@@ -69,14 +72,15 @@
       <button type="button" class="btn small ok" onclick='openReturn({{ r.id }}, {{ r.code|tojson }}, {{ r.quantity }}, {{ (r.receiver or "")|tojson }}, {{ (r.issue_warehouse_name or "")|tojson }})'>Przyjmij zwrot</button>
       {% endif %}
     </td>
-    <td>
+    <td class="card-actions" data-label="Dokumenty">
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small ghost" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="12">Brak rezerwacji.</td></tr>
+  <tr><td colspan="12" style="display:block;text-align:left;border:0;">Brak rezerwacji.</td></tr>
   {% endfor %}
+  </tbody>
 </table>
 </form>
 
