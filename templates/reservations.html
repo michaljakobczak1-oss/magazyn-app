@@ -132,14 +132,14 @@
         <div id="rm-card-return" style="border:2px solid #86efac; background:#f0fdf4; border-radius:10px; padding:12px; margin-bottom:10px;">
           <div style="font-weight:700; margin-bottom:8px;">Zwrot sprawny na magazyn</div>
           <label style="margin-top:0;">Ile sztuk sprawnych wraca</label>
-          <input type="number" name="return_qty_ok" id="rm-qty-ok" min="0" value="1" style="max-width:120px;" oninput="syncReturnModalUI()">
+          <input type="number" name="return_qty_ok" id="rm-qty-ok" min="0" value="1" style="max-width:120px;" oninput="onReturnQtyChange('ok')">
         </div>
 
         <div id="rm-card-damage" style="border:2px solid #fca5a5; background:#fef2f2; border-radius:10px; padding:12px; margin-bottom:10px;">
           <div style="font-weight:700; margin-bottom:6px;">Zwrot uszkodzony</div>
           <p style="font-size:12px; color:#991b1b; margin:0 0 10px;">Przyjęcie na magazyn + oznaczenie uszkodzenia (opis i opcjonalnie zdjęcie).</p>
           <label style="margin-top:0;">Ile sztuk uszkodzonych wraca</label>
-          <input type="number" name="return_qty_damage" id="rm-qty-damage" min="0" value="0" style="max-width:120px;" oninput="syncReturnModalUI()">
+          <input type="number" name="return_qty_damage" id="rm-qty-damage" min="0" value="0" style="max-width:120px;" oninput="onReturnQtyChange('damage')">
           <div id="rm-damage-extra" style="display:none; margin-top:12px; padding-top:10px; border-top:1px dashed #fca5a5;">
             <label>Opis uszkodzenia *</label>
             <textarea id="rm-damage-notes-return" name="damage_notes_ui" rows="2" placeholder="np. pęknięta ścianka skrzyni"></textarea>
@@ -152,7 +152,7 @@
           <div style="font-weight:700; margin-bottom:6px;">Utylizacja – towar nie wraca</div>
           <p style="font-size:12px; color:#92400e; margin:0 0 10px;">Sztuki schodzą ze stanu (bez przyjęcia na magazyn).</p>
           <label style="margin-top:0;">Ile sztuk nie wraca</label>
-          <input type="number" name="return_qty_dispose" id="rm-qty-dispose" min="0" value="0" style="max-width:120px;" oninput="syncReturnModalUI()">
+          <input type="number" name="return_qty_dispose" id="rm-qty-dispose" min="0" value="0" style="max-width:120px;" oninput="onReturnQtyChange('dispose')">
           <div id="rm-dispose-extra" style="display:none; margin-top:12px; padding-top:10px; border-top:1px dashed #fcd34d;">
             <label>Powód utylizacji *</label>
             <textarea id="rm-damage-notes-dispose" rows="2" placeholder="np. zniszczone na evencie"></textarea>
@@ -314,6 +314,68 @@ document.getElementById('change-return-form').addEventListener('submit', functio
     showChangeReturnError('Błąd połączenia – spróbuj ponownie.');
   });
 });
+
+function balanceReturnQtys(okEl, dmgEl, dispEl, maxQty, changed){
+  if (!okEl || !dmgEl || !dispEl) return;
+  maxQty = parseInt(maxQty, 10) || 0;
+  if (maxQty < 0) maxQty = 0;
+
+  function read(el){
+    const v = parseInt(el.value, 10);
+    return isNaN(v) || v < 0 ? 0 : v;
+  }
+  let ok = read(okEl);
+  let dmg = read(dmgEl);
+  let disp = read(dispEl);
+
+  if (dmg > maxQty) dmg = maxQty;
+  if (disp > maxQty) disp = maxQty;
+  if (ok > maxQty) ok = maxQty;
+
+  if (changed === 'damage' || changed === 'dispose') {
+    // Uszkodzone/utylizacja zawsze „dzielą pulę” wydanych sztuk ze sprawnymi
+    // (2→1 uszkodzona → sprawne wraca z 0 na 1)
+    if (dmg + disp > maxQty) {
+      if (changed === 'damage') disp = Math.max(0, maxQty - dmg);
+      else dmg = Math.max(0, maxQty - disp);
+    }
+    ok = Math.max(0, maxQty - dmg - disp);
+  } else if (ok + dmg + disp > maxQty) {
+    // Ręczna zmiana sprawnych: tylko przytnij, gdy suma za duża
+    ok = Math.max(0, maxQty - dmg - disp);
+  }
+
+  okEl.value = String(ok);
+  dmgEl.value = String(dmg);
+  dispEl.value = String(disp);
+}
+
+function onReturnQtyChange(changed){
+  if (rmBulkMode) return syncReturnModalUI();
+  const maxQty = parseInt(document.getElementById('rm-qty').max, 10) || 1;
+  balanceReturnQtys(
+    document.getElementById('rm-qty-ok'),
+    document.getElementById('rm-qty-damage'),
+    document.getElementById('rm-qty-dispose'),
+    maxQty,
+    changed
+  );
+  syncReturnModalUI();
+}
+
+function onBulkReturnQtyChange(inp, changed){
+  const row = inp && inp.closest ? inp.closest('.rm-item-row') : null;
+  if (!row) return syncReturnModalUI();
+  const maxQty = parseInt(row.getAttribute('data-max-qty'), 10) || 1;
+  balanceReturnQtys(
+    row.querySelector('.rm-item-qty-ok'),
+    row.querySelector('.rm-item-qty-damage'),
+    row.querySelector('.rm-item-qty-dispose'),
+    maxQty,
+    changed
+  );
+  syncReturnModalUI();
+}
 
 function syncReturnModalUI(){
   document.getElementById('rm-error').style.display = 'none';
@@ -669,13 +731,13 @@ function openReturnBulk(){
       '<div style="display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;">' +
       '<label style="font-weight:400;margin:0;">Sprawne<br>' +
       '<input type="number" name="item_qty_ok_' + cb.value + '" class="rm-item-qty-ok" min="0" max="' + maxQty +
-      '" value="' + maxQty + '" style="width:72px;margin-top:4px;" oninput="syncReturnModalUI()"></label>' +
+      '" value="' + maxQty + '" style="width:72px;margin-top:4px;" oninput="onBulkReturnQtyChange(this, \'ok\')"></label>' +
       '<label style="font-weight:400;margin:0;">Uszkodzone<br>' +
       '<input type="number" name="item_qty_damage_' + cb.value + '" class="rm-item-qty-damage" min="0" max="' + maxQty +
-      '" value="0" style="width:72px;margin-top:4px;" oninput="syncReturnModalUI()"></label>' +
+      '" value="0" style="width:72px;margin-top:4px;" oninput="onBulkReturnQtyChange(this, \'damage\')"></label>' +
       '<label style="font-weight:400;margin:0;">Utylizacja<br>' +
       '<input type="number" name="item_qty_dispose_' + cb.value + '" class="rm-item-qty-dispose" min="0" max="' + maxQty +
-      '" value="0" style="width:72px;margin-top:4px;" oninput="syncReturnModalUI()"></label>' +
+      '" value="0" style="width:72px;margin-top:4px;" oninput="onBulkReturnQtyChange(this, \'dispose\')"></label>' +
       '<span style="font-size:12px;color:#666;padding-bottom:8px;">z ' + maxQty + '</span>' +
       '</div>' +
       '<div class="rm-item-damage-fields" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed #fca5a5;">' +
