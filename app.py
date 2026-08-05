@@ -150,12 +150,31 @@ def valid_dates(d_from, d_to):
 SELF_PICKUP_VALUE = "__self__"
 
 
+def _session_person_name():
+    return (session.get("full_name") or session.get("username") or "").strip()
+
+
 def resolve_receiver(raw):
     """Odbiór własny → zapis z imieniem zalogowanego użytkownika."""
     v = (raw or "").strip()
     if v == SELF_PICKUP_VALUE or v.lower() in ("odbiór własny", "odbior wlasny"):
-        name = (session.get("full_name") or session.get("username") or "").strip()
+        name = _session_person_name()
         return f"Odbiór własny ({name})" if name else "Odbiór własny"
+    return v
+
+
+def resolve_returner(raw):
+    """Zwrot własny → zapis z imieniem zalogowanego użytkownika."""
+    v = (raw or "").strip()
+    low = v.lower()
+    if (v == SELF_PICKUP_VALUE
+            or low in ("zwrot własny", "zwrot wlasny")
+            or low.startswith("zwrot własny")
+            or low.startswith("zwrot wlasny")
+            or low.startswith("odbiór własny")
+            or low.startswith("odbior wlasny")):
+        name = _session_person_name()
+        return f"Zwrot własny ({name})" if name else "Zwrot własny"
     return v
 
 
@@ -727,7 +746,8 @@ def reservations():
     return render_template("reservations.html", rows=rows, f=f, mine=mine,
                            overdue=overdue, today=today, dn=display_name,
                            warehouses=warehouses, receivers=receivers,
-                           manage_ids=manage_ids)
+                           manage_ids=manage_ids,
+                           self_pickup_value=SELF_PICKUP_VALUE)
 
 
 @app.route("/equipment/<int:eid>/reserve", methods=["GET", "POST"])
@@ -1125,7 +1145,8 @@ def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage
         return False
     wid = int((form.get("return_warehouse_id") or "").strip())
     loc = (form.get("return_location") or "").strip()
-    returner = (form.get("returner") or "").strip() or (r["receiver"] or "")
+    raw_returner = (form.get("returner") or "").strip() or (r["receiver"] or "")
+    returner = resolve_returner(raw_returner)
     try:
         issue_wid = r["issue_warehouse_id"]
     except (KeyError, IndexError, TypeError):

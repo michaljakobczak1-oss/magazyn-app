@@ -172,6 +172,9 @@
           <label>Oddaje towar *</label>
           <select name="returner" id="rm-returner" required>
             <option value="" disabled selected>– wybierz –</option>
+            <option value="{{ self_pickup_value or '__self__' }}">
+              Zwrot własny – {{ session.full_name or session.username }}
+            </option>
             {% for p in receivers %}
             <option value="{{ p.name }}">{{ p.name }}</option>
             {% endfor %}
@@ -198,6 +201,9 @@
         <label>Oddaje towar *</label>
         <select id="rm-returner-bulk" required>
           <option value="" disabled selected>– wybierz –</option>
+          <option value="{{ self_pickup_value or '__self__' }}">
+            Zwrot własny – {{ session.full_name or session.username }}
+          </option>
           {% for p in receivers %}
           <option value="{{ p.name }}">{{ p.name }}</option>
           {% endfor %}
@@ -574,6 +580,18 @@ function setReturnerSelect(sel, name){
     sel.selectedIndex = 0;
     sel.value = '';
     return;
+  }
+  const low = val.toLowerCase();
+  // Odbiór/zwrot własny z rezerwacji → opcja „Zwrot własny”
+  if (low.indexOf('odbiór własny') === 0 || low.indexOf('odbior wlasny') === 0
+      || low.indexOf('zwrot własny') === 0 || low.indexOf('zwrot wlasny') === 0) {
+    for (let i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === '{{ self_pickup_value or "__self__" }}') {
+        sel.selectedIndex = i;
+        sel.value = sel.options[i].value;
+        return;
+      }
+    }
   }
   let found = false;
   for (let i = 0; i < sel.options.length; i++) {
