@@ -1,7 +1,15 @@
 {% extends "base.html" %}
-{% block title %}{% if catalog == 'tcl' %}Import TCL{% else %}Import katalogu{% endif %} – Magazyn{% endblock %}
+{% block title %}{% if catalog == 'tcl' %}Import TCL{% else %}Zarządzanie katalogiem{% endif %} – Magazyn{% endblock %}
 {% block content %}
-<h1>{% if catalog == 'tcl' %}Import katalogu TCL <span class="badge tcl">TCL</span>{% else %}Import katalogu produktów{% endif %}</h1>
+{% if catalog == 'tcl' %}
+<h1>Import katalogu TCL <span class="badge tcl">TCL</span></h1>
+{% else %}
+<h1>Zarządzanie katalogiem</h1>
+{% endif %}
+
+{% if catalog != 'tcl' %}
+<h2 style="font-size:18px; margin:8px 0 10px;">Import katalogu</h2>
+{% endif %}
 <p style="font-size:14px;color:#555;max-width:720px;">
   Wgraj plik Excel (arkusz <strong>Import</strong>) oraz ZIP ze zdjęciami.
   Nazwy plików w kolumnie „Plik zdjęcia” muszą być takie jak w ZIP.
@@ -29,7 +37,9 @@
 
     <div style="margin-top:18px;display:flex;gap:10px;">
       <button class="btn ok">Uruchom import</button>
-      <a class="btn ghost" href="{{ url_for('tcl_index') if catalog == 'tcl' else 'dictionaries' }}">Wróć</a>
+      {% if catalog == 'tcl' %}
+      <a class="btn ghost" href="{{ url_for('tcl_index') }}">Wróć</a>
+      {% endif %}
     </div>
   </form>
 </div>
@@ -52,6 +62,16 @@
   {% if result.messages %}
   <pre style="font-size:12px;max-height:320px;overflow:auto;background:#f8fafc;padding:12px;border-radius:8px;">{{ result.messages|join('\n') }}</pre>
   {% endif %}
+</div>
+{% endif %}
+
+{% if catalog != 'tcl' %}
+<div class="card wide" style="margin-top:28px; max-width:720px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
+  <div>
+    <h2 style="font-size:18px; margin:0 0 6px;">Eksport katalogu</h2>
+    <p class="dict-hint" style="margin:0;">Excel w formacie importu + ZIP ze zdjęciami (jak przy ładowaniu katalogu).</p>
+  </div>
+  <a class="btn" href="{{ url_for('admin_export_db') }}">Eksport katalogu (Excel + ZIP)</a>
 </div>
 {% endif %}
 {% endblock %}
