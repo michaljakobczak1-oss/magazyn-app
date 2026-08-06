@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS equipment_photos (
     equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    kind TEXT NOT NULL DEFAULT 'normal'          -- normal | damage
+    kind TEXT NOT NULL DEFAULT 'normal'          -- normal | damage | repaired
 );
 CREATE INDEX IF NOT EXISTS idx_eq_photos ON equipment_photos(equipment_id, sort_order);
 
@@ -328,7 +328,7 @@ def upsert_recipient(con, name, contact, phone, address, email):
 
 
 def equipment_photo_rows(con, equipment_id):
-    """Wiersze galerii: filename + kind (normal|damage)."""
+    """Wiersze galerii: filename + kind (normal|damage|repaired)."""
     return con.execute(
         """SELECT filename, IFNULL(kind, 'normal') AS kind
            FROM equipment_photos WHERE equipment_id=?
@@ -347,10 +347,15 @@ def equipment_photo_kind_map(con, equipment_id):
 
 
 def sync_equipment_primary_photo(con, equipment_id):
-    """Ustaw equipment.photo na pierwsze zdjęcie z galerii (miniatury / kompatybilność)."""
-    photos = equipment_photo_list(con, equipment_id)
+    """Ustaw equipment.photo na pierwsze zdjęcie z galerii (preferuj normal)."""
+    rows = equipment_photo_rows(con, equipment_id)
+    preferred = [r for r in rows if r["kind"] == "normal"]
+    if not preferred:
+        preferred = [r for r in rows if r["kind"] != "repaired"]
+    if not preferred:
+        preferred = list(rows)
     con.execute("UPDATE equipment SET photo=? WHERE id=?",
-                (photos[0] if photos else None, equipment_id))
+                (preferred[0]["filename"] if preferred else None, equipment_id))
 
 
 def ensure_equipment_stock(con, equipment_id):

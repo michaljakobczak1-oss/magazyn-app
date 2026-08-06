@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from datetime import datetime, date, timedelta
 from functools import wraps
@@ -6,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, flash, send_file, abort, jsonify)
+                   session, flash, send_file, abort, jsonify, after_this_request)
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -16,12 +17,20 @@ from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
                 next_free_after_return, replace_equipment_stock,
                 move_equipment_stock_on_return, take_equipment_stock,
                 add_equipment_stock, sync_equipment_from_stock,
-                sync_equipment_primary_photo)
+                sync_equipment_primary_photo, DB_PATH)
 from pdf_gen import protocol_pdf, group_pdf
 from import_excel import run_import
+from export_excel import (
+    build_catalog_miniatures_xlsx,
+    build_catalog_import_xlsx,
+    export_photo_zip_names,
+)
 import tempfile
 import shutil
 import zipfile
+import json
+import threading
+from io import BytesIO
 
 BASE = Path(__file__).parent
 # Zdjęcia: przy DATA_DIR (dysk trwały) trzymaj w DATA_DIR/uploads
@@ -105,6 +114,50 @@ def tcl_required(f):
 @app.context_processor
 def inject_acl_flags():
     return {"can_manage_tcl": can_manage_tcl()}
+
+
+def _normalize_brand_key(brand):
+    """Ujednolica markę do porównań (COCA -COLA → COCA-COLA)."""
+    s = (brand or "").strip().upper()
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _canonical_brand_label(brand):
+    """Etykieta w filtrze bez spacji wokół myślnika."""
+    return re.sub(r"\s*-\s*", "-", (brand or "").strip())
+
+
+def _dedupe_brand_labels(raw_brands):
+    """Jedna pozycja na wariant marki – preferuj zapis bez spacji przy myślniku."""
+    by_key = {}
+    for b in raw_brands:
+        if not b:
+            continue
+        key = _normalize_brand_key(b)
+        label = _canonical_brand_label(b)
+        prev = by_key.get(key)
+        if prev is None:
+            by_key[key] = label
+        elif (" -" in prev or "- " in prev) and (" -" not in b and "- " not in b):
+            by_key[key] = label
+    return sorted(by_key.values(), key=lambda x: x.upper())
+
+
+def _photos_for_pdf(con, equipment_id, fallback_photo=None):
+    """Zdjęcia do WZ/PZ – bez naprawionych uszkodzeń."""
+    photos = [
+        p for p in equipment_photo_rows(con, equipment_id)
+        if (p["kind"] or "normal") != "repaired"
+    ]
+    if photos:
+        return photos
+    if fallback_photo:
+        kinds = equipment_photo_kind_map(con, equipment_id)
+        if kinds.get(fallback_photo) != "repaired":
+            return [{"filename": fallback_photo, "kind": "normal"}]
+    return []
 
 
 def can_manage_reservation(r):
@@ -314,31 +367,37 @@ def dashboard():
 
 # ---------- rejestr sprzętu ----------
 
-def _render_equipment_index(catalog="main"):
-    """Lista sprzętu dla katalogu main lub tcl."""
-    q = request.args.get("q", "").strip()
-    f_project = request.args.get("project", "").strip()
-    f_owner = request.args.get("owner", "").strip()
-    f_brand = request.args.get("brand", "").strip()
-    f_warehouse = request.args.get("warehouse", "").strip()
-    f_own = request.args.get("own", "").strip()
-    f_condition = request.args.get("condition", "").strip()
-    per_page_raw = (request.args.get("per_page") or "all").strip().lower()
-    page_raw = (request.args.get("page") or "1").strip()
+def _equipment_list_filters(catalog="main"):
+    """Parametry filtrów listy sprzętu (z request.args)."""
+    return {
+        "q": request.args.get("q", "").strip(),
+        "f_project": request.args.get("project", "").strip(),
+        "f_owner": request.args.get("owner", "").strip(),
+        "f_brand": request.args.get("brand", "").strip(),
+        "f_warehouse": request.args.get("warehouse", "").strip(),
+        "f_own": request.args.get("own", "").strip(),
+        "f_condition": request.args.get("condition", "").strip(),
+        "catalog": catalog,
+    }
 
-    con = get_db()
-    sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
-             LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
+
+def _equipment_where(filters):
+    """WHERE + params dla listy sprzętu (bez archiwum)."""
+    catalog = filters.get("catalog") or "main"
     where, params = ["IFNULL(e.catalog,'main')=?", "IFNULL(e.archived,0)=0"], [catalog]
+    q = filters.get("q") or ""
     if q:
         where.append("(e.code LIKE ? OR e.name LIKE ?)")
         params += [f"%{q}%"] * 2
-    if f_project:
-        where.append("e.project_number = ?"); params.append(f_project)
-    if f_owner:
-        where.append("e.owner = ?"); params.append(f_owner)
-    if f_brand:
-        where.append("e.brand = ?"); params.append(f_brand)
+    if filters.get("f_project"):
+        where.append("e.project_number = ?"); params.append(filters["f_project"])
+    if filters.get("f_owner"):
+        where.append("e.owner = ?"); params.append(filters["f_owner"])
+    if filters.get("f_brand"):
+        where.append(
+            "REPLACE(REPLACE(UPPER(TRIM(e.brand)), ' -', '-'), '- ', '-') = ?")
+        params.append(_normalize_brand_key(filters["f_brand"]))
+    f_warehouse = filters.get("f_warehouse") or ""
     if f_warehouse.isdigit():
         wid = int(f_warehouse)
         where.append(
@@ -346,16 +405,41 @@ def _render_equipment_index(catalog="main"):
                  SELECT equipment_id FROM equipment_stock
                  WHERE warehouse_id=? AND quantity > 0))""")
         params.extend([wid, wid])
-    if f_own == "1":
+    if filters.get("f_own") == "1":
         where.append("e.material_type = 'wlasny'")
+    f_condition = filters.get("f_condition") or ""
     if f_condition:
         if f_condition == "uszkodzony":
             where.append("(e.condition = ? OR IFNULL(e.damaged_quantity,0) > 0)")
             params.append(f_condition)
         else:
             where.append("e.condition = ?"); params.append(f_condition)
-    sql += " WHERE " + " AND ".join(where)
-    all_items = con.execute(sql + " ORDER BY e.code", params).fetchall()
+    return where, params
+
+
+def _fetch_equipment_rows(con, filters):
+    where, params = _equipment_where(filters)
+    sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
+             LEFT JOIN warehouses w ON w.id=e.warehouse_id
+             WHERE """ + " AND ".join(where) + " ORDER BY e.code"
+    return con.execute(sql, params).fetchall()
+
+
+def _render_equipment_index(catalog="main"):
+    """Lista sprzętu dla katalogu main lub tcl."""
+    filters = _equipment_list_filters(catalog)
+    q = filters["q"]
+    f_project = filters["f_project"]
+    f_owner = filters["f_owner"]
+    f_brand = filters["f_brand"]
+    f_warehouse = filters["f_warehouse"]
+    f_own = filters["f_own"]
+    f_condition = filters["f_condition"]
+    per_page_raw = (request.args.get("per_page") or "all").strip().lower()
+    page_raw = (request.args.get("page") or "1").strip()
+
+    con = get_db()
+    all_items = _fetch_equipment_rows(con, filters)
 
     total = len(all_items)
     per_page_choices = ["all", 25, 50, 100]
@@ -388,11 +472,12 @@ def _render_equipment_index(catalog="main"):
            WHERE IFNULL(owner,'')!='' AND IFNULL(catalog,'main')=?
              AND IFNULL(archived,0)=0 ORDER BY 1""",
         (catalog,))]
-    brands = [r[0] for r in con.execute(
+    brands_raw = [r[0] for r in con.execute(
         """SELECT DISTINCT brand FROM equipment
            WHERE IFNULL(brand,'')!='' AND IFNULL(catalog,'main')=?
              AND IFNULL(archived,0)=0 ORDER BY 1""",
         (catalog,))]
+    brands = _dedupe_brand_labels(brands_raw)
     warehouses = active_warehouses(con)
 
     today = local_today().isoformat()
@@ -649,20 +734,11 @@ def equipment_repair(eid):
                CASE WHEN IFNULL(condition_notes,'')='' THEN '' ELSE char(10) END || ?
                WHERE id=?""",
             (stamp, eid))
-        # brak uszkodzonych → usuń zdjęcia uszkodzeń z galerii
-        dmg_photos = con.execute(
-            "SELECT filename FROM equipment_photos WHERE equipment_id=? AND kind='damage'",
-            (eid,)).fetchall()
+        # brak uszkodzonych → zostaw zdjęcia z etykietą „naprawione” (bez WZ/PZ)
         con.execute(
-            "DELETE FROM equipment_photos WHERE equipment_id=? AND kind='damage'",
+            """UPDATE equipment_photos SET kind='repaired'
+               WHERE equipment_id=? AND kind='damage'""",
             (eid,))
-        for row in dmg_photos:
-            path = UPLOAD_DIR / secure_filename(row["filename"])
-            try:
-                if path.is_file():
-                    path.unlink()
-            except OSError:
-                pass
         sync_equipment_primary_photo(con, eid)
     else:
         con.execute(
@@ -738,7 +814,11 @@ def reservations():
         where.append("r.status='wydane' AND r.date_to<?"); params.append(today)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    rows = con.execute(sql + " ORDER BY r.date_from DESC", params).fetchall()
+    if mine == "1":
+        order = " ORDER BY IFNULL(r.created_at, r.date_from) DESC, r.id DESC"
+    else:
+        order = " ORDER BY r.date_from DESC, r.id DESC"
+    rows = con.execute(sql + order, params).fetchall()
     warehouses = active_warehouses(con)
     receivers = active_partners(con)
     manage_ids = {r["id"] for r in rows if can_manage_reservation(r)}
@@ -1409,9 +1489,8 @@ def _pdf_for_rids(con, kind, rids, ret_wid=None, ret_loc=None):
             op = con.execute("SELECT * FROM users WHERE id=?", (r["issued_by"],)).fetchone()
         elif kind == "przyjecie" and r["returned_by"]:
             op = con.execute("SELECT * FROM users WHERE id=?", (r["returned_by"],)).fetchone()
-        photos = list(equipment_photo_rows(con, r["equipment_id"]))
-        if not photos and eq and eq["photo"]:
-            photos = [{"filename": eq["photo"], "kind": "normal"}]
+        photos = _photos_for_pdf(con, r["equipment_id"],
+                                 eq["photo"] if eq else None)
         buf = protocol_pdf(kind, r, eq, display_name(r),
                            display_name(op) if op else None, photos=photos)
         name = f"{prefix}_{r['code']}_{local_now():%Y%m%d_%H%M}.pdf"
@@ -1806,9 +1885,7 @@ def reservation_pdf(rid, kind):
     con = get_db()
     r = _get_reservation(con, rid)
     eq = _eq_for_pdf(con, r["equipment_id"], kind=kind, reservation=r)
-    photos = list(equipment_photo_rows(con, r["equipment_id"]))
-    if not photos and eq and eq["photo"]:
-        photos = [{"filename": eq["photo"], "kind": "normal"}]
+    photos = _photos_for_pdf(con, r["equipment_id"], eq["photo"] if eq else None)
     op_id = r["issued_by"] if kind == "wydanie" else r["returned_by"]
     op = None
     if op_id:
@@ -2042,6 +2119,7 @@ def department_edit(did):
 @admin_required
 def users():
     con = get_db()
+    f_dept = request.args.get("department", "").strip()
     if request.method == "POST":
         fn = request.form.get("first_name", "").strip()
         ln = request.form.get("last_name", "").strip()
@@ -2059,10 +2137,19 @@ def users():
                 flash("Użytkownik dodany.", "ok")
             except Exception:
                 flash("Taki login już istnieje.", "error")
-    rows = con.execute("SELECT * FROM users ORDER BY last_name, username").fetchall()
+    sql = "SELECT * FROM users"
+    params = []
+    if f_dept == "__none__":
+        sql += " WHERE IFNULL(department,'')=''"
+    elif f_dept:
+        sql += " WHERE department=?"
+        params.append(f_dept)
+    sql += " ORDER BY IFNULL(department, 'żżż'), last_name, username"
+    rows = con.execute(sql, params).fetchall()
     departments = active_departments(con)
     con.close()
-    return render_template("users.html", rows=rows, dn=display_name, departments=departments)
+    return render_template("users.html", rows=rows, dn=display_name,
+                           departments=departments, f_dept=f_dept)
 
 
 @app.route("/users/<int:uid>/toggle", methods=["POST"])
@@ -2103,17 +2190,25 @@ def user_name(uid):
     fn = request.form.get("first_name", "").strip()
     ln = request.form.get("last_name", "").strip()
     dept = request.form.get("department", "").strip()
+    role = request.form.get("role", "user").strip()
+    if role not in ("user", "admin"):
+        role = "user"
     if not fn or not ln:
         flash("Imię i nazwisko są wymagane.", "error")
+    elif uid == session["user_id"] and role != "admin":
+        flash("Nie możesz odebrać sobie roli admin.", "error")
     else:
         con = get_db()
-        con.execute("UPDATE users SET first_name=?, last_name=?, department=? WHERE id=?",
-                    (fn, ln, dept or None, uid))
+        con.execute(
+            """UPDATE users SET first_name=?, last_name=?, department=?, role=?
+               WHERE id=?""",
+            (fn, ln, dept or None, role, uid))
         con.commit()
         con.close()
         if uid == session["user_id"]:
             session["department"] = dept
             session["full_name"] = f"{fn} {ln}".strip()
+            session["role"] = role
         flash("Dane zaktualizowane.", "ok")
     return redirect(url_for("users"))
 
@@ -2249,6 +2344,147 @@ def catalog_import():
 def tcl_import():
     """Import katalogu TCL – dział Warrens + admin."""
     return _catalog_import_flow("tcl", "tcl_import")
+
+
+def _catalog_export_response(catalog="main"):
+    """Eksport Excela z miniaturami: zaznaczone (POST) albo wg filtrów (GET)."""
+    con = get_db()
+    if request.method == "POST":
+        raw_ids = request.form.getlist("eid")
+        eids = []
+        for x in raw_ids:
+            try:
+                eids.append(int(x))
+            except (TypeError, ValueError):
+                pass
+        if not eids:
+            con.close()
+            flash("Zaznacz przynajmniej jedną pozycję do eksportu.", "error")
+            return redirect(url_for("tcl_index" if catalog == "tcl" else "index"))
+        placeholders = ",".join("?" * len(eids))
+        rows = con.execute(
+            f"""SELECT e.*, w.name AS warehouse_name FROM equipment e
+                LEFT JOIN warehouses w ON w.id=e.warehouse_id
+                WHERE e.id IN ({placeholders})
+                  AND IFNULL(e.catalog,'main')=?
+                  AND IFNULL(e.archived,0)=0
+                ORDER BY e.code""",
+            (*eids, catalog)).fetchall()
+        suffix = "zaznaczone"
+    else:
+        filters = _equipment_list_filters(catalog)
+        rows = _fetch_equipment_rows(con, filters)
+        suffix = "filtry"
+    con.close()
+    if not rows:
+        flash("Brak pozycji do eksportu.", "error")
+        return redirect(url_for("tcl_index" if catalog == "tcl" else "index"))
+
+    buf = build_catalog_miniatures_xlsx(rows, UPLOAD_DIR)
+    stamp = local_now().strftime("%Y%m%d_%H%M")
+    cat_label = "tcl" if catalog == "tcl" else "katalog"
+    name = f"export_{cat_label}_{suffix}_{stamp}.xlsx"
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=name,
+    )
+
+
+@app.route("/catalog-export", methods=["GET", "POST"])
+@login_required
+def catalog_export():
+    """Eksport katalogu głównego (filtry lub zaznaczenie) – Excel z miniaturami."""
+    return _catalog_export_response("main")
+
+
+@app.route("/tcl/export", methods=["GET", "POST"])
+@login_required
+@tcl_required
+def tcl_export():
+    """Eksport katalogu TCL (filtry lub zaznaczenie)."""
+    return _catalog_export_response("tcl")
+
+
+@app.route("/admin/export-db")
+@login_required
+@admin_required
+def admin_export_db():
+    """Eksport katalogu głównego w formacie importu: Excel + ZIP zdjęć (folder zdjecia/)."""
+    stamp = local_now().strftime("%Y%m%d_%H%M")
+    con = get_db()
+    rows = con.execute(
+        """SELECT e.*, w.name AS warehouse_name FROM equipment e
+           LEFT JOIN warehouses w ON w.id=e.warehouse_id
+           WHERE IFNULL(e.catalog,'main')='main' AND IFNULL(e.archived,0)=0
+           ORDER BY e.code"""
+    ).fetchall()
+
+    export_rows = []
+    photo_copies = []  # (src Path, arcname)
+    for r in rows:
+        photo_rows = [
+            p for p in equipment_photo_rows(con, r["id"])
+            if (p["kind"] or "normal") != "repaired"
+        ]
+        filenames = [p["filename"] for p in photo_rows]
+        if not filenames and r["photo"]:
+            filenames = [r["photo"]]
+        names, copies = export_photo_zip_names(r["code"], filenames, UPLOAD_DIR)
+        photo_copies.extend(copies)
+        export_rows.append({
+            "code": r["code"],
+            "name": r["name"],
+            "project_number": r["project_number"],
+            "dimensions": r["dimensions"],
+            "warehouse_name": r["warehouse_name"],
+            "location": r["location"],
+            "owner": r["owner"],
+            "brand": r["brand"],
+            "material_type": r["material_type"],
+            "condition": r["condition"],
+            "quantity": r["quantity"],
+            "storage_instructions": r["storage_instructions"],
+            "photo_file": ", ".join(names),
+        })
+    con.close()
+
+    xlsx_buf = build_catalog_import_xlsx(export_rows)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"import_katalog_produktow_{stamp}.xlsx", xlsx_buf.getvalue())
+            # osobny ZIP ze zdjęciami – jak przy imporcie (xlsx + zdjecia.zip)
+            photos_buf = BytesIO()
+            with zipfile.ZipFile(photos_buf, "w", zipfile.ZIP_DEFLATED) as pz:
+                pz.writestr("zdjecia/", "")
+                for src, arc in photo_copies:
+                    pz.write(src, arcname=arc)
+            zf.writestr(f"zdjecia_{stamp}.zip", photos_buf.getvalue())
+
+        @after_this_request
+        def _cleanup(response):
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return response
+
+        return send_file(
+            tmp_path,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=f"export_katalog_import_{stamp}.zip",
+        )
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 if __name__ == "__main__":

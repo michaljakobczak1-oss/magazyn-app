@@ -53,6 +53,8 @@
         <span><input type="checkbox" name="keep_photo" value="{{ fn }}" checked style="width:auto;"> zachowaj</span>
         {% if photo_kinds is defined and photo_kinds.get(fn) == 'damage' %}
         <span class="badge damaged">uszkodzenie</span>
+        {% elif photo_kinds is defined and photo_kinds.get(fn) == 'repaired' %}
+        <span class="badge ok">naprawione</span>
         {% endif %}
       </label>
       {% endfor %}

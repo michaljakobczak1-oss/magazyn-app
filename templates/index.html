@@ -2,6 +2,7 @@
 {% from "_thumb.html" import thumb %}
 {% set is_tcl = (catalog or 'main') == 'tcl' %}
 {% set list_ep = 'tcl_index' if is_tcl else 'index' %}
+{% set export_ep = 'tcl_export' if is_tcl else 'catalog_export' %}
 {% block title %}{{ 'Sprzęt TCL' if is_tcl else 'Sprzęt' }} – Magazyn{% endblock %}
 {% block content %}
 <h1>{% if is_tcl %}Sprzęt TCL <span class="badge tcl">TCL</span>{% else %}Rejestr sprzętu{% endif %}</h1>
@@ -77,6 +78,10 @@
   'warehouse': f_warehouse, 'own': f_own, 'condition': f_condition,
   'per_page': per_page
 } %}
+{% set export_qs = {
+  'q': q, 'project': f_project, 'owner': f_owner, 'brand': f_brand,
+  'warehouse': f_warehouse, 'own': f_own, 'condition': f_condition
+} %}
 <div class="list-actions">
   <div>
     {% if total %}
@@ -86,14 +91,17 @@
       Brak wyników
     {% endif %}
   </div>
-  {% if is_tcl and can_manage_tcl %}
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% if is_tcl and can_manage_tcl %}
     <a class="btn" href="{{ url_for('equipment_new', catalog='tcl') }}">+ Dodaj sprzęt TCL</a>
     <a class="btn ghost" href="{{ url_for('tcl_import') }}">Import TCL</a>
+    {% elif not is_tcl and session.role == 'admin' %}
+    <a class="btn" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>
+    {% endif %}
+    {% if total %}
+    <a class="btn ghost" href="{{ url_for(export_ep, **export_qs) }}" title="Eksportuje wszystkie pozycje spełniające filtry (nie tylko bieżącą stronę)">Eksportuj wg filtrów</a>
+    {% endif %}
   </div>
-  {% elif not is_tcl and session.role == 'admin' %}
-  <a class="btn" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>
-  {% endif %}
 </div>
 {% if per_page != 'all' and total_pages > 1 %}
 <div class="pager">
@@ -124,7 +132,9 @@
 <form method="get" action="{{ url_for('reserve_multi') }}" id="equip-multi-form">
 <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <button class="btn" id="reserve-selected-btn" type="submit">Zarezerwuj zaznaczone razem</button>
-  <span class="desktop-only" style="font-size:13px; color:#666;">– zaznacz kilka pozycji, aby stworzyć wspólną rezerwację na jeden termin</span>
+  <button class="btn ghost" id="export-selected-btn" type="submit"
+          formaction="{{ url_for(export_ep) }}" formmethod="post">Eksportuj zaznaczone</button>
+  <span class="desktop-only" style="font-size:13px; color:#666;">– zaznacz pozycje, aby zarezerwować razem albo wyeksportować do Excela z miniaturami</span>
 </div>
 <table class="data-cards">
   <thead>
@@ -199,8 +209,9 @@
 </div>
 {% endif %}
 
-<div id="float-bulk-rail" class="float-rail" aria-label="Rezerwacja zbiorcza">
+<div id="float-bulk-rail" class="float-rail" aria-label="Akcje zbiorcze">
   <button type="button" class="float-rail-btn dark" id="float-reserve-selected" title="Zarezerwuj zaznaczone razem">Zarezerwuj zaznaczone razem</button>
+  <button type="button" class="float-rail-btn" id="float-export-selected" title="Eksportuj zaznaczone">Eksportuj zaznaczone</button>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -211,15 +222,31 @@
   function sync(){ rail.classList.toggle('visible', window.scrollY > 280); }
   window.addEventListener('scroll', sync, { passive: true });
   sync();
-  const floatBtn = document.getElementById('float-reserve-selected');
   const form = document.getElementById('equip-multi-form');
+  function checkedCount(){
+    return form ? form.querySelectorAll('input[name="eid"]:checked').length : 0;
+  }
+  const floatBtn = document.getElementById('float-reserve-selected');
   if (floatBtn && form) {
     floatBtn.addEventListener('click', function(){
-      const n = form.querySelectorAll('input[name="eid"]:checked').length;
-      if (!n) {
+      if (!checkedCount()) {
         alert('Zaznacz przynajmniej jedną pozycję.');
         return;
       }
+      form.method = 'get';
+      form.action = {{ url_for('reserve_multi')|tojson }};
+      form.submit();
+    });
+  }
+  const floatExport = document.getElementById('float-export-selected');
+  if (floatExport && form) {
+    floatExport.addEventListener('click', function(){
+      if (!checkedCount()) {
+        alert('Zaznacz przynajmniej jedną pozycję.');
+        return;
+      }
+      form.method = 'post';
+      form.action = {{ url_for(export_ep)|tojson }};
       form.submit();
     });
   }

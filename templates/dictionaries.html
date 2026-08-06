@@ -2,6 +2,13 @@
 {% block title %}Słowniki – Magazyn{% endblock %}
 {% block content %}
 <h1>Słowniki</h1>
+<div class="card wide" style="margin-bottom:20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;">
+  <div>
+    <strong>Eksport katalogu</strong>
+    <p class="dict-hint" style="margin:4px 0 0;">Excel w formacie importu + ZIP ze zdjęciami (jak przy ładowaniu katalogu).</p>
+  </div>
+  <a class="btn" href="{{ url_for('admin_export_db') }}">Eksport katalogu (Excel + ZIP)</a>
+</div>
 <div class="dict-grid">
 
   <section class="dict-section">

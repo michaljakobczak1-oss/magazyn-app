@@ -77,13 +77,15 @@
     {% if photo_rows %}
     <div class="photo-gallery">
       {% for p in photo_rows %}
-      <figure class="photo-item {{ 'photo-damage' if p.kind == 'damage' else '' }}">
+      <figure class="photo-item {{ 'photo-damage' if p.kind == 'damage' else '' }}{{ ' photo-repaired' if p.kind == 'repaired' else '' }}">
         <span class="zoomable">
           <img class="photo-lg photo-zoom" src="{{ url_for('static', filename='uploads/' + p.filename) }}"
                data-full="{{ url_for('static', filename='uploads/' + p.filename) }}" alt="">
         </span>
         {% if p.kind == 'damage' %}
         <figcaption><span class="badge damaged">zdjęcie uszkodzenia</span></figcaption>
+        {% elif p.kind == 'repaired' %}
+        <figcaption><span class="badge ok">naprawione</span></figcaption>
         {% endif %}
       </figure>
       {% endfor %}

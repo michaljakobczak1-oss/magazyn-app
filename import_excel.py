@@ -70,6 +70,8 @@ HEADER_MAP = {
     "rodzaj materialu": "material_type",
     "materiał": "material_type",
     "stan techniczny": "condition",
+    "stan techn.": "condition",
+    "stan techn": "condition",
     "stan": "condition",
     "składowanie / pakowanie": "storage_instructions",
     "skladowanie / pakowanie": "storage_instructions",
