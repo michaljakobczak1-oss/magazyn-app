@@ -2190,26 +2190,33 @@ def user_name(uid):
     fn = request.form.get("first_name", "").strip()
     ln = request.form.get("last_name", "").strip()
     dept = request.form.get("department", "").strip()
+    username = request.form.get("username", "").strip()
     role = request.form.get("role", "user").strip()
     if role not in ("user", "admin"):
         role = "user"
     if not fn or not ln:
         flash("Imię i nazwisko są wymagane.", "error")
+    elif not username:
+        flash("Login jest wymagany.", "error")
     elif uid == session["user_id"] and role != "admin":
         flash("Nie możesz odebrać sobie roli admin.", "error")
     else:
         con = get_db()
-        con.execute(
-            """UPDATE users SET first_name=?, last_name=?, department=?, role=?
-               WHERE id=?""",
-            (fn, ln, dept or None, role, uid))
-        con.commit()
+        try:
+            con.execute(
+                """UPDATE users SET username=?, first_name=?, last_name=?,
+                   department=?, role=? WHERE id=?""",
+                (username, fn, ln, dept or None, role, uid))
+            con.commit()
+            if uid == session["user_id"]:
+                session["username"] = username
+                session["department"] = dept
+                session["full_name"] = f"{fn} {ln}".strip()
+                session["role"] = role
+            flash("Dane zaktualizowane.", "ok")
+        except Exception:
+            flash("Taki login już istnieje.", "error")
         con.close()
-        if uid == session["user_id"]:
-            session["department"] = dept
-            session["full_name"] = f"{fn} {ln}".strip()
-            session["role"] = role
-        flash("Dane zaktualizowane.", "ok")
     return redirect(url_for("users"))
 
 
