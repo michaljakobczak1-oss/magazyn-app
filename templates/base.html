@@ -752,8 +752,8 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     <form method="post" action="{{ url_for('account_password') }}">
       <label>Obecne hasło</label>
       <input name="current_password" type="password" required>
-      <label>Nowe hasło (min. 6 znaków)</label>
-      <input name="new_password" type="password" required minlength="6">
+      <label>Nowe hasło (min. 10 znaków, litera + cyfra)</label>
+      <input name="new_password" type="password" required minlength="10">
       <div style="margin-top:16px; display:flex; gap:10px;">
         <button class="btn">Zapisz</button>
         <a class="btn ghost" href="#" onclick="document.getElementById('pwd-modal').style.display='none'; return false;">Anuluj</a>

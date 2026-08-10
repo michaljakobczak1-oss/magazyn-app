@@ -20,8 +20,8 @@
       <input name="username" required>
     </div>
     <div>
-      <label>Hasło</label>
-      <input name="password" type="password" required minlength="6">
+      <label>Hasło (min. 10 znaków, litera + cyfra)</label>
+      <input name="password" type="password" required minlength="10">
     </div>
     <div>
       <label>Dział</label>
@@ -99,7 +99,7 @@
       </form>
       {% endif %}
       <form method="post" action="{{ url_for('user_password', uid=u.id) }}" class="user-pwd-form">
-        <input name="password" type="password" placeholder="nowe hasło" minlength="6" required>
+        <input name="password" type="password" placeholder="nowe hasło (min. 10, litera+cyfra)" minlength="10" required>
         <button class="btn small ghost">Zmień hasło</button>
       </form>
     </div>

@@ -301,6 +301,22 @@ def recipient_required_error(rec):
     return "Uzupełnij wymagane pola adresata: " + ", ".join(missing) + "."
 
 
+def password_policy_error(pw):
+    """None jeśli hasło OK; inaczej komunikat błędu.
+    Wymagania: min. 10 znaków, co najmniej 1 litera i 1 cyfra."""
+    pw = pw or ""
+    if len(pw) < 10:
+        return "Hasło musi mieć min. 10 znaków."
+    if not any(c.isalpha() for c in pw):
+        return "Hasło musi zawierać co najmniej jedną literę."
+    if not any(c.isdigit() for c in pw):
+        return "Hasło musi zawierać co najmniej jedną cyfrę."
+    weak = {"admin123", "password", "haslo12345", "1234567890", "qwerty1234"}
+    if pw.lower() in weak:
+        return "Hasło jest zbyt oczywiste – wybierz inne."
+    return None
+
+
 # ---------- logowanie / konto ----------
 
 @app.route("/login", methods=["GET", "POST"])
@@ -331,14 +347,15 @@ def account_password():
     """Zmiana własnego hasła przez użytkownika."""
     con = get_db()
     u = con.execute("SELECT * FROM users WHERE id=?", (session["user_id"],)).fetchone()
+    new_pw = request.form.get("new_password", "")
+    pw_err = password_policy_error(new_pw)
     if not check_password_hash(u["password_hash"], request.form.get("current_password", "")):
         flash("Obecne hasło jest nieprawidłowe.", "error")
-    elif len(request.form.get("new_password", "")) < 6:
-        flash("Nowe hasło musi mieć min. 6 znaków.", "error")
+    elif pw_err:
+        flash(pw_err, "error")
     else:
         con.execute("UPDATE users SET password_hash=? WHERE id=?",
-                    (generate_password_hash(request.form["new_password"],
-                                            method="pbkdf2:sha256"), u["id"]))
+                    (generate_password_hash(new_pw, method="pbkdf2:sha256"), u["id"]))
         con.commit()
         flash("Hasło zmienione.", "ok")
     con.close()
@@ -2154,16 +2171,20 @@ def users():
         if not fn or not ln:
             flash("Imię i nazwisko są wymagane – każde konto to konkretny PM.", "error")
         else:
-            try:
-                con.execute("""INSERT INTO users (username, password_hash, role,
-                               first_name, last_name, department) VALUES (?,?,?,?,?,?)""",
-                            (request.form["username"].strip(),
-                             generate_password_hash(request.form["password"], method="pbkdf2:sha256"),
-                             request.form.get("role", "user"), fn, ln, dept or None))
-                con.commit()
-                flash("Użytkownik dodany.", "ok")
-            except Exception:
-                flash("Taki login już istnieje.", "error")
+            pw_err = password_policy_error(request.form.get("password", ""))
+            if pw_err:
+                flash(pw_err, "error")
+            else:
+                try:
+                    con.execute("""INSERT INTO users (username, password_hash, role,
+                                   first_name, last_name, department) VALUES (?,?,?,?,?,?)""",
+                                (request.form["username"].strip(),
+                                 generate_password_hash(request.form["password"], method="pbkdf2:sha256"),
+                                 request.form.get("role", "user"), fn, ln, dept or None))
+                    con.commit()
+                    flash("Użytkownik dodany.", "ok")
+                except Exception:
+                    flash("Taki login już istnieje.", "error")
     sql = "SELECT * FROM users"
     params = []
     if f_dept == "__none__":
@@ -2198,8 +2219,9 @@ def user_toggle(uid):
 @admin_required
 def user_password(uid):
     pw = request.form["password"]
-    if len(pw) < 6:
-        flash("Hasło musi mieć min. 6 znaków.", "error")
+    pw_err = password_policy_error(pw)
+    if pw_err:
+        flash(pw_err, "error")
     else:
         con = get_db()
         con.execute("UPDATE users SET password_hash=? WHERE id=?",
