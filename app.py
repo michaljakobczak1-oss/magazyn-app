@@ -283,6 +283,24 @@ def recipient_form_fields(form):
     )
 
 
+def recipient_required_error(rec):
+    """None jeśli wymagane pola adresata są uzupełnione; inaczej komunikat błędu."""
+    missing = []
+    if not rec.get("recipient_name"):
+        missing.append("firma / miejsce / osoba")
+    if not rec.get("recipient_contact"):
+        missing.append("osoba kontaktowa")
+    if not rec.get("recipient_phone"):
+        missing.append("telefon")
+    if not rec.get("recipient_address"):
+        missing.append("adres dostawy")
+    if not rec.get("recipient_city"):
+        missing.append("miasto")
+    if not missing:
+        return None
+    return "Uzupełnij wymagane pola adresata: " + ", ".join(missing) + "."
+
+
 # ---------- logowanie / konto ----------
 
 @app.route("/login", methods=["GET", "POST"])
@@ -880,26 +898,30 @@ def reserve(eid):
                       f"({eq['quantity']} łącznie).", "error")
             else:
                 rec = recipient_form_fields(request.form)
-                con.execute(
-                    """INSERT INTO reservations (equipment_id, user_id, client,
-                       date_from, date_to, quantity, notes, receiver, permanent,
-                       project_number,
-                       recipient_name, recipient_contact, recipient_phone,
-                       recipient_address, recipient_city, recipient_email)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (eid, session["user_id"], request.form["client"].strip(),
-                     d_from, d_to, qty, request.form["notes"].strip(),
-                     receiver, permanent, proj,
-                     rec["recipient_name"], rec["recipient_contact"],
-                     rec["recipient_phone"], rec["recipient_address"],
-                     rec["recipient_city"], rec["recipient_email"]))
-                upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
-                                 rec["recipient_phone"], rec["recipient_address"],
-                                 rec["recipient_email"], rec["recipient_city"])
-                con.commit()
-                con.close()
-                flash("Rezerwacja utworzona.", "ok")
-                return redirect(url_for("equipment_detail", eid=eid))
+                rec_err = recipient_required_error(rec)
+                if rec_err:
+                    flash(rec_err, "error")
+                else:
+                    con.execute(
+                        """INSERT INTO reservations (equipment_id, user_id, client,
+                           date_from, date_to, quantity, notes, receiver, permanent,
+                           project_number,
+                           recipient_name, recipient_contact, recipient_phone,
+                           recipient_address, recipient_city, recipient_email)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (eid, session["user_id"], request.form["client"].strip(),
+                         d_from, d_to, qty, request.form["notes"].strip(),
+                         receiver, permanent, proj,
+                         rec["recipient_name"], rec["recipient_contact"],
+                         rec["recipient_phone"], rec["recipient_address"],
+                         rec["recipient_city"], rec["recipient_email"]))
+                    upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
+                                     rec["recipient_phone"], rec["recipient_address"],
+                                     rec["recipient_email"], rec["recipient_city"])
+                    con.commit()
+                    con.close()
+                    flash("Rezerwacja utworzona.", "ok")
+                    return redirect(url_for("equipment_detail", eid=eid))
     receivers = active_partners(con)
     recipients = recent_recipients(con)
     projects = project_suggestions(con)
@@ -997,31 +1019,35 @@ def reserve_multi():
                 flash("Brak dostępności – " + "; ".join(errors), "error")
             else:
                 rec = recipient_form_fields(request.form)
-                gid = uuid.uuid4().hex[:8]
-                for it in items:
-                    if it["id"] not in wanted:
-                        continue
-                    con.execute(
-                        """INSERT INTO reservations (equipment_id, user_id, client,
-                           date_from, date_to, quantity, notes, group_id, receiver, permanent,
-                           project_number,
-                           recipient_name, recipient_contact, recipient_phone,
-                           recipient_address, recipient_city, recipient_email)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (it["id"], session["user_id"], request.form["client"].strip(),
-                         d_from, d_to, wanted[it["id"]],
-                         request.form["notes"].strip(), gid,
-                         receiver, permanent, proj,
-                         rec["recipient_name"], rec["recipient_contact"],
-                         rec["recipient_phone"], rec["recipient_address"],
-                         rec["recipient_city"], rec["recipient_email"]))
-                upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
-                                 rec["recipient_phone"], rec["recipient_address"],
-                                 rec["recipient_email"], rec["recipient_city"])
-                con.commit()
-                con.close()
-                flash(f"Utworzono wspólną rezerwację ({len(wanted)} pozycji).", "ok")
-                return redirect(url_for("reservations"))
+                rec_err = recipient_required_error(rec)
+                if rec_err:
+                    flash(rec_err, "error")
+                else:
+                    gid = uuid.uuid4().hex[:8]
+                    for it in items:
+                        if it["id"] not in wanted:
+                            continue
+                        con.execute(
+                            """INSERT INTO reservations (equipment_id, user_id, client,
+                               date_from, date_to, quantity, notes, group_id, receiver, permanent,
+                               project_number,
+                               recipient_name, recipient_contact, recipient_phone,
+                               recipient_address, recipient_city, recipient_email)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (it["id"], session["user_id"], request.form["client"].strip(),
+                             d_from, d_to, wanted[it["id"]],
+                             request.form["notes"].strip(), gid,
+                             receiver, permanent, proj,
+                             rec["recipient_name"], rec["recipient_contact"],
+                             rec["recipient_phone"], rec["recipient_address"],
+                             rec["recipient_city"], rec["recipient_email"]))
+                    upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
+                                     rec["recipient_phone"], rec["recipient_address"],
+                                     rec["recipient_email"], rec["recipient_city"])
+                    con.commit()
+                    con.close()
+                    flash(f"Utworzono wspólną rezerwację ({len(wanted)} pozycji).", "ok")
+                    return redirect(url_for("reservations"))
     receivers = active_partners(con)
     recipients = recent_recipients(con)
     projects = project_suggestions(con)

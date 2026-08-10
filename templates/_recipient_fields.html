@@ -18,18 +18,24 @@
     {% endfor %}
   </select>
   {% endif %}
-  <label>Firma / miejsce / osoba</label>
-  <input name="recipient_name" id="recipient_name" placeholder="np. Hala EXPO XXI" value="{{ form.get('recipient_name', '') }}">
-  <label>Osoba kontaktowa</label>
-  <input name="recipient_contact" id="recipient_contact" value="{{ form.get('recipient_contact', '') }}">
-  <label>Telefon</label>
-  <input name="recipient_phone" id="recipient_phone" type="tel" value="{{ form.get('recipient_phone', '') }}">
-  <label>Adres dostawy</label>
-  <input name="recipient_address" id="recipient_address" value="{{ form.get('recipient_address', '') }}">
-  <label>Miasto</label>
-  <input name="recipient_city" id="recipient_city" placeholder="np. Warszawa" value="{{ form.get('recipient_city', '') }}">
+  <label>Firma / miejsce / osoba *</label>
+  <input name="recipient_name" id="recipient_name" placeholder="np. Hala EXPO XXI"
+         value="{{ form.get('recipient_name', '') }}" required>
+  <label>Osoba kontaktowa *</label>
+  <input name="recipient_contact" id="recipient_contact"
+         value="{{ form.get('recipient_contact', '') }}" required>
+  <label>Telefon *</label>
+  <input name="recipient_phone" id="recipient_phone" type="tel"
+         value="{{ form.get('recipient_phone', '') }}" required>
+  <label>Adres dostawy *</label>
+  <input name="recipient_address" id="recipient_address"
+         value="{{ form.get('recipient_address', '') }}" required>
+  <label>Miasto *</label>
+  <input name="recipient_city" id="recipient_city" placeholder="np. Warszawa"
+         value="{{ form.get('recipient_city', '') }}" required>
   <label>E-mail (opcjonalnie)</label>
-  <input name="recipient_email" id="recipient_email" type="email" value="{{ form.get('recipient_email', '') }}">
+  <input name="recipient_email" id="recipient_email" type="email"
+         value="{{ form.get('recipient_email', '') }}">
 </fieldset>
 <script>
 function fillRecipient(sel){
