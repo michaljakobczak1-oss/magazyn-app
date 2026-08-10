@@ -278,6 +278,7 @@ def recipient_form_fields(form):
         recipient_contact=form.get("recipient_contact", "").strip(),
         recipient_phone=form.get("recipient_phone", "").strip(),
         recipient_address=form.get("recipient_address", "").strip(),
+        recipient_city=form.get("recipient_city", "").strip(),
         recipient_email=form.get("recipient_email", "").strip(),
     )
 
@@ -884,17 +885,17 @@ def reserve(eid):
                        date_from, date_to, quantity, notes, receiver, permanent,
                        project_number,
                        recipient_name, recipient_contact, recipient_phone,
-                       recipient_address, recipient_email)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       recipient_address, recipient_city, recipient_email)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (eid, session["user_id"], request.form["client"].strip(),
                      d_from, d_to, qty, request.form["notes"].strip(),
                      receiver, permanent, proj,
                      rec["recipient_name"], rec["recipient_contact"],
                      rec["recipient_phone"], rec["recipient_address"],
-                     rec["recipient_email"]))
+                     rec["recipient_city"], rec["recipient_email"]))
                 upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
                                  rec["recipient_phone"], rec["recipient_address"],
-                                 rec["recipient_email"])
+                                 rec["recipient_email"], rec["recipient_city"])
                 con.commit()
                 con.close()
                 flash("Rezerwacja utworzona.", "ok")
@@ -1005,18 +1006,18 @@ def reserve_multi():
                            date_from, date_to, quantity, notes, group_id, receiver, permanent,
                            project_number,
                            recipient_name, recipient_contact, recipient_phone,
-                           recipient_address, recipient_email)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           recipient_address, recipient_city, recipient_email)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (it["id"], session["user_id"], request.form["client"].strip(),
                          d_from, d_to, wanted[it["id"]],
                          request.form["notes"].strip(), gid,
                          receiver, permanent, proj,
                          rec["recipient_name"], rec["recipient_contact"],
                          rec["recipient_phone"], rec["recipient_address"],
-                         rec["recipient_email"]))
+                         rec["recipient_city"], rec["recipient_email"]))
                 upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
                                  rec["recipient_phone"], rec["recipient_address"],
-                                 rec["recipient_email"])
+                                 rec["recipient_email"], rec["recipient_city"])
                 con.commit()
                 con.close()
                 flash(f"Utworzono wspólną rezerwację ({len(wanted)} pozycji).", "ok")
@@ -1146,16 +1147,16 @@ def _split_partial(con, r, process_qty):
             group_id, receiver, permanent, project_number,
             issue_warehouse_id, issue_location,
             recipient_name, recipient_contact,
-            recipient_phone, recipient_address, recipient_email, notes,
+            recipient_phone, recipient_address, recipient_city, recipient_email, notes,
             issued_at, issued_by
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             r["equipment_id"], r["user_id"], g("client"), r["date_from"], r["date_to"],
             remaining, "wydane", g("group_id"), g("receiver"),
             1 if g("permanent") else 0, g("project_number"),
             g("issue_warehouse_id"), g("issue_location"),
             g("recipient_name"), g("recipient_contact"), g("recipient_phone"),
-            g("recipient_address"), g("recipient_email"), g("notes"),
+            g("recipient_address"), g("recipient_city"), g("recipient_email"), g("notes"),
             g("issued_at"), g("issued_by"),
         ),
     )

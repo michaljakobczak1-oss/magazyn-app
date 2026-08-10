@@ -11,8 +11,9 @@
     <option value="{{ rc.id }}"
       data-name="{{ rc.name }}" data-contact="{{ rc.contact_person or '' }}"
       data-phone="{{ rc.phone or '' }}" data-address="{{ rc.address or '' }}"
+      data-city="{{ rc.city or '' }}"
       data-email="{{ rc.email or '' }}">
-      {{ rc.name }}{% if rc.address %} – {{ rc.address }}{% endif %}
+      {{ rc.name }}{% if rc.city %} – {{ rc.city }}{% endif %}{% if rc.address %} – {{ rc.address }}{% endif %}
     </option>
     {% endfor %}
   </select>
@@ -25,6 +26,8 @@
   <input name="recipient_phone" id="recipient_phone" type="tel" value="{{ form.get('recipient_phone', '') }}">
   <label>Adres dostawy</label>
   <input name="recipient_address" id="recipient_address" value="{{ form.get('recipient_address', '') }}">
+  <label>Miasto</label>
+  <input name="recipient_city" id="recipient_city" placeholder="np. Warszawa" value="{{ form.get('recipient_city', '') }}">
   <label>E-mail (opcjonalnie)</label>
   <input name="recipient_email" id="recipient_email" type="email" value="{{ form.get('recipient_email', '') }}">
 </fieldset>
@@ -32,11 +35,13 @@
 function fillRecipient(sel){
   const o = sel.selectedOptions[0];
   const set = (id, v) => document.getElementById(id).value = v || '';
-  if (!o.value) { ['recipient_name','recipient_contact','recipient_phone','recipient_address','recipient_email'].forEach(i=>set(i,'')); return; }
+  const fields = ['recipient_name','recipient_contact','recipient_phone','recipient_address','recipient_city','recipient_email'];
+  if (!o.value) { fields.forEach(i=>set(i,'')); return; }
   set('recipient_name', o.dataset.name);
   set('recipient_contact', o.dataset.contact);
   set('recipient_phone', o.dataset.phone);
   set('recipient_address', o.dataset.address);
+  set('recipient_city', o.dataset.city);
   set('recipient_email', o.dataset.email);
 }
 </script>

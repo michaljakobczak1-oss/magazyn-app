@@ -46,7 +46,7 @@
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
-    <td data-label="Adresat">{{ r.recipient_name or '–' }}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
+    <td data-label="Adresat">{{ r.recipient_name or '–' }}{% if r.recipient_city %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_city }}</span>{% endif %}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
     <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
     <td data-label="Rezerwujący">{{ dn(r) }}{% if r.owner_department %}<br><span style="font-size:11px;color:#666;">{{ r.owner_department }}</span>{% endif %}</td>
     <td data-label="Status"><span class="badge {{ 'wydane-trwale' if r.status == 'wydane trwale' else ('utylizacja' if r.status == 'utylizacja' else r.status) }}">{{ r.status }}</span>

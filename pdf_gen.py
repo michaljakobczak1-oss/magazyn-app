@@ -128,6 +128,8 @@ def _recipient_lines(res):
         out.append(("Adresat", res["recipient_name"]))
     if _get(res, "recipient_address"):
         out.append(("Adres dostawy", res["recipient_address"]))
+    if _get(res, "recipient_city"):
+        out.append(("Miasto", res["recipient_city"]))
     if _get(res, "recipient_contact"):
         out.append(("Osoba kontaktowa", res["recipient_contact"]))
     if _get(res, "recipient_phone"):

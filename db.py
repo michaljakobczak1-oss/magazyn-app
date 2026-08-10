@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS recipients (
     contact_person TEXT,
     phone TEXT,
     address TEXT,
+    city TEXT,                                   -- miasto dostawy
     email TEXT,
     last_used TEXT DEFAULT (datetime('now')),
     UNIQUE(name, address)
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     recipient_contact TEXT,                      -- osoba kontaktowa
     recipient_phone TEXT,
     recipient_address TEXT,
+    recipient_city TEXT,                         -- miasto dostawy
     recipient_email TEXT,
     damage INTEGER NOT NULL DEFAULT 0,           -- uszkodzenie odnotowane przy zwrocie
     damage_notes TEXT,
@@ -166,6 +168,7 @@ MIGRATIONS = {
         "recipient_contact": "TEXT",
         "recipient_phone": "TEXT",
         "recipient_address": "TEXT",
+        "recipient_city": "TEXT",
         "recipient_email": "TEXT",
         "damage": "INTEGER NOT NULL DEFAULT 0",
         "damage_notes": "TEXT",
@@ -176,6 +179,9 @@ MIGRATIONS = {
         "issue_warehouse_id": "INTEGER REFERENCES warehouses(id)",
         "issue_location": "TEXT",
         "returner": "TEXT",
+    },
+    "recipients": {
+        "city": "TEXT",
     },
     "equipment_photos": {
         "kind": "TEXT NOT NULL DEFAULT 'normal'",
@@ -308,7 +314,7 @@ def display_name(row):
     return full or row["username"]
 
 
-def upsert_recipient(con, name, contact, phone, address, email):
+def upsert_recipient(con, name, contact, phone, address, email, city=None):
     """Słownik adresatów: aktualizuje wpis (name+address) albo tworzy nowy."""
     name = (name or "").strip()
     if not name:
@@ -316,15 +322,16 @@ def upsert_recipient(con, name, contact, phone, address, email):
     row = con.execute("SELECT id FROM recipients WHERE name=? AND IFNULL(address,'')=IFNULL(?,'')",
                       (name, (address or "").strip())).fetchone()
     if row:
-        con.execute("""UPDATE recipients SET contact_person=?, phone=?, email=?,
+        con.execute("""UPDATE recipients SET contact_person=?, phone=?, email=?, city=?,
                        last_used=datetime('now') WHERE id=?""",
                     ((contact or "").strip(), (phone or "").strip(),
-                     (email or "").strip(), row["id"]))
+                     (email or "").strip(), (city or "").strip() or None, row["id"]))
     else:
-        con.execute("""INSERT INTO recipients (name, contact_person, phone, address, email)
-                       VALUES (?,?,?,?,?)""",
+        con.execute("""INSERT INTO recipients (name, contact_person, phone, address, email, city)
+                       VALUES (?,?,?,?,?,?)""",
                     (name, (contact or "").strip(), (phone or "").strip(),
-                     (address or "").strip(), (email or "").strip()))
+                     (address or "").strip(), (email or "").strip(),
+                     (city or "").strip() or None))
 
 
 def equipment_photo_rows(con, equipment_id):

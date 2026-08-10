@@ -13,7 +13,7 @@
 {% macro res_table(rows, empty_msg) %}
 <table class="data-cards" style="margin-bottom:24px;">
   <thead>
-  <tr><th>Kod</th><th>Nazwa</th><th>Magazyn / miejsce</th><th>Szt.</th><th>Termin</th><th>Klient / cel</th><th>Odbiera (podwykonawca)</th><th>PM</th><th></th></tr>
+  <tr><th>Kod</th><th>Nazwa</th><th>Magazyn / miejsce</th><th>Szt.</th><th>Termin</th><th>Klient / cel</th><th>Miasto</th><th>Odbiera (podwykonawca)</th><th>PM</th><th></th></tr>
   </thead>
   <tbody>
   {% for r in rows %}
@@ -26,12 +26,13 @@
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Termin">{% if r.permanent %}<span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Miasto">{{ r.recipient_city or '–' }}</td>
     <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
     <td data-label="PM">{{ dn(r) }}</td>
     <td class="card-actions" data-label=""><a class="btn small" href="{{ url_for('reservations') }}">Przejdź</a></td>
   </tr>
   {% else %}
-  <tr><td colspan="9" style="display:block;text-align:left;border:0;">{{ empty_msg }}</td></tr>
+  <tr><td colspan="10" style="display:block;text-align:left;border:0;">{{ empty_msg }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -47,7 +48,7 @@
 {% if overdue %}
 <table class="data-cards">
   <thead>
-  <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>Odbiera</th><th>PM</th><th></th></tr>
+  <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>Miasto</th><th>Odbiera</th><th>PM</th><th></th></tr>
   </thead>
   <tbody>
   {% for r in overdue %}
@@ -58,6 +59,7 @@
     <td data-label="Termin zwrotu">{{ r.date_to }}</td>
     <td data-label="Dni po terminie"><span class="badge overdue">{{ days_overdue[r.id] }} dni</span></td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Miasto">{{ r.recipient_city or '–' }}</td>
     <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
     <td data-label="PM">{{ dn(r) }}</td>
     <td class="card-actions" data-label=""><a class="btn small" href="{{ url_for('reservations', overdue=1) }}">Po terminie</a></td>
