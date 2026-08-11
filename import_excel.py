@@ -29,7 +29,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from db import get_db, init_db
+from db import get_db, init_db, replace_equipment_stock
 
 BASE = Path(__file__).parent
 _DATA_DIR = Path(os.environ.get("DATA_DIR") or (BASE / "data"))
@@ -432,6 +432,22 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
                         "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,?)",
                         (eid, fn, i),
                     )
+            # Ujednolić stock z kartą (magazyn/miejsce/ilość) – inaczej lista pokazuje stare przenosiny
+            if qty is not None:
+                replace_equipment_stock(con, eid, warehouse_id, location or "", qty)
+            if "condition" in headers:
+                if (condition or "sprawny") == "sprawny":
+                    con.execute(
+                        "UPDATE equipment SET damaged_quantity=0, condition='sprawny' WHERE id=?",
+                        (eid,),
+                    )
+                elif condition == "uszkodzony":
+                    dmg = qty if (qty is not None and qty > 0) else 1
+                    con.execute(
+                        """UPDATE equipment SET damaged_quantity=?, condition='uszkodzony'
+                           WHERE id=?""",
+                        (dmg, eid),
+                    )
             updated += 1
         else:
             cur = con.execute(
@@ -461,6 +477,17 @@ def run_import(xlsx_path, photos_dir=None, sheet="Import", warehouse=None,
                 con.execute(
                     "INSERT INTO equipment_photos (equipment_id, filename, sort_order) VALUES (?,?,?)",
                     (eid, fn, i),
+                )
+            if qty is not None and qty > 0:
+                replace_equipment_stock(con, eid, warehouse_id, location or "", qty)
+            if (condition or "sprawny") == "sprawny":
+                con.execute(
+                    "UPDATE equipment SET damaged_quantity=0 WHERE id=?", (eid,)
+                )
+            elif condition == "uszkodzony":
+                dmg = qty if (qty is not None and qty > 0) else 1
+                con.execute(
+                    "UPDATE equipment SET damaged_quantity=? WHERE id=?", (dmg, eid)
                 )
             added += 1
 
