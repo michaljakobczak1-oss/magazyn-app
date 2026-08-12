@@ -36,7 +36,8 @@
     <td class="card-check"><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"
                data-code="{{ r.code }}" data-name="{{ r.name|e }}" data-qty="{{ r.quantity }}"
                data-receiver="{{ r.receiver or '' }}"
-               data-issue-wh="{{ r.issue_warehouse_name or '' }}"></td>
+               data-issue-wh="{{ r.issue_warehouse_name or '' }}"
+               data-location="{{ (r.location or r.issue_location or '')|e }}"></td>
     <td class="card-thumb">{{ thumb(r.photo) }}</td>
     <td class="card-main" data-label="Sprzęt"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
@@ -71,7 +72,7 @@
       {% endif %}
       {% if can_m and r.status == 'wydane' %}
       <button type="button" class="btn small ghost" onclick="openChangeReturn({{ r.id }}, '{{ r.code }}', '{{ r.date_from }}', '{{ r.date_to }}')">Zmień termin</button>
-      <button type="button" class="btn small ok" onclick='openReturn({{ r.id }}, {{ r.code|tojson }}, {{ r.quantity }}, {{ (r.receiver or "")|tojson }}, {{ (r.issue_warehouse_name or "")|tojson }})'>Przyjmij zwrot</button>
+      <button type="button" class="btn small ok" onclick='openReturn({{ r.id }}, {{ r.code|tojson }}, {{ r.quantity }}, {{ (r.receiver or "")|tojson }}, {{ (r.issue_warehouse_name or "")|tojson }}, {{ (r.location or r.issue_location or "")|tojson }})'>Przyjmij zwrot</button>
       {% endif %}
     </td>
     <td class="card-actions" data-label="Dokumenty">
@@ -194,8 +195,9 @@
             <option value="{{ w.id }}">{{ w.name }}</option>
             {% endfor %}
           </select>
-          <label>Miejsce w magazynie (opcjonalnie)</label>
-          <input name="return_location" id="rm-location" placeholder="np. Regał B2">
+          <label>Miejsce w magazynie (potwierdź) *</label>
+          <input name="return_location" id="rm-location" placeholder="np. Regał B2" required>
+          <p id="rm-location-hint" style="font-size:12px;color:#666;margin:4px 0 0;display:none;">Z karty produktu – sprawdź lub popraw.</p>
           <label>Oddaje towar *</label>
           <select name="returner" id="rm-returner" required>
             <option value="" disabled selected>– wybierz –</option>
@@ -223,8 +225,9 @@
           <option value="{{ w.id }}">{{ w.name }}</option>
           {% endfor %}
         </select>
-        <label>Miejsce w magazynie (opcjonalnie)</label>
-        <input id="rm-location-bulk" placeholder="np. Regał B2">
+        <label>Miejsce w magazynie (potwierdź) *</label>
+        <input id="rm-location-bulk" placeholder="np. Regał B2" required>
+        <p id="rm-location-bulk-hint" style="font-size:12px;color:#666;margin:4px 0 0;display:none;">Z kart produktów – sprawdź lub popraw.</p>
         <label>Oddaje towar *</label>
         <select id="rm-returner-bulk" required>
           <option value="" disabled selected>– wybierz –</option>
@@ -542,6 +545,12 @@ function syncReturnModalUI(){
     else if (anyDispose) btn = 'Oznacz jako utylizacja';
     else if (anyDamage) btn = 'Przyjmij zwrot (z uszkodzeniem)';
     document.getElementById('rm-submit').textContent = btn;
+    const locBulk = document.getElementById('rm-location-bulk');
+    const whBulk = document.getElementById('rm-warehouse-bulk');
+    const retBulk = document.getElementById('rm-returner-bulk');
+    if (locBulk) { locBulk.disabled = !anyReturn; locBulk.required = anyReturn; }
+    if (whBulk) whBulk.disabled = !anyReturn;
+    if (retBulk) retBulk.disabled = !anyReturn;
     return;
   }
 
@@ -552,7 +561,13 @@ function syncReturnModalUI(){
   document.getElementById('rm-damage').value = qtyDmg > 0 ? '1' : '';
   document.getElementById('rm-damage-extra').style.display = (qtyDmg > 0 && qtyDisp === 0) ? 'block' : 'none';
   document.getElementById('rm-dispose-extra').style.display = qtyDisp > 0 ? 'block' : 'none';
-  document.getElementById('rm-return-body').style.display = (qtyOk > 0 || qtyDmg > 0) ? 'block' : 'none';
+  const needWh = qtyOk > 0 || qtyDmg > 0;
+  document.getElementById('rm-return-body').style.display = needWh ? 'block' : 'none';
+  document.getElementById('rm-warehouse').disabled = !needWh;
+  document.getElementById('rm-returner').disabled = !needWh;
+  const locInp = document.getElementById('rm-location');
+  locInp.disabled = !needWh;
+  locInp.required = needWh;
 
   let btn = 'Przyjmij zwrot';
   const parts = [];
@@ -652,6 +667,7 @@ function resetReturnModal(){
   const wh = document.getElementById('rm-warehouse');
   wh.selectedIndex = 0; wh.value = '';
   document.getElementById('rm-location').value = '';
+  document.getElementById('rm-location-hint').style.display = 'none';
   const retSel = document.getElementById('rm-returner');
   retSel.selectedIndex = 0; retSel.value = '';
   document.getElementById('rm-damage-notes-return').value = '';
@@ -663,6 +679,7 @@ function resetReturnModal(){
   document.getElementById('rm-warehouse-bulk').selectedIndex = 0;
   document.getElementById('rm-warehouse-bulk').value = '';
   document.getElementById('rm-location-bulk').value = '';
+  document.getElementById('rm-location-bulk-hint').style.display = 'none';
   const retBulk = document.getElementById('rm-returner-bulk');
   retBulk.selectedIndex = 0; retBulk.value = '';
   document.getElementById('rm-damage-notes-bulk').value = '';
@@ -722,6 +739,11 @@ function validateReturnForm(){
       err.style.display = 'block';
       return false;
     }
+    if (anyReturn && !(document.getElementById('rm-location-bulk').value || '').trim()) {
+      err.textContent = 'Potwierdź miejsce w magazynie (pole wymagane).';
+      err.style.display = 'block';
+      return false;
+    }
     prepareBulkSubmit();
     return true;
   }
@@ -743,6 +765,11 @@ function validateReturnForm(){
   }
   if ((ok > 0 || dmg > 0) && !document.getElementById('rm-returner').value) {
     err.textContent = 'Wybierz, kto oddaje towar.';
+    err.style.display = 'block';
+    return false;
+  }
+  if ((ok > 0 || dmg > 0) && !(document.getElementById('rm-location').value || '').trim()) {
+    err.textContent = 'Potwierdź miejsce w magazynie (pole wymagane).';
     err.style.display = 'block';
     return false;
   }
@@ -796,11 +823,22 @@ function setReturnerSelect(sel, name){
     sel.value = '';
   }
 }
-function openReturn(rid, code, qty, receiver, issueWh){
+function setReturnLocationInput(inp, hintEl, loc){
+  if (!inp) return;
+  const v = (loc || '').trim();
+  inp.value = v;
+  if (hintEl) hintEl.style.display = v ? 'block' : 'none';
+}
+function openReturn(rid, code, qty, receiver, issueWh, defaultLoc){
   resetReturnModal();
   setSingleQty(parseInt(qty, 10) || 1);
   document.getElementById('rm-code').textContent = code;
   setReturnerSelect(document.getElementById('rm-returner'), receiver);
+  setReturnLocationInput(
+    document.getElementById('rm-location'),
+    document.getElementById('rm-location-hint'),
+    defaultLoc
+  );
   const whWrap = document.getElementById('rm-issue-wh-wrap');
   const whEl = document.getElementById('rm-issue-wh');
   if (issueWh) {
@@ -814,6 +852,7 @@ function openReturn(rid, code, qty, receiver, issueWh){
   h.type = 'hidden'; h.name = 'rid'; h.value = rid;
   document.getElementById('rm-rids').appendChild(h);
   document.getElementById('return-form').action = '/reservations/' + rid + '/return';
+  syncReturnModalUI();
   document.getElementById('return-modal').style.display = 'flex';
 }
 function openReturnBulk(){
@@ -879,6 +918,14 @@ function openReturnBulk(){
       '</div>';
     itemsBox.appendChild(row);
   });
+  const locs = checked.map(function(cb){ return (cb.getAttribute('data-location') || '').trim(); }).filter(Boolean);
+  const uniqLocs = Array.from(new Set(locs));
+  const bulkLoc = (uniqLocs.length === 1) ? uniqLocs[0] : (locs[0] || '');
+  setReturnLocationInput(
+    document.getElementById('rm-location-bulk'),
+    document.getElementById('rm-location-bulk-hint'),
+    bulkLoc
+  );
   document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';
   syncReturnModalUI();
   document.getElementById('return-modal').style.display = 'flex';

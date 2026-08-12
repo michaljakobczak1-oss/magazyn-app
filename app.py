@@ -1099,12 +1099,13 @@ def _selected_reservations(con, rids):
 
 
 def _return_form_valid(form):
-    """Magazyn i oddający wymagani przy zwrocie; przy utylizacji – nie."""
+    """Magazyn, miejsce i oddający wymagani przy zwrocie na magazyn; przy samej utylizacji – nie."""
     if form.get("dispose"):
         return True
     wid = (form.get("return_warehouse_id") or "").strip()
     returner = (form.get("returner") or "").strip()
-    return wid.isdigit() and bool(returner)
+    loc = (form.get("return_location") or "").strip()
+    return wid.isdigit() and bool(returner) and bool(loc)
 
 
 def _eq_damaged_qty(eq):
@@ -1667,6 +1668,10 @@ def bulk_action(action):
             con.close()
             flash("Wybierz, kto oddaje towar.", "error")
             return redirect(url_for("reservations"))
+        if need_wh and not (request.form.get("return_location") or "").strip():
+            con.close()
+            flash("Potwierdź miejsce w magazynie (pole wymagane).", "error")
+            return redirect(url_for("reservations"))
     done_ids = []
     returned_ids = []
     disposed_ids = []
@@ -1883,7 +1888,7 @@ def return_item(rid):
         con.close()
         return redirect(request.referrer or url_for("reservations"))
     if (ok_qty or dmg_qty) and not _return_form_valid(request.form):
-        flash("Wypełnij magazyn przyjęcia i kto oddaje towar.", "error")
+        flash("Wypełnij magazyn przyjęcia, miejsce w magazynie i kto oddaje towar.", "error")
         con.close()
         return redirect(request.referrer or url_for("reservations"))
     ret_wid = (request.form.get("return_warehouse_id") or "").strip()
