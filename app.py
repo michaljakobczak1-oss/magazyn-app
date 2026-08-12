@@ -1098,13 +1098,21 @@ def _selected_reservations(con, rids):
         rids).fetchall()
 
 
-def _return_form_valid(form):
+def _return_location_for(form, r):
+    """Miejsce przyjęcia – per pozycja (zbiorczo) albo wspólne pole."""
+    loc = (form.get(f"item_return_location_{r['id']}") or "").strip()
+    if not loc:
+        loc = (form.get("return_location") or "").strip()
+    return loc
+
+
+def _return_form_valid(form, r=None):
     """Magazyn, miejsce i oddający wymagani przy zwrocie na magazyn; przy samej utylizacji – nie."""
     if form.get("dispose"):
         return True
     wid = (form.get("return_warehouse_id") or "").strip()
     returner = (form.get("returner") or "").strip()
-    loc = (form.get("return_location") or "").strip()
+    loc = _return_location_for(form, r) if r is not None else (form.get("return_location") or "").strip()
     return wid.isdigit() and bool(returner) and bool(loc)
 
 
@@ -1269,7 +1277,7 @@ def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage
     if r["status"] != "wydane":
         return False
     wid = int((form.get("return_warehouse_id") or "").strip())
-    loc = (form.get("return_location") or "").strip()
+    loc = _return_location_for(form, r)
     raw_returner = (form.get("returner") or "").strip() or (r["receiver"] or "")
     returner = resolve_returner(raw_returner)
     try:
@@ -1353,7 +1361,7 @@ def _apply_return(con, r, user_id, form, files=None, force_damage=False):
         return False
     if disp_qty and not dispose_notes:
         return False
-    if (ok_qty or dmg_qty) and not _return_form_valid(form):
+    if (ok_qty or dmg_qty) and not _return_form_valid(form, r):
         return False
     process = ok_qty + dmg_qty + disp_qty
     r, _stays = _split_partial(con, r, process)
@@ -1634,6 +1642,7 @@ def bulk_action(action):
         missing_dmg = []
         missing_disp = []
         bad_qty = []
+        missing_loc = []
         for r in rows:
             parsed = _parse_return_ok_damage_qty(request.form, r)
             if parsed is None:
@@ -1642,6 +1651,8 @@ def bulk_action(action):
             ok, dmg, disp = parsed
             if ok or dmg:
                 need_wh = True
+                if not _return_location_for(request.form, r):
+                    missing_loc.append(r["code"])
             if dmg and not ((request.form.get(f"item_damage_notes_{r['id']}") or "").strip()
                             or (request.form.get("damage_notes") or "").strip()):
                 missing_dmg.append(r["code"])
@@ -1668,9 +1679,9 @@ def bulk_action(action):
             con.close()
             flash("Wybierz, kto oddaje towar.", "error")
             return redirect(url_for("reservations"))
-        if need_wh and not (request.form.get("return_location") or "").strip():
+        if missing_loc:
             con.close()
-            flash("Potwierdź miejsce w magazynie (pole wymagane).", "error")
+            flash("Potwierdź miejsce w magazynie dla: " + ", ".join(missing_loc) + ".", "error")
             return redirect(url_for("reservations"))
     done_ids = []
     returned_ids = []

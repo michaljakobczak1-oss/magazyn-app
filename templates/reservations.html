@@ -37,7 +37,7 @@
                data-code="{{ r.code }}" data-name="{{ r.name|e }}" data-qty="{{ r.quantity }}"
                data-receiver="{{ r.receiver or '' }}"
                data-issue-wh="{{ r.issue_warehouse_name or '' }}"
-               data-location="{{ (r.location or r.issue_location or '')|e }}"></td>
+               data-location="{{ (r.issue_location or r.location or '')|e }}"></td>
     <td class="card-thumb">{{ thumb(r.photo) }}</td>
     <td class="card-main" data-label="Sprzęt"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a><br><span style="font-size:12px;color:#666;">{{ r.name }}</span>
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
@@ -225,9 +225,6 @@
           <option value="{{ w.id }}">{{ w.name }}</option>
           {% endfor %}
         </select>
-        <label>Miejsce w magazynie (potwierdź) *</label>
-        <input id="rm-location-bulk" placeholder="np. Regał B2" required>
-        <p id="rm-location-bulk-hint" style="font-size:12px;color:#666;margin:4px 0 0;display:none;">Z kart produktów – sprawdź lub popraw.</p>
         <label>Oddaje towar *</label>
         <select id="rm-returner-bulk" required>
           <option value="" disabled selected>– wybierz –</option>
@@ -524,6 +521,13 @@ function syncReturnModalUI(){
       if (dmgBox) dmgBox.style.display = (dmg > 0 && disp === 0) ? 'block' : 'none';
       const dispBox = row.querySelector('.rm-item-dispose-fields');
       if (dispBox) dispBox.style.display = disp > 0 ? 'block' : 'none';
+      const locBox = row.querySelector('.rm-item-location-fields');
+      const locInp = row.querySelector('.rm-item-location');
+      if (locBox) locBox.style.display = (ok > 0 || dmg > 0) ? 'block' : 'none';
+      if (locInp) {
+        locInp.disabled = !(ok > 0 || dmg > 0);
+        locInp.required = (ok > 0 || dmg > 0);
+      }
       if (disp > 0 && (ok > 0 || dmg > 0)) {
         row.style.borderColor = '#f59e0b';
         row.style.background = '#fffbeb';
@@ -545,10 +549,8 @@ function syncReturnModalUI(){
     else if (anyDispose) btn = 'Oznacz jako utylizacja';
     else if (anyDamage) btn = 'Przyjmij zwrot (z uszkodzeniem)';
     document.getElementById('rm-submit').textContent = btn;
-    const locBulk = document.getElementById('rm-location-bulk');
     const whBulk = document.getElementById('rm-warehouse-bulk');
     const retBulk = document.getElementById('rm-returner-bulk');
-    if (locBulk) { locBulk.disabled = !anyReturn; locBulk.required = anyReturn; }
     if (whBulk) whBulk.disabled = !anyReturn;
     if (retBulk) retBulk.disabled = !anyReturn;
     return;
@@ -627,10 +629,8 @@ function prepareBulkSubmit(){
     if (el) el.disabled = true;
   });
   const wh = document.getElementById('rm-warehouse-bulk');
-  const loc = document.getElementById('rm-location-bulk');
   const ret = document.getElementById('rm-returner-bulk');
   if (wh.value) addHidden('return_warehouse_id', wh.value);
-  if (loc.value) addHidden('return_location', loc.value);
   if (ret && ret.value) addHidden('returner', ret.value);
 }
 
@@ -678,8 +678,6 @@ function resetReturnModal(){
   if (photo) photo.value = '';
   document.getElementById('rm-warehouse-bulk').selectedIndex = 0;
   document.getElementById('rm-warehouse-bulk').value = '';
-  document.getElementById('rm-location-bulk').value = '';
-  document.getElementById('rm-location-bulk-hint').style.display = 'none';
   const retBulk = document.getElementById('rm-returner-bulk');
   retBulk.selectedIndex = 0; retBulk.value = '';
   document.getElementById('rm-damage-notes-bulk').value = '';
@@ -712,6 +710,14 @@ function validateReturnForm(){
         return false;
       }
       if (ok > 0 || dmg > 0) anyReturn = true;
+      if (ok > 0 || dmg > 0) {
+        const locInp = row.querySelector('.rm-item-location');
+        if (!locInp || !(locInp.value || '').trim()) {
+          err.textContent = 'Potwierdź miejsce w magazynie dla każdej pozycji wracającej na magazyn.';
+          err.style.display = 'block';
+          return false;
+        }
+      }
       if (dmg > 0) {
         const ta = row.querySelector('.rm-item-damage-notes');
         if (!ta || !ta.value.trim()) {
@@ -736,11 +742,6 @@ function validateReturnForm(){
     }
     if (anyReturn && !document.getElementById('rm-returner-bulk').value) {
       err.textContent = 'Wybierz, kto oddaje towar.';
-      err.style.display = 'block';
-      return false;
-    }
-    if (anyReturn && !(document.getElementById('rm-location-bulk').value || '').trim()) {
-      err.textContent = 'Potwierdź miejsce w magazynie (pole wymagane).';
       err.style.display = 'block';
       return false;
     }
@@ -906,6 +907,11 @@ function openReturnBulk(){
       '" value="0" style="width:72px;margin-top:4px;" oninput="onBulkReturnQtyChange(this, \'dispose\')"></label>' +
       '<span style="font-size:12px;color:#666;padding-bottom:8px;">z ' + maxQty + '</span>' +
       '</div>' +
+      '<div class="rm-item-location-fields" style="margin-top:10px;padding-top:8px;border-top:1px dashed #ddd;">' +
+      '<label style="font-weight:400;margin-top:0;">Miejsce w magazynie (potwierdź) *</label>' +
+      '<input type="text" name="item_return_location_' + cb.value + '" class="rm-item-location" placeholder="np. Regał B2" required style="width:100%;max-width:280px;margin-top:4px;">' +
+      '<p style="font-size:11px;color:#666;margin:4px 0 0;">Z karty produktu – sprawdź lub popraw.</p>' +
+      '</div>' +
       '<div class="rm-item-damage-fields" style="display:none;margin-top:10px;padding-top:8px;border-top:1px dashed #fca5a5;">' +
       '<label style="font-weight:400;margin-top:0;">Opis uszkodzenia *</label>' +
       '<textarea name="item_damage_notes_' + cb.value + '" class="rm-item-damage-notes" rows="2" placeholder="np. pęknięta ścianka"></textarea>' +
@@ -916,16 +922,10 @@ function openReturnBulk(){
       '<label style="font-weight:400;margin-top:0;">Powód utylizacji *</label>' +
       '<textarea name="item_dispose_notes_' + cb.value + '" class="rm-item-dispose-notes" rows="2" placeholder="np. zniszczone na evencie"></textarea>' +
       '</div>';
+    const locInp = row.querySelector('.rm-item-location');
+    if (locInp) locInp.value = (cb.getAttribute('data-location') || '').trim();
     itemsBox.appendChild(row);
   });
-  const locs = checked.map(function(cb){ return (cb.getAttribute('data-location') || '').trim(); }).filter(Boolean);
-  const uniqLocs = Array.from(new Set(locs));
-  const bulkLoc = (uniqLocs.length === 1) ? uniqLocs[0] : (locs[0] || '');
-  setReturnLocationInput(
-    document.getElementById('rm-location-bulk'),
-    document.getElementById('rm-location-bulk-hint'),
-    bulkLoc
-  );
   document.getElementById('return-form').action = '{{ url_for("bulk_action", action="return") }}';
   syncReturnModalUI();
   document.getElementById('return-modal').style.display = 'flex';
