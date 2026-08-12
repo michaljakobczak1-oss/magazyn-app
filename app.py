@@ -1279,9 +1279,7 @@ def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage
         eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
                          (r["equipment_id"],)).fetchone()
         if eq and eq["warehouse_id"]:
-            issue_loc = eq["loc"] or ""
-            if issue_loc and ("," in issue_loc or " szt" in issue_loc.lower()):
-                issue_loc = ""
+            issue_loc = _location_from_stock(con, r["equipment_id"], eq["warehouse_id"])
             con.execute("""UPDATE reservations SET issue_warehouse_id=?, issue_location=?
                            WHERE id=?""", (eq["warehouse_id"], issue_loc, r["id"]))
     now = local_now().isoformat(timespec="seconds")
@@ -1388,11 +1386,80 @@ def _apply_return(con, r, user_id, form, files=None, force_damage=False):
     return done_ids
 
 
-def _apply_issue(con, r, user_id, permanent=None):
+def _is_aggregate_location(loc):
+    """True dla sklejonych opisów multi-magazyn (nie pojedynczego miejsca, np. „RP 5, P 1”)."""
+    loc = (loc or "").strip()
+    if not loc:
+        return False
+    if " szt" in loc.lower():
+        return True
+    # stock_summary: „Perła/lok: 2, Stalowa: 1”
+    return bool(re.search(r":\s*\d+", loc) and "," in loc)
+
+
+def _location_from_stock(con, equipment_id, warehouse_id):
+    """Miejsce w magazynie przy wydaniu – z wiersza stock, nie ze sklejonego opisu."""
+    if not warehouse_id:
+        return ""
+    row = con.execute(
+        """SELECT IFNULL(location,'') loc FROM equipment_stock
+           WHERE equipment_id=? AND warehouse_id=? AND quantity > 0
+           ORDER BY quantity DESC, id LIMIT 1""",
+        (equipment_id, warehouse_id)).fetchone()
+    if row:
+        return (row["loc"] or "").strip()
+    eq = con.execute(
+        "SELECT IFNULL(location,'') loc FROM equipment WHERE id=?",
+        (equipment_id,)).fetchone()
+    loc = (eq["loc"] or "").strip() if eq else ""
+    return "" if _is_aggregate_location(loc) else loc
+
+
+def _pdf_location(eq, preferred=""):
+    """Miejsce w magazynie do PDF – preferowane pole rezerwacji, potem stan sprzętu."""
+    loc = (preferred or "").strip()
+    if loc and not _is_aggregate_location(loc):
+        return loc
+    fallback = (eq.get("location") or "").strip()
+    if fallback and not _is_aggregate_location(fallback):
+        return fallback
+    return loc or fallback or ""
+
+
+def _effective_issue_date_from(r):
+    """Start rezerwacji przy wydaniu (przyszły start → dziś)."""
+    today = local_today().isoformat()
+    date_from = r["date_from"]
+    if date_from > today:
+        date_from = today
+    return date_from
+
+
+def _validate_return_date(con, r, new_to, exclude_id=None):
+    """Sprawdza nowy termin zwrotu (kolizje z innymi rezerwacjami)."""
+    date_from = _effective_issue_date_from(r) if r["status"] == "rezerwacja" else r["date_from"]
+    if not valid_dates(date_from, new_to):
+        return False, "Nieprawidłowa data zwrotu (musi być ≥ daty rozpoczęcia)."
+    eid = r["equipment_id"]
+    eq = con.execute("SELECT quantity, code FROM equipment WHERE id=?", (eid,)).fetchone()
+    if not eq:
+        return False, "Brak sprzętu."
+    rid = r["id"] if exclude_id is None else exclude_id
+    taken = reserved_qty(con, eid, date_from, new_to, exclude_id=rid)
+    free = _usable_qty(eq) - taken
+    if r["quantity"] > free or handoff_conflict(con, eid, date_from, new_to, exclude_id=rid):
+        return False, (
+            f"Niedostępny w tych dniach – jest już rezerwacja ({eq['code']}, zwrot {new_to})."
+        )
+    return True, None
+
+
+def _apply_issue(con, r, user_id, permanent=None, date_to=None):
     """Oznacza rezerwację jako wydaną.
 
     permanent=None → bierze flagę z rezerwacji (checkbox przy tworzeniu).
     Przy permanent=True towar schodzi ze stanu i nie wraca.
+    date_to: opcjonalny nowy termin zwrotu (walidacja kolizji przed wywołaniem).
     """
     if r["status"] != "rezerwacja":
         return False
@@ -1401,10 +1468,11 @@ def _apply_issue(con, r, user_id, permanent=None):
     else:
         permanent = bool(permanent)
     now = local_now()
-    today = now.date().isoformat()
-    date_from = r["date_from"]
-    if date_from > today:
-        date_from = today
+    date_from = _effective_issue_date_from(r)
+    if date_to is None:
+        date_to = r["date_to"]
+    if not valid_dates(date_from, date_to):
+        return False
     status = "wydane trwale" if permanent else "wydane"
     if permanent:
         eq = con.execute("SELECT quantity, warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
@@ -1428,14 +1496,11 @@ def _apply_issue(con, r, user_id, permanent=None):
         eq = con.execute("SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
                          (r["equipment_id"],)).fetchone()
     issue_wid = eq["warehouse_id"] if eq else None
-    issue_loc = (eq["loc"] if eq else "") or ""
-    # nie zapisuj sklejonych multi-lokalizacji jako miejsca wydania
-    if issue_loc and ("," in issue_loc or " szt" in issue_loc.lower()):
-        issue_loc = ""
+    issue_loc = _location_from_stock(con, r["equipment_id"], issue_wid)
     con.execute("""UPDATE reservations SET status=?, issued_at=?, issued_by=?,
-                   date_from=?, permanent=?,
+                   date_from=?, date_to=?, permanent=?,
                    issue_warehouse_id=?, issue_location=? WHERE id=?""",
-                (status, now.isoformat(timespec="seconds"), user_id, date_from,
+                (status, now.isoformat(timespec="seconds"), user_id, date_from, date_to,
                  1 if permanent else 0, issue_wid, issue_loc, r["id"]))
     return True
 
@@ -1470,6 +1535,7 @@ def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, re
     if not eq:
         return None
     eq = dict(eq)
+    eq["equipment_location"] = (eq.get("location") or "").strip()
 
     issue_wid = None
     issue_loc = ""
@@ -1490,8 +1556,7 @@ def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, re
     if kind == "wydanie" and eq.get("issue_warehouse_name"):
         eq["warehouse_name"] = eq["issue_warehouse_name"]
         eq["warehouse_address"] = eq.get("issue_warehouse_address") or ""
-        if "issue_location" in eq:
-            eq["location"] = eq["issue_location"]
+        eq["location"] = _pdf_location(eq, issue_loc)
         return eq
 
     if kind != "przyjecie":
@@ -1507,15 +1572,17 @@ def _eq_for_pdf(con, equipment_id, kind=None, reservation=None, ret_wid=None, re
             wid = None
             loc = None
     if not wid:
+        eq["location"] = _pdf_location(eq, issue_loc)
         return eq
 
     ret_wh = con.execute("SELECT name, address FROM warehouses WHERE id=?",
                          (wid,)).fetchone()
     if not ret_wh:
+        eq["location"] = _pdf_location(eq, loc or issue_loc)
         return eq
     eq["warehouse_name"] = ret_wh["name"]
     eq["warehouse_address"] = ret_wh["address"] or ""
-    eq["location"] = (loc or "").strip()
+    eq["location"] = _pdf_location(eq, loc)
     return eq
 
 
@@ -1747,6 +1814,13 @@ def issue(rid):
         con.close()
         flash("Można wydać tylko aktywną rezerwację.", "error")
         return redirect(request.referrer or url_for("reservations"))
+    new_to = (request.form.get("date_to") or "").strip() or r["date_to"]
+    if new_to != r["date_to"]:
+        ok_to, to_err = _validate_return_date(con, r, new_to)
+        if not ok_to:
+            con.close()
+            flash(to_err, "error")
+            return redirect(request.referrer or url_for("reservations"))
     is_perm = bool(r["permanent"]) if "permanent" in r.keys() else False
     if is_perm:
         eq = con.execute("SELECT quantity FROM equipment WHERE id=?",
@@ -1755,7 +1829,7 @@ def issue(rid):
             con.close()
             flash(f"Brak stanu magazynowego ({r['quantity']} szt. wymagane).", "error")
             return redirect(request.referrer or url_for("reservations"))
-    if not _apply_issue(con, r, session["user_id"]):
+    if not _apply_issue(con, r, session["user_id"], date_to=new_to):
         con.close()
         flash("Nie udało się wydać rezerwacji.", "error")
         return redirect(request.referrer or url_for("reservations"))
@@ -1774,6 +1848,8 @@ def issue(rid):
         msg = "Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…"
     else:
         msg = "Oznaczono jako wydane. Pobieranie PDF…"
+    if new_to != r["date_to"]:
+        msg = f"Termin zwrotu {new_to}. " + msg
     flash(msg, "ok")
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
 
@@ -1895,25 +1971,15 @@ def change_return_date(rid):
         return respond(False, "Termin zwrotu można zmienić tylko dla wydanego sprzętu.", 400)
 
     new_to = (request.form.get("date_to") or "").strip()
-    if not valid_dates(r["date_from"], new_to):
-        con.close()
-        return respond(False, "Nieprawidłowa data zwrotu (musi być ≥ daty rozpoczęcia).", 400)
     if new_to == r["date_to"]:
         con.close()
         return respond(True, "Termin zwrotu bez zmian.")
-
-    eid = r["equipment_id"]
-    eq = con.execute("SELECT quantity, code FROM equipment WHERE id=?", (eid,)).fetchone()
-    taken = reserved_qty(con, eid, r["date_from"], new_to, exclude_id=rid)
-    free = _usable_qty(eq) - taken
-    if r["quantity"] > free or handoff_conflict(con, eid, r["date_from"], new_to, exclude_id=rid):
+    ok_to, to_err = _validate_return_date(con, r, new_to)
+    if not ok_to:
         con.close()
-        return respond(
-            False,
-            f"Niedostępny w tych dniach – jest już rezerwacja ({eq['code']}, zwrot {new_to}).",
-            409,
-        )
+        return respond(False, to_err, 409)
 
+    eq = con.execute("SELECT code FROM equipment WHERE id=?", (r["equipment_id"],)).fetchone()
     old_to = r["date_to"]
     con.execute("UPDATE reservations SET date_to=? WHERE id=?", (new_to, rid))
     con.commit()

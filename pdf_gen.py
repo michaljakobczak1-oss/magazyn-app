@@ -98,6 +98,15 @@ def _get(row, key):
         return None
 
 
+def _storage_location_for_pdf(eq):
+    """Miejsce w magazynie na WZ/PZ – kilka źródeł, gdy issue/return puste."""
+    for key in ("location", "issue_location", "equipment_location"):
+        val = (_get(eq, key) or "").strip()
+        if val:
+            return val
+    return "-"
+
+
 def _fmt_ts(val):
     """2026-07-20T16:45:00 → '2026-07-20 16:45' (jak w tabeli)."""
     if not val:
@@ -314,10 +323,10 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
     if kind == "przyjecie":
         left.append(("Magazyn wydania", issue_txt))
         left.append(("Magazyn przyjęcia", wh_txt))
-        left.append(("Miejsce w magazynie", eq["location"] or "-"))
+        left.append(("Miejsce w magazynie", _storage_location_for_pdf(eq)))
     else:
         left.append(("Magazyn", wh_txt))
-        left.append(("Miejsce w magazynie", eq["location"] or "-"))
+        left.append(("Miejsce w magazynie", _storage_location_for_pdf(eq)))
     left.extend([
         ("Własność", eq["owner"] or "-"),
         ("Brand", _get(eq, "brand") or "-"),
