@@ -124,12 +124,11 @@
       {% set can_m = r.id in manage_ids %}
       {% if can_m and r.status == 'rezerwacja' %}
         {% if r.permanent %}
-        <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"
-              onsubmit="return confirm('Wydanie trwałe – towar zostanie odjęty ze stanu. Kontynuować?');">
-          <button class="btn small" style="background:#3949ab;color:#fff;">Wydaj trwale</button>
-        </form>
+        <button type="button" class="btn small js-issue-btn" style="background:#3949ab;color:#fff;"
+                data-rid="{{ r.id }}" data-code="{{ eq.code }}" data-from="{{ r.date_from }}" data-to="{{ r.date_to }}" data-permanent="1">Wydaj trwale</button>
         {% else %}
-        <form class="inline" method="post" action="{{ url_for('issue', rid=r.id) }}"><button class="btn small ok">Wydaj</button></form>
+        <button type="button" class="btn small ok js-issue-btn"
+                data-rid="{{ r.id }}" data-code="{{ eq.code }}" data-from="{{ r.date_from }}" data-to="{{ r.date_to }}" data-permanent="0">Wydaj</button>
         {% endif %}
       {% endif %}
       {% if r.status == 'rezerwacja' and (r.user_id == session.user_id or session.role == 'admin') %}
@@ -139,8 +138,9 @@
       {% endif %}
     </td>
     <td class="card-actions" data-label="Dokumenty">
-      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
-      {% if r.status == 'zwrócone' %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF przyjęcia</a>{% endif %}
+      {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
+      {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
+      {% if r.xbs_awizacja_json %}<a class="btn small pdf-btn" href="{{ url_for('reservation_xbs', rid=r.id) }}">XBS awizacja</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -148,4 +148,105 @@
   {% endfor %}
   </tbody>
 </table>
+
+{% include "_issue_modal.html" %}
+{% endblock %}
+{% block scripts %}
+<script>
+const ISSUE_TODAY = {{ today|tojson }};
+let issueDateFrom = '';
+
+function effectiveIssueFrom(dateFrom){
+  if (ISSUE_TODAY && dateFrom > ISSUE_TODAY) return ISSUE_TODAY;
+  return dateFrom;
+}
+function syncXbsFields(){
+  const on = document.getElementById('im-xbs-toggle').checked;
+  document.getElementById('im-xbs-fields').style.display = on ? 'block' : 'none';
+  document.getElementById('im-xbs-date').required = on;
+}
+function resetXbsFields(){
+  document.getElementById('im-xbs-toggle').checked = false;
+  ['im-xbs-supplier','im-xbs-supplier-person','im-xbs-supplier-phone','im-xbs-supplier-address',
+   'im-xbs-order','im-xbs-qty-pallet','im-xbs-weight','im-xbs-pallets','im-xbs-date','im-xbs-time',
+   'im-xbs-carrier','im-xbs-plate','im-xbs-notes'].forEach(function(id){
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const mat = document.getElementById('im-xbs-material');
+  if (mat) mat.value = '';
+  syncXbsFields();
+}
+function openIssue(rid, code, dateFrom, dateTo, permanent){
+  issueDateFrom = dateFrom || '';
+  document.getElementById('im-heading').textContent = permanent ? 'Wydanie trwałe' : 'Wydanie';
+  document.getElementById('im-code').textContent = code || '';
+  document.getElementById('im-planned').textContent = (dateFrom || '–') + ' – ' + (dateTo || '–');
+  document.getElementById('im-perm-note').style.display = permanent ? 'block' : 'none';
+  document.getElementById('im-date-wrap').style.display = permanent ? 'none' : 'block';
+  const inp = document.getElementById('im-date');
+  if (permanent) {
+    inp.required = false;
+    inp.disabled = true;
+    inp.removeAttribute('name');
+  } else {
+    inp.disabled = false;
+    inp.name = 'date_to';
+    inp.required = true;
+    const effFrom = effectiveIssueFrom(dateFrom);
+    inp.min = effFrom || '';
+    inp.removeAttribute('max');
+    inp.value = dateTo || '';
+  }
+  document.getElementById('im-error').style.display = 'none';
+  document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
+  document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
+  resetXbsFields();
+  document.getElementById('issue-modal').style.display = 'flex';
+}
+function closeIssue(){
+  document.getElementById('issue-modal').style.display = 'none';
+}
+function showIssueError(msg){
+  const err = document.getElementById('im-error');
+  err.textContent = msg;
+  err.style.display = 'block';
+}
+document.getElementById('issue-form').addEventListener('submit', function(e){
+  if (document.getElementById('im-xbs-toggle').checked) {
+    const d = (document.getElementById('im-xbs-date').value || '').trim();
+    if (!d) {
+      e.preventDefault();
+      showIssueError('Awizacja XBS: podaj datę dostawy.');
+      return;
+    }
+  }
+  const inp = document.getElementById('im-date');
+  if (inp.name === 'date_to') {
+    if (!inp.value) {
+      e.preventDefault();
+      showIssueError('Podaj termin zwrotu.');
+      return;
+    }
+    const minFrom = effectiveIssueFrom(issueDateFrom);
+    if (minFrom && inp.value < minFrom) {
+      e.preventDefault();
+      showIssueError('Termin zwrotu nie może być wcześniejszy niż start (' + minFrom + ').');
+      return;
+    }
+  }
+});
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.js-issue-btn');
+  if (!btn) return;
+  e.preventDefault();
+  openIssue(
+    parseInt(btn.dataset.rid, 10),
+    btn.dataset.code || '',
+    btn.dataset.from || '',
+    btn.dataset.to || '',
+    btn.dataset.permanent === '1'
+  );
+});
+</script>
 {% endblock %}
