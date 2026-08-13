@@ -1721,9 +1721,12 @@ def _pdf_for_rids(con, kind, rids, ret_wid=None, ret_loc=None):
     return buf, name
 
 
-@app.route("/reservations/bulk/<action>", methods=["POST"])
+@app.route("/reservations/bulk/<action>", methods=["GET", "POST"])
 @login_required
 def bulk_action(action):
+    if request.method == "GET":
+        flash("Operacja zbiorcza wymaga ponownego zatwierdzenia z listy.", "error")
+        return redirect(url_for("reservations"))
     if action not in ("issue", "return"):
         abort(404)
     con = get_db()
@@ -1920,9 +1923,13 @@ def purge_all_reservations():
     return redirect(url_for("reservations"))
 
 
-@app.route("/reservations/<int:rid>/issue", methods=["POST"])
+@app.route("/reservations/<int:rid>/issue", methods=["GET", "POST"])
 @login_required
 def issue(rid):
+    if request.method == "GET":
+        # Odświeżenie / wejście GET po POST nie może kończyć się 405 Method Not Allowed
+        flash("Aby wydać sprzęt, użyj przycisku „Wydaj” na liście rezerwacji.", "error")
+        return redirect(url_for("reservations"))
     con = get_db()
     r = _get_reservation(con, rid)
     if not can_manage_reservation(r):
