@@ -179,6 +179,8 @@ MIGRATIONS = {
         "issue_warehouse_id": "INTEGER REFERENCES warehouses(id)",
         "issue_location": "TEXT",
         "returner": "TEXT",
+        "xbs_awizacja_json": "TEXT",
+        "xbs_batch_id": "TEXT",
     },
     "recipients": {
         "city": "TEXT",

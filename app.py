@@ -25,6 +25,9 @@ from export_excel import (
     build_catalog_import_xlsx,
     export_photo_zip_names,
 )
+from xbs_awizacja import (
+    build_xbs_awizacja_xlsx, xbs_filename, MATERIAL_OPTIONS,
+)
 import tempfile
 import shutil
 import zipfile
@@ -1272,6 +1275,95 @@ def _parse_return_ok_damage_qty(form, r, force_damage=False):
     return qty, 0, 0
 
 
+def _parse_xbs_form(form):
+    """Zwraca dict meta awizacji XBS albo None, jeśli opcja wyłączona / niepoprawna."""
+    if (form.get("xbs_awizacja") or "").strip() not in ("1", "on", "true", "yes"):
+        return None
+    delivery_date = (form.get("xbs_delivery_date") or "").strip()
+    if not delivery_date:
+        return False  # wymagane
+    material = (form.get("xbs_material") or "").strip()
+    if material and material not in MATERIAL_OPTIONS:
+        material = ""
+    return {
+        "supplier": (form.get("xbs_supplier") or "").strip(),
+        "supplier_person": (form.get("xbs_supplier_person") or "").strip(),
+        "supplier_phone": (form.get("xbs_supplier_phone") or "").strip(),
+        "supplier_address": (form.get("xbs_supplier_address") or "").strip(),
+        "order_no": (form.get("xbs_order_no") or "").strip(),
+        "delivery_date": delivery_date,
+        "delivery_time": (form.get("xbs_delivery_time") or "").strip(),
+        "notes": (form.get("xbs_notes") or "").strip(),
+        "carrier": (form.get("xbs_carrier") or "").strip(),
+        "plate": (form.get("xbs_plate") or "").strip(),
+        "qty_per_pallet": (form.get("xbs_qty_per_pallet") or "").strip(),
+        "weight": (form.get("xbs_weight") or "").strip(),
+        "material": material,
+        "pallets": (form.get("xbs_pallets") or "").strip(),
+    }
+
+
+def _store_xbs_session(rids, meta):
+    session["xbs_awizacja"] = {
+        "rids": [int(x) for x in rids],
+        "meta": meta,
+    }
+
+
+def _save_xbs_on_reservations(con, rids, meta):
+    """Zapisuje dane awizacji XBS przy rezerwacjach (do ponownego pobrania jak WZ/PZ)."""
+    if not rids or not meta:
+        return None
+    batch_id = uuid.uuid4().hex
+    payload = json.dumps(meta, ensure_ascii=False)
+    for rid in rids:
+        con.execute(
+            """UPDATE reservations SET xbs_awizacja_json=?, xbs_batch_id=? WHERE id=?""",
+            (payload, batch_id, int(rid)),
+        )
+    return batch_id
+
+
+def _xbs_meta_from_row(r):
+    raw = None
+    try:
+        raw = r["xbs_awizacja_json"]
+    except (KeyError, IndexError, TypeError):
+        raw = None
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _xbs_items_for_rids(con, rids):
+    items = []
+    for rid in rids:
+        row = con.execute(
+            """SELECT e.code, e.name, r.quantity
+               FROM reservations r JOIN equipment e ON e.id=r.equipment_id
+               WHERE r.id=?""",
+            (rid,),
+        ).fetchone()
+        if row:
+            items.append({
+                "code": row["code"],
+                "name": row["name"],
+                "quantity": row["quantity"],
+            })
+    return items
+
+
+def _xbs_file_response(con, rids, meta):
+    items = _xbs_items_for_rids(con, rids)
+    if not items or not meta:
+        return None
+    buf = build_xbs_awizacja_xlsx(items, meta)
+    return buf, xbs_filename(local_now().strftime("%Y%m%d_%H%M"))
+
+
 def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage_notes=""):
     """Zamyka jedną rezerwację jako zwrot (cała quantity wiersza)."""
     if r["status"] != "wydane":
@@ -1723,6 +1815,11 @@ def bulk_action(action):
                     done_ids.append(did)
             elif r["status"] == "wydane":
                 stock_err.append(r["code"])
+    xbs_meta = None
+    if action == "issue" and done_ids:
+        xbs_meta = _parse_xbs_form(request.form)
+        if xbs_meta:
+            _save_xbs_on_reservations(con, done_ids, xbs_meta)
     con.commit()
     if stock_err:
         flash(f"Brak stanu magazynowego / nie udało się dla: {', '.join(stock_err)}.", "error")
@@ -1753,6 +1850,12 @@ def bulk_action(action):
                                     ret_wid=ret_wid, ret_loc=ret_loc))
         return redirect(url_for("reservations"))
     flash(f"Wydano: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
+    if xbs_meta is False:
+        flash("Awizacja XBS: podaj datę dostawy.", "error")
+        return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
+    if xbs_meta:
+        _store_xbs_session(done_ids, xbs_meta)
+        return redirect(url_for("reservations", auto_pdf="wydanie", auto_xbs="1", rid=done_ids))
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
 
 
@@ -1849,6 +1952,9 @@ def issue(rid):
         con.close()
         flash("Nie udało się wydać rezerwacji.", "error")
         return redirect(request.referrer or url_for("reservations"))
+    xbs_meta = _parse_xbs_form(request.form)
+    if xbs_meta:
+        _save_xbs_on_reservations(con, [rid], xbs_meta)
     con.commit()
     archived = False
     if is_perm:
@@ -1867,6 +1973,12 @@ def issue(rid):
     if new_to != r["date_to"]:
         msg = f"Termin zwrotu {new_to}. " + msg
     flash(msg, "ok")
+    if xbs_meta is False:
+        flash("Awizacja XBS: podaj datę dostawy.", "error")
+        return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
+    if xbs_meta:
+        _store_xbs_session([rid], xbs_meta)
+        return redirect(url_for("reservations", auto_pdf="wydanie", auto_xbs="1", rid=rid))
     return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
 
 
@@ -1943,6 +2055,77 @@ def auto_pdf(kind):
     buf, name = result
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
                      download_name=name)
+
+
+@app.route("/reservations/auto-xbs")
+@login_required
+def auto_xbs():
+    """Pobiera wypełniony formularz awizacyjny XBS zaraz po wydaniu."""
+    payload = session.pop("xbs_awizacja", None)
+    if not payload or not payload.get("rids"):
+        flash("Brak danych awizacji XBS.", "error")
+        return redirect(url_for("reservations"))
+    con = get_db()
+    try:
+        result = _xbs_file_response(con, payload["rids"], payload.get("meta") or {})
+    except Exception as exc:
+        con.close()
+        flash(f"Nie udało się wygenerować awizacji XBS: {exc}", "error")
+        return redirect(url_for("reservations"))
+    con.close()
+    if not result:
+        flash("Brak pozycji do awizacji XBS.", "error")
+        return redirect(url_for("reservations"))
+    buf, name = result
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=name,
+    )
+
+
+@app.route("/reservations/<int:rid>/xbs")
+@login_required
+def reservation_xbs(rid):
+    """Ponowne pobranie awizacji XBS (jak PDF WZ/PZ) – pełna paczka batcha jeśli była zbiorcza."""
+    con = get_db()
+    r = _get_reservation(con, rid)
+    meta = _xbs_meta_from_row(r)
+    if not meta:
+        con.close()
+        flash("Brak zapisanej awizacji XBS dla tej rezerwacji.", "error")
+        return redirect(url_for("reservations"))
+    batch = None
+    try:
+        batch = r["xbs_batch_id"]
+    except (KeyError, IndexError, TypeError):
+        batch = None
+    if batch:
+        rows = con.execute(
+            "SELECT id FROM reservations WHERE xbs_batch_id=? ORDER BY id",
+            (batch,),
+        ).fetchall()
+        rids = [row["id"] for row in rows]
+    else:
+        rids = [rid]
+    try:
+        result = _xbs_file_response(con, rids, meta)
+    except Exception as exc:
+        con.close()
+        flash(f"Nie udało się wygenerować awizacji XBS: {exc}", "error")
+        return redirect(url_for("reservations"))
+    con.close()
+    if not result:
+        flash("Brak pozycji do awizacji XBS.", "error")
+        return redirect(url_for("reservations"))
+    buf, name = result
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=name,
+    )
 
 
 @app.route("/reservations/<int:rid>/cancel", methods=["POST"])

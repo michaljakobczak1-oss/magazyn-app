@@ -78,6 +78,7 @@
     <td class="card-actions" data-label="Dokumenty">
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
+      {% if r.xbs_awizacja_json %}<a class="btn small pdf-btn" href="{{ url_for('reservation_xbs', rid=r.id) }}">XBS awizacja</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -99,7 +100,7 @@
 </div>
 
 <div id="issue-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
-  <div class="card" style="width:min(440px, 94vw); margin:auto;">
+  <div class="card" style="width:min(520px, 94vw); margin:auto;">
     <h2 style="margin-top:0;"><span id="im-heading">Wydanie</span> <span id="im-code"></span></h2>
     <p style="font-size:13px; color:#555; margin-top:-6px;">
       Planowany termin: <strong id="im-planned"></strong>
@@ -114,6 +115,55 @@
         <p style="font-size:12px; color:#666; margin:6px 0 0;">Możesz zmienić datę zwrotu, jeśli nie koliduje z innymi rezerwacjami.</p>
       </div>
       <p id="im-bulk-note" style="display:none; font-size:13px; color:#555;">Zbiorcze wydanie z planowanymi terminami zwrotu (bez zmiany dat).</p>
+
+      <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e5e7eb;">
+        <label class="chk" style="display:flex; align-items:center; gap:8px; margin:0; font-weight:600;">
+          <input type="checkbox" name="xbs_awizacja" id="im-xbs-toggle" value="1" style="width:auto;" onchange="syncXbsFields()">
+          Awizacja XBS (Excel)
+        </label>
+        <p style="font-size:12px; color:#666; margin:6px 0 0;">Opcjonalnie: oprócz WZ wygeneruj wypełniony formularz awizacyjny do magazynu zewnętrznego.</p>
+        <div id="im-xbs-fields" style="display:none; margin-top:12px;">
+          <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:#334155;">Dane dostawcy</p>
+          <label>Dostawca</label>
+          <input type="text" name="xbs_supplier" id="im-xbs-supplier" placeholder="np. HOLO Sp. z o.o" value="">
+          <label>Nazwisko</label>
+          <input type="text" name="xbs_supplier_person" id="im-xbs-supplier-person" placeholder="imię i nazwisko" value="">
+          <label>Nr tel. kom.</label>
+          <input type="text" name="xbs_supplier_phone" id="im-xbs-supplier-phone" placeholder="np. 516092091">
+          <label>Adres</label>
+          <input type="text" name="xbs_supplier_address" id="im-xbs-supplier-address" placeholder="ulica; kod miasto">
+          <label>Numer zamówienia klienta</label>
+          <input type="text" name="xbs_order_no" id="im-xbs-order" placeholder="opcjonalnie">
+          <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Dane o dostarczanym produkcie</p>
+          <p style="font-size:11px;color:#666;margin:0 0 8px;">Nazwa, kod i ilość sztuk zaciągną się z wydania. Uzupełnij pozostałe kolumny:</p>
+          <label>Ilość sztuk na palecie / w kartonie</label>
+          <input type="text" name="xbs_qty_per_pallet" id="im-xbs-qty-pallet" placeholder="opcjonalnie">
+          <label>Waga brutto / szt.</label>
+          <input type="text" name="xbs_weight" id="im-xbs-weight" placeholder="opcjonalnie">
+          <label>Rodzaj materiału</label>
+          <select name="xbs_material" id="im-xbs-material">
+            <option value="">– wybierz –</option>
+            <option value="Papier">Papier</option>
+            <option value="Tekstylia">Tekstylia</option>
+            <option value="Spożywcze">Spożywcze</option>
+          </select>
+          <label>Suma palet</label>
+          <input type="text" name="xbs_pallets" id="im-xbs-pallets" placeholder="opcjonalnie">
+          <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Awizacja</p>
+          <label>Data dostawy *</label>
+          <input type="date" name="xbs_delivery_date" id="im-xbs-date">
+          <label>Godzina dostawy</label>
+          <input type="text" name="xbs_delivery_time" id="im-xbs-time" placeholder="np. 10:00">
+          <label>Uwagi</label>
+          <textarea name="xbs_notes" id="im-xbs-notes" rows="2" placeholder="opcjonalnie"></textarea>
+          <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Przewoźnik</p>
+          <label>Przewoźnik</label>
+          <input type="text" name="xbs_carrier" id="im-xbs-carrier" placeholder="opcjonalnie" value="">
+          <label>Nr rejestracyjny samochodu</label>
+          <input type="text" name="xbs_plate" id="im-xbs-plate" placeholder="opcjonalnie">
+        </div>
+      </div>
+
       <p id="im-error" class="flash error" style="display:none; margin-top:10px;"></p>
       <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
         <button class="btn ok" id="im-submit" type="submit">Wydaj</button>
@@ -286,6 +336,31 @@ function effectiveIssueFrom(dateFrom){
   return dateFrom;
 }
 
+function syncXbsFields(){
+  const on = document.getElementById('im-xbs-toggle').checked;
+  document.getElementById('im-xbs-fields').style.display = on ? 'block' : 'none';
+  document.getElementById('im-xbs-date').required = on;
+}
+function resetXbsFields(){
+  const t = document.getElementById('im-xbs-toggle');
+  t.checked = false;
+  document.getElementById('im-xbs-supplier').value = '';
+  document.getElementById('im-xbs-supplier-person').value = '';
+  document.getElementById('im-xbs-supplier-phone').value = '';
+  document.getElementById('im-xbs-supplier-address').value = '';
+  document.getElementById('im-xbs-order').value = '';
+  document.getElementById('im-xbs-qty-pallet').value = '';
+  document.getElementById('im-xbs-weight').value = '';
+  document.getElementById('im-xbs-material').value = '';
+  document.getElementById('im-xbs-pallets').value = '';
+  document.getElementById('im-xbs-date').value = '';
+  document.getElementById('im-xbs-time').value = '';
+  document.getElementById('im-xbs-carrier').value = '';
+  document.getElementById('im-xbs-plate').value = '';
+  document.getElementById('im-xbs-notes').value = '';
+  syncXbsFields();
+}
+
 function openIssue(rid, code, dateFrom, dateTo, permanent){
   issueBulkMode = false;
   issueDateFrom = dateFrom || '';
@@ -306,6 +381,7 @@ function openIssue(rid, code, dateFrom, dateTo, permanent){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
+  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -331,6 +407,7 @@ function openIssueBulk(){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = 'Wydaj zaznaczone';
   document.getElementById('issue-form').action = '{{ url_for("bulk_action", action="issue") }}';
+  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -343,6 +420,14 @@ function showIssueError(msg){
   err.style.display = 'block';
 }
 document.getElementById('issue-form').addEventListener('submit', function(e){
+  if (document.getElementById('im-xbs-toggle').checked) {
+    const d = (document.getElementById('im-xbs-date').value || '').trim();
+    if (!d) {
+      e.preventDefault();
+      showIssueError('Awizacja XBS: podaj datę dostawy.');
+      return;
+    }
+  }
   if (issueBulkMode) {
     document.querySelectorAll('#issue-form input[name="rid"]').forEach(function(el){ el.remove(); });
     document.querySelectorAll('#bulk input[name="rid"]:checked').forEach(function(cb){
@@ -937,13 +1022,23 @@ function openReturnBulk(){
   const parts = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); });
   const retWid = {{ request.args.get('ret_wid', '')|tojson }};
   const retLoc = {{ request.args.get('ret_loc', '')|tojson }};
+  const autoXbs = {{ request.args.get('auto_xbs', '')|tojson }};
   if (retWid) parts.push('ret_wid=' + encodeURIComponent(retWid));
   if (retLoc) parts.push('ret_loc=' + encodeURIComponent(retLoc));
-  const a = document.createElement('a');
-  a.href = '/reservations/auto-pdf/' + kind + '?' + parts.join('&');
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
+  function triggerDownload(href, delayMs){
+    setTimeout(function(){
+      const a = document.createElement('a');
+      a.href = href;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, delayMs || 0);
+  }
+  triggerDownload('/reservations/auto-pdf/' + kind + '?' + parts.join('&'), 0);
+  if (autoXbs === '1' && kind === 'wydanie') {
+    triggerDownload('/reservations/auto-xbs', 700);
+  }
   if (window.history && history.replaceState) {
     history.replaceState(null, '', '{{ url_for("reservations") }}');
   }
