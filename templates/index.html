@@ -130,11 +130,19 @@
 {% endif %}
 
 <form method="get" action="{{ url_for('reserve_multi') }}" id="equip-multi-form">
+<div id="equip-cart-hidden"></div>
 <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <button class="btn" id="reserve-selected-btn" type="submit">Zarezerwuj zaznaczone razem</button>
   <button class="btn ghost" id="export-selected-btn" type="submit"
           formaction="{{ url_for(export_ep) }}" formmethod="post">Eksportuj zaznaczone</button>
-  <span class="desktop-only" style="font-size:13px; color:#666;">– zaznacz pozycje, aby zarezerwować razem albo wyeksportować do Excela z miniaturami</span>
+  <span class="desktop-only" style="font-size:13px; color:#666;">– zaznacz pozycje (zostają w koszyku przy kolejnym wyszukiwaniu)</span>
+</div>
+<div id="equip-cart" class="equip-cart" aria-live="polite">
+  <div class="equip-cart-head">
+    <strong id="equip-cart-count">Koszyk: 0 pozycji</strong>
+    <button type="button" class="btn ghost small" id="equip-cart-clear">Wyczyść koszyk</button>
+  </div>
+  <div class="equip-cart-chips" id="equip-cart-chips"></div>
 </div>
 <table class="data-cards">
   <thead>
@@ -143,7 +151,7 @@
   <tbody>
   {% for it in items %}
   <tr>
-    <td class="card-check"><input type="checkbox" name="eid" value="{{ it.id }}" style="width:auto;"></td>
+    <td class="card-check"><input type="checkbox" name="eid" value="{{ it.id }}" class="equip-pick" data-code="{{ it.code|e }}" data-name="{{ it.name|e }}" style="width:auto;"></td>
     <td class="card-thumb">{{ thumb(it.photo) }}</td>
     <td class="card-main" data-label="Kod">
       <div><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a></div>
@@ -218,16 +226,138 @@
 <script>
 (function(){
   const rail = document.getElementById('float-bulk-rail');
-  if (!rail) return;
-  function sync(){ rail.classList.toggle('visible', window.scrollY > 280); }
-  window.addEventListener('scroll', sync, { passive: true });
-  sync();
   const form = document.getElementById('equip-multi-form');
-  function checkedCount(){
-    return form ? form.querySelectorAll('input[name="eid"]:checked').length : 0;
+  if (rail) {
+    function syncRail(){ rail.classList.toggle('visible', window.scrollY > 280); }
+    window.addEventListener('scroll', syncRail, { passive: true });
+    syncRail();
   }
+  if (!form) return;
+
+  const CATALOG = {{ (catalog or 'main')|tojson }};
+  const KEY = 'magazyn-equip-cart-' + CATALOG;
+  const hiddenBox = document.getElementById('equip-cart-hidden');
+  const cartBox = document.getElementById('equip-cart');
+  const cartCount = document.getElementById('equip-cart-count');
+  const cartChips = document.getElementById('equip-cart-chips');
+
+  function loadCart(){
+    try {
+      const raw = sessionStorage.getItem(KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.filter(function(x){ return x && x.id; }) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function saveCart(items){
+    sessionStorage.setItem(KEY, JSON.stringify(items));
+  }
+  function cartIds(items){
+    return items.map(function(x){ return String(x.id); });
+  }
+  function syncHidden(items){
+    if (!hiddenBox) return;
+    hiddenBox.innerHTML = '';
+    const visible = {};
+    form.querySelectorAll('input.equip-pick').forEach(function(cb){
+      visible[String(cb.value)] = true;
+    });
+    items.forEach(function(it){
+      if (visible[String(it.id)]) return;
+      const h = document.createElement('input');
+      h.type = 'hidden';
+      h.name = 'eid';
+      h.value = String(it.id);
+      hiddenBox.appendChild(h);
+    });
+  }
+  function renderCart(items){
+    if (!cartBox) return;
+    if (!items.length) {
+      cartBox.style.display = 'none';
+      if (cartCount) cartCount.textContent = 'Koszyk: 0 pozycji';
+      if (cartChips) cartChips.innerHTML = '';
+      return;
+    }
+    cartBox.style.display = 'block';
+    const n = items.length;
+    if (cartCount) {
+      cartCount.textContent = 'Koszyk: ' + n + (n === 1 ? ' pozycja' : (n < 5 ? ' pozycje' : ' pozycji'));
+    }
+    if (cartChips) {
+      cartChips.innerHTML = '';
+      items.forEach(function(it){
+        const chip = document.createElement('span');
+        chip.className = 'equip-cart-chip';
+        const label = document.createElement('span');
+        label.textContent = it.code || ('#' + it.id);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Usuń z koszyka');
+        btn.textContent = '×';
+        btn.addEventListener('click', function(){ removeFromCart(String(it.id)); });
+        chip.appendChild(label);
+        chip.appendChild(btn);
+        cartChips.appendChild(chip);
+      });
+    }
+  }
+  function applyCart(items){
+    const ids = cartIds(items);
+    form.querySelectorAll('input.equip-pick').forEach(function(cb){
+      cb.checked = ids.indexOf(String(cb.value)) !== -1;
+    });
+    syncHidden(items);
+    renderCart(items);
+  }
+  function upsertCartFromCheckbox(cb){
+    const items = loadCart();
+    const id = String(cb.value);
+    const idx = items.findIndex(function(x){ return String(x.id) === id; });
+    if (cb.checked) {
+      const row = {
+        id: id,
+        code: (cb.getAttribute('data-code') || '').trim(),
+        name: (cb.getAttribute('data-name') || '').trim()
+      };
+      if (idx === -1) items.push(row);
+      else items[idx] = row;
+    } else if (idx !== -1) {
+      items.splice(idx, 1);
+    }
+    saveCart(items);
+    applyCart(items);
+  }
+  function removeFromCart(id){
+    const items = loadCart().filter(function(x){ return String(x.id) !== String(id); });
+    saveCart(items);
+    applyCart(items);
+  }
+  function clearCart(){
+    saveCart([]);
+    applyCart([]);
+  }
+  function checkedCount(){
+    return loadCart().length;
+  }
+
+  applyCart(loadCart());
+  form.addEventListener('change', function(e){
+    const cb = e.target.closest('input.equip-pick');
+    if (cb) upsertCartFromCheckbox(cb);
+  });
+  const clearBtn = document.getElementById('equip-cart-clear');
+  if (clearBtn) clearBtn.addEventListener('click', clearCart);
+  form.addEventListener('submit', function(e){
+    if (!checkedCount()) {
+      e.preventDefault();
+      alert('Zaznacz przynajmniej jedną pozycję.');
+    }
+  });
+
   const floatBtn = document.getElementById('float-reserve-selected');
-  if (floatBtn && form) {
+  if (floatBtn) {
     floatBtn.addEventListener('click', function(){
       if (!checkedCount()) {
         alert('Zaznacz przynajmniej jedną pozycję.');
@@ -239,7 +369,7 @@
     });
   }
   const floatExport = document.getElementById('float-export-selected');
-  if (floatExport && form) {
+  if (floatExport) {
     floatExport.addEventListener('click', function(){
       if (!checkedCount()) {
         alert('Zaznacz przynajmniej jedną pozycję.');
