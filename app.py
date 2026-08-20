@@ -581,7 +581,7 @@ def _equipment_form_values(form, files, current=None, primary_photo=None):
         form.get("material_type", "klient"),
         form.get("condition", "sprawny"), form.get("condition_notes", "").strip(),
         form.get("storage_instructions", "").strip(),
-        max(1, int(form.get("quantity") or 1)), form["notes"].strip(),
+        max(0, int(form.get("quantity") or 0)), form["notes"].strip(),
     )
 
 

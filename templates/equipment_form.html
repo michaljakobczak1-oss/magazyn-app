@@ -41,7 +41,7 @@
     <label>Notatka o stanie / uszkodzeniach</label>
     <textarea name="condition_notes" rows="2">{{ eq.condition_notes if eq else '' }}</textarea>
     <label>Stan magazynowy (ilość sztuk) *</label>
-    <input name="quantity" type="number" min="1" required value="{{ eq.quantity if eq else 1 }}">
+    <input name="quantity" type="number" min="0" required value="{{ eq.quantity if eq else 1 }}">
     <label>Instrukcje składowania / pakowania (dla logistyki)</label>
     <textarea name="storage_instructions" rows="3" placeholder="np. zawsze na palecie, folia stretch, nie kłaść poziomo">{{ eq.storage_instructions if eq else '' }}</textarea>
     <label>Zdjęcia sprzętu (max 5)</label>
