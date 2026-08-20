@@ -391,12 +391,19 @@ def replace_equipment_stock(con, equipment_id, warehouse_id, location, quantity)
     """Ustawia stan jako jeden magazyn/miejsce (edycja karty / import)."""
     con.execute("DELETE FROM equipment_stock WHERE equipment_id=?", (equipment_id,))
     qty = int(quantity or 0)
+    loc = (location or "").strip()
     if qty > 0:
         con.execute(
             """INSERT INTO equipment_stock (equipment_id, warehouse_id, location, quantity)
                VALUES (?,?,?,?)""",
-            (equipment_id, warehouse_id, (location or "").strip(), qty))
-    sync_equipment_from_stock(con, equipment_id)
+            (equipment_id, warehouse_id, loc, qty))
+        sync_equipment_from_stock(con, equipment_id)
+    else:
+        # Przy zerowym stanie zachowaj magazyn/miejsce z karty (np. „produkt jest, ale 0 szt.”)
+        con.execute(
+            "UPDATE equipment SET quantity=0, warehouse_id=?, location=? WHERE id=?",
+            (warehouse_id, loc, equipment_id),
+        )
 
 
 def _stock_key_clause(warehouse_id, location):
