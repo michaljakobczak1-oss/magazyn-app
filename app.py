@@ -2279,6 +2279,18 @@ def api_recipients():
     return jsonify([dict(r) for r in rows])
 
 
+@app.route("/api/recipients/<int:rid>/delete", methods=["POST"])
+@login_required
+@admin_required
+def api_recipient_delete(rid):
+    """Usuwa adresata ze słownika ostatnich podpowiedzi."""
+    con = get_db()
+    con.execute("DELETE FROM recipients WHERE id=?", (rid,))
+    con.commit()
+    con.close()
+    return jsonify({"ok": True, "id": rid})
+
+
 # ---------- słowniki (admin): magazyny + podwykonawcy ----------
 
 @app.route("/dictionaries")
