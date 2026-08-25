@@ -887,8 +887,14 @@ def reserve(eid):
     form_data = None
     if request.method == "POST":
         form_data = request.form
-        d_from, d_to, permanent = reservation_dates_from_form(request.form)
-        qty = max(1, int(request.form.get("quantity") or 1))
+        try:
+            d_from, d_to, permanent = reservation_dates_from_form(request.form)
+            qty = max(1, int(request.form.get("quantity") or 1))
+        except Exception as exc:
+            flash(f"Nieprawidłowe dane formularza: {exc}", "error")
+            d_from = d_to = None
+            permanent = 0
+            qty = 1
         proj = (request.form.get("project_number") or "").strip()
         receiver = resolve_receiver(request.form.get("receiver", ""))
         if not proj:
@@ -922,26 +928,29 @@ def reserve(eid):
                 if rec_err:
                     flash(rec_err, "error")
                 else:
-                    con.execute(
-                        """INSERT INTO reservations (equipment_id, user_id, client,
-                           date_from, date_to, quantity, notes, receiver, permanent,
-                           project_number,
-                           recipient_name, recipient_contact, recipient_phone,
-                           recipient_address, recipient_city, recipient_email)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (eid, session["user_id"], request.form["client"].strip(),
-                         d_from, d_to, qty, request.form["notes"].strip(),
-                         receiver, permanent, proj,
-                         rec["recipient_name"], rec["recipient_contact"],
-                         rec["recipient_phone"], rec["recipient_address"],
-                         rec["recipient_city"], rec["recipient_email"]))
-                    upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
-                                     rec["recipient_phone"], rec["recipient_address"],
-                                     rec["recipient_email"], rec["recipient_city"])
-                    con.commit()
-                    con.close()
-                    flash("Rezerwacja utworzona.", "ok")
-                    return redirect(url_for("equipment_detail", eid=eid))
+                    try:
+                        con.execute(
+                            """INSERT INTO reservations (equipment_id, user_id, client,
+                               date_from, date_to, quantity, notes, receiver, permanent,
+                               project_number,
+                               recipient_name, recipient_contact, recipient_phone,
+                               recipient_address, recipient_city, recipient_email)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (eid, session["user_id"], request.form["client"].strip(),
+                             d_from, d_to, qty, request.form["notes"].strip(),
+                             receiver, permanent, proj,
+                             rec["recipient_name"], rec["recipient_contact"],
+                             rec["recipient_phone"], rec["recipient_address"],
+                             rec["recipient_city"], rec["recipient_email"]))
+                        upsert_recipient(con, rec["recipient_name"], rec["recipient_contact"],
+                                         rec["recipient_phone"], rec["recipient_address"],
+                                         rec["recipient_email"], rec["recipient_city"])
+                        con.commit()
+                        con.close()
+                        flash("Rezerwacja utworzona.", "ok")
+                        return redirect(url_for("equipment_detail", eid=eid))
+                    except Exception as exc:
+                        flash(f"Nie udało się zapisać rezerwacji: {exc}. Spróbuj ponownie.", "error")
     receivers = active_partners(con)
     recipients = recent_recipients(con)
     projects = project_suggestions(con)
@@ -1729,6 +1738,14 @@ def bulk_action(action):
         return redirect(url_for("reservations"))
     if action not in ("issue", "return"):
         abort(404)
+    try:
+        return _bulk_action_post(action)
+    except Exception as exc:
+        flash(f"Operacja zbiorcza nie powiodła się: {exc}. Spróbuj ponownie (ew. po jednej pozycji).", "error")
+        return redirect(url_for("reservations"))
+
+
+def _bulk_action_post(action):
     con = get_db()
     rows = _selected_reservations(con, request.form.getlist("rid"))
     # return: item_qty_ok/damage/dispose_<id> (mieszany zwrot + utylizacja w jednym kroku)
@@ -1845,14 +1862,14 @@ def bulk_action(action):
         msg = "Zapisano (" + ", ".join(parts) + ")."
         # PDF obejmuje zwroty i utylizacje z tej operacji
         pdf_ids = returned_ids + disposed_ids
-        flash(msg + (" Pobieranie PDF…" if pdf_ids else ""), "ok")
+        flash(msg + (" Dokumenty pobiorą się za chwilę (lub użyj linku na liście)." if pdf_ids else ""), "ok")
         if pdf_ids:
             ret_wid = (request.form.get("return_warehouse_id") or "").strip()
             ret_loc = (request.form.get("return_location") or "").strip()
             return redirect(url_for("reservations", auto_pdf="przyjecie", rid=pdf_ids,
                                     ret_wid=ret_wid, ret_loc=ret_loc))
         return redirect(url_for("reservations"))
-    flash(f"Wydano: {len(done_ids)} pozycji. Pobieranie PDF…", "ok")
+    flash(f"Wydano: {len(done_ids)} pozycji. Dokumenty pobiorą się za chwilę (lub użyj linku na liście).", "ok")
     if xbs_meta is False:
         flash("Awizacja XBS: podaj datę dostawy.", "error")
         return redirect(url_for("reservations", auto_pdf="wydanie", rid=done_ids))
@@ -1930,6 +1947,14 @@ def issue(rid):
         # Odświeżenie / wejście GET po POST nie może kończyć się 405 Method Not Allowed
         flash("Aby wydać sprzęt, użyj przycisku „Wydaj” na liście rezerwacji.", "error")
         return redirect(url_for("reservations"))
+    try:
+        return _issue_post(rid)
+    except Exception as exc:
+        flash(f"Wydanie nie powiodło się: {exc}. Spróbuj ponownie.", "error")
+        return redirect(url_for("reservations"))
+
+
+def _issue_post(rid):
     con = get_db()
     r = _get_reservation(con, rid)
     if not can_manage_reservation(r):
@@ -1972,11 +1997,11 @@ def issue(rid):
     con.close()
     if is_perm and archived:
         msg = ("Oznaczono jako wydane trwale – sprzęt przeniesiony do archiwum "
-               "(stan 0). Przywrócenie: tylko admin. Pobieranie PDF…")
+               "(stan 0). Przywrócenie: tylko admin. Dokumenty pobiorą się za chwilę.")
     elif is_perm:
-        msg = "Oznaczono jako wydane trwale (towar nie wraca). Pobieranie PDF…"
+        msg = "Oznaczono jako wydane trwale (towar nie wraca). Dokumenty pobiorą się za chwilę."
     else:
-        msg = "Oznaczono jako wydane. Pobieranie PDF…"
+        msg = "Oznaczono jako wydane. Dokumenty pobiorą się za chwilę."
     if new_to != r["date_to"]:
         msg = f"Termin zwrotu {new_to}. " + msg
     flash(msg, "ok")
@@ -2050,12 +2075,16 @@ def auto_pdf(kind):
     """Pobiera WZ/PZ po wydaniu/zwrocie (wywoływane automatycznie z listy)."""
     if kind not in ("wydanie", "przyjecie"):
         abort(404)
-    con = get_db()
-    ret_wid = request.args.get("ret_wid", "").strip()
-    ret_loc = request.args.get("ret_loc", "").strip()
-    result = _pdf_for_rids(con, kind, request.args.getlist("rid"),
-                           ret_wid=ret_wid or None, ret_loc=ret_loc or None)
-    con.close()
+    try:
+        con = get_db()
+        ret_wid = request.args.get("ret_wid", "").strip()
+        ret_loc = request.args.get("ret_loc", "").strip()
+        result = _pdf_for_rids(con, kind, request.args.getlist("rid"),
+                               ret_wid=ret_wid or None, ret_loc=ret_loc or None)
+        con.close()
+    except Exception as exc:
+        flash(f"Nie udało się wygenerować PDF: {exc}. Spróbuj ponownie z listy rezerwacji.", "error")
+        return redirect(url_for("reservations"))
     if not result:
         flash("Brak danych do PDF.", "error")
         return redirect(url_for("reservations"))

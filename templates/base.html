@@ -893,6 +893,37 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     lb.style.display = 'flex';
   });
 })();
+/* Blokada podwójnego kliknięcia + komunikat „trwa zapis” (Safari nie wygląda wtedy jakby „nic się nie działo”). */
+(function(){
+  function markBusy(form, btn){
+    if (form.getAttribute('data-submitting') === '1') return false;
+    form.setAttribute('data-submitting', '1');
+    var buttons = form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]');
+    for (var i = 0; i < buttons.length; i++) {
+      var b = buttons[i];
+      if (!b.getAttribute('data-busy-label')) {
+        b.setAttribute('data-busy-label', (b.textContent || b.value || '').trim());
+      }
+      b.disabled = true;
+      if (b.tagName === 'BUTTON') {
+        b.textContent = form.getAttribute('data-busy-text') || 'Zapisywanie…';
+      }
+    }
+    if (btn && btn.tagName === 'BUTTON') {
+      btn.textContent = form.getAttribute('data-busy-text') || 'Zapisywanie…';
+    }
+    return true;
+  }
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    if (!form.classList.contains('js-busy-form') && !form.getAttribute('data-busy-submit')) return;
+    if (!markBusy(form, e.submitter || null)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

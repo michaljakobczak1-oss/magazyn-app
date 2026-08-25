@@ -12,7 +12,7 @@
 {% if client_items %}
 <div class="flash warn">Wśród pozycji są materiały klienta ({{ client_items | map(attribute='code') | join(', ') }}) – wypożyczenie wyłącznie na potrzeby tego klienta.</div>
 {% endif %}
-<form method="post" id="multi-form">
+<form method="post" id="multi-form" class="js-busy-form" data-busy-text="Zapisywanie rezerwacji…">
   <table class="data-cards" style="margin-bottom:20px;" id="multi-items">
     <thead>
     <tr><th></th><th>Kod</th><th>Nazwa</th><th>Magazyn</th><th>Miejsce</th><th>Stan</th><th style="width:110px;">Ilość szt.</th><th></th></tr>
@@ -69,7 +69,7 @@
     <textarea name="notes" rows="2">{{ form.get('notes', '') }}</textarea>
     {{ recipient_fields(recipients, form) }}
     <div class="sticky-form-actions">
-      <button class="btn">Zarezerwuj wszystko</button>
+      <button class="btn" type="submit">Zarezerwuj wszystko</button>
       <a class="btn ghost" href="{{ url_for('index') }}">Anuluj</a>
     </div>
     </div>

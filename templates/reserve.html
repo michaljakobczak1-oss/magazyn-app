@@ -13,7 +13,7 @@
 <div class="card form-card">
   <p style="font-size:14px; color:#555;">Stan magazynowy: <strong>{{ eq.quantity }} szt.</strong>
   {% if eq.location %} · Miejsce: {{ eq.location }}{% endif %}</p>
-  <form method="post" class="touch-form" id="reserve-form">
+  <form method="post" class="touch-form js-busy-form" id="reserve-form" data-busy-text="Zapisywanie rezerwacji…">
     <label class="chk-row" style="margin-top:0;">
       <input type="checkbox" name="permanent" id="permanent" value="1" {{ 'checked' if form.get('permanent') }}>
       <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu. Dat nie zaznaczasz.</span>
@@ -48,7 +48,7 @@
     <textarea name="notes" rows="2">{{ form.get('notes', '') }}</textarea>
     {{ recipient_fields(recipients, form) }}
     <div class="sticky-form-actions">
-      <button class="btn">Zarezerwuj</button>
+      <button class="btn" type="submit">Zarezerwuj</button>
       <a class="btn ghost" href="{{ url_for('equipment_detail', eid=eq.id) }}">Anuluj</a>
     </div>
   </form>

@@ -108,7 +108,7 @@
     <p id="im-perm-note" style="display:none; font-size:13px; color:#3949ab; background:#eef0fb; padding:8px 10px; border-radius:8px;">
       Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu.
     </p>
-    <form method="post" id="issue-form">
+    <form method="post" id="issue-form" class="js-busy-form" data-busy-text="Wydawanie…">
       <div id="im-date-wrap">
         <label>Termin zwrotu *</label>
         <input type="date" name="date_to" id="im-date" required>
@@ -194,7 +194,7 @@
 <div id="return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
   <div class="card" style="width:min(520px, 94vw); max-height:90vh; overflow:auto;">
     <h2 style="margin-top:0;">Przyjęcie zwrotu <span id="rm-code"></span></h2>
-    <form method="post" id="return-form" enctype="multipart/form-data" novalidate>
+    <form method="post" id="return-form" class="js-busy-form" data-busy-text="Zapisywanie zwrotu…" enctype="multipart/form-data" novalidate>
       <div id="rm-rids"></div>
       <div id="rm-error" class="flash error" style="display:none; margin-bottom:10px;">Wypełnij pole.</div>
 
@@ -1025,20 +1025,49 @@ function openReturnBulk(){
   const autoXbs = {{ request.args.get('auto_xbs', '')|tojson }};
   if (retWid) parts.push('ret_wid=' + encodeURIComponent(retWid));
   if (retLoc) parts.push('ret_loc=' + encodeURIComponent(retLoc));
+  const pdfHref = '/reservations/auto-pdf/' + kind + '?' + parts.join('&');
+  const xbsHref = '/reservations/auto-xbs';
+
+  // Banner zamiast „milczącego” auto-download – Safari często gubi połączenie przy natychmiastowym pobraniu
+  const bar = document.createElement('div');
+  bar.className = 'flash warn';
+  bar.id = 'auto-doc-banner';
+  bar.style.cssText = 'position:sticky;top:56px;z-index:40;';
+  bar.innerHTML = 'Trwa przygotowanie dokumentów… ' +
+    '<a href="' + pdfHref + '" id="auto-pdf-link">Pobierz PDF ręcznie</a>';
+  const wrap = document.querySelector('.wrap') || document.body;
+  wrap.insertBefore(bar, wrap.firstChild);
+
   function triggerDownload(href, delayMs){
     setTimeout(function(){
-      const a = document.createElement('a');
-      a.href = href;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      try {
+        const a = document.createElement('a');
+        a.href = href;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch (err) {
+        bar.className = 'flash error';
+        bar.innerHTML = 'Automatyczne pobieranie nie udało się. ' +
+          '<a href="' + href + '">Kliknij tutaj, aby pobrać dokument</a>.';
+      }
     }, delayMs || 0);
   }
-  triggerDownload('/reservations/auto-pdf/' + kind + '?' + parts.join('&'), 0);
+  // Krótkie opóźnienie – najpierw render listy, potem download (mniej timeoutów na Safari)
+  triggerDownload(pdfHref, 400);
   if (autoXbs === '1' && kind === 'wydanie') {
-    triggerDownload('/reservations/auto-xbs', 700);
+    bar.innerHTML += ' · <a href="' + xbsHref + '">Pobierz XBS</a>';
+    triggerDownload(xbsHref, 1200);
   }
+  setTimeout(function(){
+    if (bar && bar.parentNode) {
+      bar.className = 'flash ok';
+      bar.innerHTML = 'Jeśli pobieranie nie wystartowało: ' +
+        '<a href="' + pdfHref + '">PDF</a>' +
+        (autoXbs === '1' && kind === 'wydanie' ? ' · <a href="' + xbsHref + '">XBS</a>' : '') + '.';
+    }
+  }, 2500);
   if (window.history && history.replaceState) {
     history.replaceState(null, '', '{{ url_for("reservations") }}');
   }
