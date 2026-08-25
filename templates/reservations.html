@@ -43,7 +43,7 @@
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
       {% if r.group_id %}<br><span class="badge" style="background:#e3ecf7;color:#1e3a5f;" title="wspólna rezerwacja">grupa {{ r.group_id[:4] }}</span>{% endif %}</td>
-    <td data-label="Termin">{% if r.permanent %}<span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
+    <td data-label="Termin">{% if r.permanent %}{{ r.date_from }} <span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
@@ -78,7 +78,6 @@
     <td class="card-actions" data-label="Dokumenty">
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
-      {% if r.xbs_awizacja_json %}<a class="btn small pdf-btn" href="{{ url_for('reservation_xbs', rid=r.id) }}">XBS awizacja</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -115,54 +114,6 @@
         <p style="font-size:12px; color:#666; margin:6px 0 0;">Możesz zmienić datę zwrotu, jeśli nie koliduje z innymi rezerwacjami.</p>
       </div>
       <p id="im-bulk-note" style="display:none; font-size:13px; color:#555;">Zbiorcze wydanie z planowanymi terminami zwrotu (bez zmiany dat).</p>
-
-      <div style="margin-top:14px; padding-top:12px; border-top:1px solid #e5e7eb;">
-        <label class="chk" style="display:flex; align-items:center; gap:8px; margin:0; font-weight:600;">
-          <input type="checkbox" name="xbs_awizacja" id="im-xbs-toggle" value="1" style="width:auto;" onchange="syncXbsFields()">
-          Awizacja XBS (Excel)
-        </label>
-        <p style="font-size:12px; color:#666; margin:6px 0 0;">Opcjonalnie: oprócz WZ wygeneruj wypełniony formularz awizacyjny do magazynu zewnętrznego.</p>
-        <div id="im-xbs-fields" style="display:none; margin-top:12px;">
-          <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:#334155;">Dane dostawcy</p>
-          <label>Dostawca</label>
-          <input type="text" name="xbs_supplier" id="im-xbs-supplier" placeholder="np. HOLO Sp. z o.o" value="">
-          <label>Nazwisko</label>
-          <input type="text" name="xbs_supplier_person" id="im-xbs-supplier-person" placeholder="imię i nazwisko" value="">
-          <label>Nr tel. kom.</label>
-          <input type="text" name="xbs_supplier_phone" id="im-xbs-supplier-phone" placeholder="Numer telefonu">
-          <label>Adres</label>
-          <input type="text" name="xbs_supplier_address" id="im-xbs-supplier-address" placeholder="ulica; kod miasto">
-          <label>Numer zamówienia klienta</label>
-          <input type="text" name="xbs_order_no" id="im-xbs-order" placeholder="opcjonalnie">
-          <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Dane o dostarczanym produkcie</p>
-          <p style="font-size:11px;color:#666;margin:0 0 8px;">Nazwa, kod i ilość sztuk zaciągną się z wydania. Uzupełnij pozostałe kolumny:</p>
-          <label>Ilość sztuk na palecie / w kartonie</label>
-          <input type="text" name="xbs_qty_per_pallet" id="im-xbs-qty-pallet" placeholder="opcjonalnie">
-          <label>Waga brutto / szt.</label>
-          <input type="text" name="xbs_weight" id="im-xbs-weight" placeholder="opcjonalnie">
-          <label>Rodzaj materiału</label>
-          <select name="xbs_material" id="im-xbs-material">
-            <option value="">– wybierz –</option>
-            <option value="Papier">Papier</option>
-            <option value="Tekstylia">Tekstylia</option>
-            <option value="Spożywcze">Spożywcze</option>
-          </select>
-          <label>Suma palet</label>
-          <input type="text" name="xbs_pallets" id="im-xbs-pallets" placeholder="opcjonalnie">
-          <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Awizacja</p>
-          <label>Data dostawy *</label>
-          <input type="date" name="xbs_delivery_date" id="im-xbs-date">
-          <label>Godzina dostawy</label>
-          <input type="text" name="xbs_delivery_time" id="im-xbs-time" placeholder="np. 10:00">
-          <label>Uwagi</label>
-          <textarea name="xbs_notes" id="im-xbs-notes" rows="2" placeholder="opcjonalnie"></textarea>
-          <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Przewoźnik</p>
-          <label>Przewoźnik</label>
-          <input type="text" name="xbs_carrier" id="im-xbs-carrier" placeholder="opcjonalnie" value="">
-          <label>Nr rejestracyjny samochodu</label>
-          <input type="text" name="xbs_plate" id="im-xbs-plate" placeholder="opcjonalnie">
-        </div>
-      </div>
 
       <p id="im-error" class="flash error" style="display:none; margin-top:10px;"></p>
       <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
@@ -336,52 +287,34 @@ function effectiveIssueFrom(dateFrom){
   return dateFrom;
 }
 
-function syncXbsFields(){
-  const on = document.getElementById('im-xbs-toggle').checked;
-  document.getElementById('im-xbs-fields').style.display = on ? 'block' : 'none';
-  document.getElementById('im-xbs-date').required = on;
-}
-function resetXbsFields(){
-  const t = document.getElementById('im-xbs-toggle');
-  t.checked = false;
-  document.getElementById('im-xbs-supplier').value = '';
-  document.getElementById('im-xbs-supplier-person').value = '';
-  document.getElementById('im-xbs-supplier-phone').value = '';
-  document.getElementById('im-xbs-supplier-address').value = '';
-  document.getElementById('im-xbs-order').value = '';
-  document.getElementById('im-xbs-qty-pallet').value = '';
-  document.getElementById('im-xbs-weight').value = '';
-  document.getElementById('im-xbs-material').value = '';
-  document.getElementById('im-xbs-pallets').value = '';
-  document.getElementById('im-xbs-date').value = '';
-  document.getElementById('im-xbs-time').value = '';
-  document.getElementById('im-xbs-carrier').value = '';
-  document.getElementById('im-xbs-plate').value = '';
-  document.getElementById('im-xbs-notes').value = '';
-  syncXbsFields();
-}
-
 function openIssue(rid, code, dateFrom, dateTo, permanent){
   issueBulkMode = false;
   issueDateFrom = dateFrom || '';
   document.getElementById('im-heading').textContent = permanent ? 'Wydanie trwałe' : 'Wydanie';
   document.getElementById('im-code').textContent = code || '';
-  document.getElementById('im-planned').textContent = (dateFrom || '–') + ' – ' + (dateTo || '–');
+  document.getElementById('im-planned').textContent = permanent
+    ? ('Od: ' + (dateFrom || '–'))
+    : ((dateFrom || '–') + ' – ' + (dateTo || '–'));
   document.getElementById('im-perm-note').style.display = permanent ? 'block' : 'none';
-  document.getElementById('im-date-wrap').style.display = 'block';
+  document.getElementById('im-date-wrap').style.display = permanent ? 'none' : 'block';
   document.getElementById('im-bulk-note').style.display = 'none';
   const inp = document.getElementById('im-date');
-  inp.disabled = false;
-  inp.name = 'date_to';
-  inp.required = true;
-  const effFrom = effectiveIssueFrom(dateFrom);
-  inp.min = effFrom || '';
-  inp.removeAttribute('max');
-  inp.value = dateTo || '';
+  if (permanent) {
+    inp.required = false;
+    inp.disabled = true;
+    inp.removeAttribute('name');
+  } else {
+    inp.disabled = false;
+    inp.name = 'date_to';
+    inp.required = true;
+    const effFrom = effectiveIssueFrom(dateFrom);
+    inp.min = effFrom || '';
+    inp.removeAttribute('max');
+    inp.value = dateTo || '';
+  }
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
-  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -407,7 +340,6 @@ function openIssueBulk(){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = 'Wydaj zaznaczone';
   document.getElementById('issue-form').action = '{{ url_for("bulk_action", action="issue") }}';
-  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -420,14 +352,6 @@ function showIssueError(msg){
   err.style.display = 'block';
 }
 document.getElementById('issue-form').addEventListener('submit', function(e){
-  if (document.getElementById('im-xbs-toggle').checked) {
-    const d = (document.getElementById('im-xbs-date').value || '').trim();
-    if (!d) {
-      e.preventDefault();
-      showIssueError('Awizacja XBS: podaj datę dostawy.');
-      return;
-    }
-  }
   if (issueBulkMode) {
     document.querySelectorAll('#issue-form input[name="rid"]').forEach(function(el){ el.remove(); });
     document.querySelectorAll('#bulk input[name="rid"]:checked').forEach(function(cb){
@@ -440,16 +364,18 @@ document.getElementById('issue-form').addEventListener('submit', function(e){
     return;
   }
   const inp = document.getElementById('im-date');
-  if (!inp.value) {
-    e.preventDefault();
-    showIssueError('Podaj termin zwrotu.');
-    return;
-  }
-  const minFrom = effectiveIssueFrom(issueDateFrom);
-  if (minFrom && inp.value < minFrom) {
-    e.preventDefault();
-    showIssueError('Termin zwrotu nie może być wcześniejszy niż start (' + minFrom + ').');
-    return;
+  if (inp.name === 'date_to') {
+    if (!inp.value) {
+      e.preventDefault();
+      showIssueError('Podaj termin zwrotu.');
+      return;
+    }
+    const minFrom = effectiveIssueFrom(issueDateFrom);
+    if (minFrom && inp.value < minFrom) {
+      e.preventDefault();
+      showIssueError('Termin zwrotu nie może być wcześniejszy niż start (' + minFrom + ').');
+      return;
+    }
   }
 });
 document.addEventListener('click', function(e){
@@ -1022,11 +948,9 @@ function openReturnBulk(){
   const parts = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); });
   const retWid = {{ request.args.get('ret_wid', '')|tojson }};
   const retLoc = {{ request.args.get('ret_loc', '')|tojson }};
-  const autoXbs = {{ request.args.get('auto_xbs', '')|tojson }};
   if (retWid) parts.push('ret_wid=' + encodeURIComponent(retWid));
   if (retLoc) parts.push('ret_loc=' + encodeURIComponent(retLoc));
   const pdfHref = '/reservations/auto-pdf/' + kind + '?' + parts.join('&');
-  const xbsHref = '/reservations/auto-xbs';
 
   // Banner zamiast „milczącego” auto-download – Safari często gubi połączenie przy natychmiastowym pobraniu
   const bar = document.createElement('div');
@@ -1056,16 +980,11 @@ function openReturnBulk(){
   }
   // Krótkie opóźnienie – najpierw render listy, potem download (mniej timeoutów na Safari)
   triggerDownload(pdfHref, 400);
-  if (autoXbs === '1' && kind === 'wydanie') {
-    bar.innerHTML += ' · <a href="' + xbsHref + '">Pobierz XBS</a>';
-    triggerDownload(xbsHref, 1200);
-  }
   setTimeout(function(){
     if (bar && bar.parentNode) {
       bar.className = 'flash ok';
       bar.innerHTML = 'Jeśli pobieranie nie wystartowało: ' +
-        '<a href="' + pdfHref + '">PDF</a>' +
-        (autoXbs === '1' && kind === 'wydanie' ? ' · <a href="' + xbsHref + '">XBS</a>' : '') + '.';
+        '<a href="' + pdfHref + '">PDF</a>.';
     }
   }, 2500);
   if (window.history && history.replaceState) {

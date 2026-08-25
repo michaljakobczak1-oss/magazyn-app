@@ -16,13 +16,15 @@
   <form method="post" class="touch-form js-busy-form" id="reserve-form" data-busy-text="Zapisywanie rezerwacji…">
     <label class="chk-row" style="margin-top:0;">
       <input type="checkbox" name="permanent" id="permanent" value="1" {{ 'checked' if form.get('permanent') }}>
-      <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu. Dat nie zaznaczasz.</span>
+      <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu. Zaznacz datę <strong>Od</strong> (termin zwrotu nie dotyczy).</span>
     </label>
     <div id="date-fields">
       <label>Od *</label>
       <input name="date_from" id="date_from" type="date" value="{{ form.get('date_from', '') }}">
-      <label>Do *</label>
-      <input name="date_to" id="date_to" type="date" value="{{ form.get('date_to', '') }}">
+      <span id="date-to-wrap">
+        <label>Do *</label>
+        <input name="date_to" id="date_to" type="date" value="{{ form.get('date_to', '') }}">
+      </span>
     </div>
     <label>Ilość sztuk *</label>
     <input name="quantity" type="number" min="1" max="{{ eq.quantity }}" value="{{ form.get('quantity', 1) }}" required>
@@ -58,13 +60,13 @@
 <script>
 (function(){
   const perm = document.getElementById('permanent');
-  const fields = document.getElementById('date-fields');
+  const toWrap = document.getElementById('date-to-wrap');
   const from = document.getElementById('date_from');
   const to = document.getElementById('date_to');
   function sync(){
     const on = !!(perm && perm.checked);
-    if (fields) fields.style.display = on ? 'none' : '';
-    if (from) { from.required = !on; if (on) from.value = ''; }
+    if (toWrap) toWrap.style.display = on ? 'none' : '';
+    if (from) from.required = true;
     if (to) { to.required = !on; if (on) to.value = ''; }
   }
   if (perm) perm.addEventListener('change', sync);

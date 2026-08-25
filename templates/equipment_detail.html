@@ -112,7 +112,7 @@
   {% for r in reservations %}
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
   <tr class="{{ 'overdue' if is_overdue }}">
-    <td class="card-main" data-label="Termin">{% if r.permanent %}<span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
+    <td class="card-main" data-label="Termin">{% if r.permanent %}{{ r.date_from }} <span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
@@ -140,7 +140,6 @@
     <td class="card-actions" data-label="Dokumenty">
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
-      {% if r.xbs_awizacja_json %}<a class="btn small pdf-btn" href="{{ url_for('reservation_xbs', rid=r.id) }}">XBS awizacja</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -160,28 +159,13 @@ function effectiveIssueFrom(dateFrom){
   if (ISSUE_TODAY && dateFrom > ISSUE_TODAY) return ISSUE_TODAY;
   return dateFrom;
 }
-function syncXbsFields(){
-  const on = document.getElementById('im-xbs-toggle').checked;
-  document.getElementById('im-xbs-fields').style.display = on ? 'block' : 'none';
-  document.getElementById('im-xbs-date').required = on;
-}
-function resetXbsFields(){
-  document.getElementById('im-xbs-toggle').checked = false;
-  ['im-xbs-supplier','im-xbs-supplier-person','im-xbs-supplier-phone','im-xbs-supplier-address',
-   'im-xbs-order','im-xbs-qty-pallet','im-xbs-weight','im-xbs-pallets','im-xbs-date','im-xbs-time',
-   'im-xbs-carrier','im-xbs-plate','im-xbs-notes'].forEach(function(id){
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  const mat = document.getElementById('im-xbs-material');
-  if (mat) mat.value = '';
-  syncXbsFields();
-}
 function openIssue(rid, code, dateFrom, dateTo, permanent){
   issueDateFrom = dateFrom || '';
   document.getElementById('im-heading').textContent = permanent ? 'Wydanie trwałe' : 'Wydanie';
   document.getElementById('im-code').textContent = code || '';
-  document.getElementById('im-planned').textContent = (dateFrom || '–') + ' – ' + (dateTo || '–');
+  document.getElementById('im-planned').textContent = permanent
+    ? ('Od: ' + (dateFrom || '–'))
+    : ((dateFrom || '–') + ' – ' + (dateTo || '–'));
   document.getElementById('im-perm-note').style.display = permanent ? 'block' : 'none';
   document.getElementById('im-date-wrap').style.display = permanent ? 'none' : 'block';
   const inp = document.getElementById('im-date');
@@ -201,7 +185,6 @@ function openIssue(rid, code, dateFrom, dateTo, permanent){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
-  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 function closeIssue(){
@@ -213,14 +196,6 @@ function showIssueError(msg){
   err.style.display = 'block';
 }
 document.getElementById('issue-form').addEventListener('submit', function(e){
-  if (document.getElementById('im-xbs-toggle').checked) {
-    const d = (document.getElementById('im-xbs-date').value || '').trim();
-    if (!d) {
-      e.preventDefault();
-      showIssueError('Awizacja XBS: podaj datę dostawy.');
-      return;
-    }
-  }
   const inp = document.getElementById('im-date');
   if (inp.name === 'date_to') {
     if (!inp.value) {

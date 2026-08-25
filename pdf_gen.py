@@ -331,9 +331,11 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
         ("Własność", eq["owner"] or "-"),
         ("Brand", _get(eq, "brand") or "-"),
     ])
+    is_perm = bool(_get(res, "permanent")) or res["status"] == "wydane trwale"
     right = [
         ("Ilość sztuk", str(res["quantity"])),
-        ("Termin planowany", f"{res['date_from']} – {res['date_to']}"),
+        ("Od" if is_perm else "Termin planowany",
+         res["date_from"] if is_perm else f"{res['date_from']} – {res['date_to']}"),
         ("Klient / cel", res["client"] or "-"),
         ("Odbiera towar", res["receiver"] or "-"),
         ("Rezerwujący", user_name),
@@ -349,7 +351,11 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
         right.append(("Data wydania", issued))
     if kind == "wydanie":
         start, end = _actual_period(res, kind)
-        right[1] = ("Termin", f"{start} – {end}")
+        is_perm = bool(_get(res, "permanent")) or res["status"] == "wydane trwale"
+        if is_perm:
+            right[1] = ("Od", res["date_from"])
+        else:
+            right[1] = ("Termin", f"{start} – {end}")
     if kind == "przyjecie":
         start, end = _actual_period(res, kind)
         right[1] = ("Termin (wydanie – zwrot)", f"{start} – {end}")
