@@ -20,13 +20,24 @@
 </div>
 <form method="post" id="bulk">
 <div id="bulk-top-actions" style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <label class="chk" style="display:flex; align-items:center; gap:6px; margin:0; font-weight:400;">
+    <input type="checkbox" id="rid-select-all-mobile" style="width:auto;"
+           title="Zaznacz wszystkie na liście" aria-label="Zaznacz wszystkie na liście">
+    <span>Zaznacz wszystkie</span>
+  </label>
   <span class="desktop-only" style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
   <button type="button" class="btn small ok" id="bulk-issue-btn" onclick="openIssueBulk()">Zbiorcze wydanie</button>
   <button type="button" class="btn small ok" id="bulk-return-btn" onclick="openReturnBulk()">Zbiorcze przyjęcie</button>
 </div>
 <table class="data-cards">
   <thead>
-  <tr><th></th><th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th></tr>
+  <tr>
+    <th class="card-check">
+      <input type="checkbox" id="rid-select-all" style="width:auto;"
+             title="Zaznacz wszystkie na liście" aria-label="Zaznacz wszystkie na liście">
+    </th>
+    <th></th><th>Sprzęt</th><th>Termin</th><th>Szt.</th><th>Klient / cel</th><th>Adresat</th><th>Odbiera</th><th>Rezerwujący</th><th>Status</th><th>Akcje</th><th>Dokumenty</th>
+  </tr>
   </thead>
   <tbody>
   {% for r in rows %}
@@ -88,6 +99,12 @@
 </form>
 
 <div id="float-bulk-rail" class="float-rail mobile-action-bar" aria-label="Akcje zbiorcze">
+  <label class="float-rail-btn ghost" style="flex:0 0 auto; display:flex; align-items:center; gap:6px; cursor:pointer; margin:0; font-weight:600;"
+         title="Zaznacz wszystkie na liście">
+    <input type="checkbox" id="rid-select-all-float" style="width:auto; margin:0;">
+    <span class="mobile-only mobile-bar-label">Wszystkie</span>
+    <span class="desktop-only">Zaznacz wszystkie</span>
+  </label>
   <button type="button" class="float-rail-btn ok" id="float-bulk-issue" title="Wydaj zaznaczone">
     <span class="desktop-only">Zbiorcze wydanie</span>
     <span class="mobile-only mobile-bar-label">Wydaj<br><small>zbiorczo</small></span>
@@ -252,6 +269,45 @@
 {% block scripts %}
 <script>
 let rmBulkMode = false;
+
+(function(){
+  const masters = [
+    document.getElementById('rid-select-all'),
+    document.getElementById('rid-select-all-mobile'),
+    document.getElementById('rid-select-all-float')
+  ].filter(Boolean);
+  const form = document.getElementById('bulk');
+  function rowBoxes(){
+    return Array.prototype.slice.call(
+      document.querySelectorAll('#bulk tbody input[name="rid"]')
+    );
+  }
+  function syncMaster(){
+    const boxes = rowBoxes();
+    const n = boxes.length;
+    const checked = boxes.filter(function(cb){ return cb.checked; }).length;
+    const allOn = n > 0 && checked === n;
+    const some = checked > 0 && checked < n;
+    masters.forEach(function(master){
+      master.disabled = n === 0;
+      master.checked = allOn;
+      master.indeterminate = some;
+    });
+  }
+  masters.forEach(function(master){
+    master.addEventListener('change', function(){
+      const on = master.checked;
+      rowBoxes().forEach(function(cb){ cb.checked = on; });
+      syncMaster();
+    });
+  });
+  if (form) {
+    form.addEventListener('change', function(e){
+      if (e.target && e.target.name === 'rid') syncMaster();
+    });
+  }
+  syncMaster();
+})();
 
 (function(){
   const rail = document.getElementById('float-bulk-rail');

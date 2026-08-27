@@ -234,9 +234,14 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 }
 .equip-cart-chips { display:flex; flex-wrap:wrap; gap:6px; }
 .equip-cart-chip {
-  display:inline-flex; align-items:center; gap:4px;
+  display:inline-flex; align-items:center; gap:6px;
+  max-width:min(100%, 420px);
   background:#f4f4f2; border:1px solid #ddd; border-radius:999px;
-  padding:3px 8px 3px 10px; font-size:12px; font-weight:600;
+  padding:4px 8px 4px 10px; font-size:12px; font-weight:600;
+}
+.equip-cart-chip > span:first-child {
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  min-width:0;
 }
 .equip-cart-chip button {
   border:none; background:transparent; cursor:pointer;

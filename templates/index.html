@@ -291,7 +291,10 @@
         const chip = document.createElement('span');
         chip.className = 'equip-cart-chip';
         const label = document.createElement('span');
-        label.textContent = it.code || ('#' + it.id);
+        const code = (it.code || ('#' + it.id)).trim();
+        const name = (it.name || '').trim();
+        label.textContent = name ? (code + ' – ' + name) : code;
+        label.title = label.textContent;
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.setAttribute('aria-label', 'Usuń z koszyka');
