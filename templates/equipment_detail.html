@@ -140,6 +140,7 @@
     <td class="card-actions" data-label="Dokumenty">
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
+      {% if r.xbs_awizacja_json %}<a class="btn small pdf-btn" href="{{ url_for('reservation_xbs', rid=r.id) }}">XBS awizacja</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -158,6 +159,28 @@ let issueDateFrom = '';
 function effectiveIssueFrom(dateFrom){
   if (ISSUE_TODAY && dateFrom > ISSUE_TODAY) return ISSUE_TODAY;
   return dateFrom;
+}
+function syncXbsFields(){
+  const toggle = document.getElementById('im-xbs-toggle');
+  const fields = document.getElementById('im-xbs-fields');
+  const dateInp = document.getElementById('im-xbs-date');
+  if (!toggle || !fields) return;
+  const on = toggle.checked;
+  fields.style.display = on ? 'block' : 'none';
+  if (dateInp) dateInp.required = on;
+}
+function resetXbsFields(){
+  const toggle = document.getElementById('im-xbs-toggle');
+  if (toggle) toggle.checked = false;
+  ['im-xbs-supplier','im-xbs-supplier-person','im-xbs-supplier-phone','im-xbs-supplier-address',
+   'im-xbs-order','im-xbs-qty-pallet','im-xbs-weight','im-xbs-pallets','im-xbs-date','im-xbs-time',
+   'im-xbs-carrier','im-xbs-plate','im-xbs-notes'].forEach(function(id){
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const mat = document.getElementById('im-xbs-material');
+  if (mat) mat.value = '';
+  syncXbsFields();
 }
 function openIssue(rid, code, dateFrom, dateTo, permanent){
   issueDateFrom = dateFrom || '';
@@ -185,6 +208,7 @@ function openIssue(rid, code, dateFrom, dateTo, permanent){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
+  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 function closeIssue(){
@@ -196,6 +220,15 @@ function showIssueError(msg){
   err.style.display = 'block';
 }
 document.getElementById('issue-form').addEventListener('submit', function(e){
+  const xbsOn = document.getElementById('im-xbs-toggle') && document.getElementById('im-xbs-toggle').checked;
+  if (xbsOn) {
+    const d = (document.getElementById('im-xbs-date').value || '').trim();
+    if (!d) {
+      e.preventDefault();
+      showIssueError('Awizacja XBS: podaj datę dostawy.');
+      return;
+    }
+  }
   const inp = document.getElementById('im-date');
   if (inp.name === 'date_to') {
     if (!inp.value) {

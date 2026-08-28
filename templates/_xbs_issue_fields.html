@@ -1,0 +1,48 @@
+{# Opcjonalna awizacja XBS przy wydaniu – Excel generowany osobnym żądaniem (nie w POST). #}
+<div style="margin-top:14px; padding-top:12px; border-top:1px solid #e5e7eb;">
+  <label class="chk" style="display:flex; align-items:center; gap:8px; margin:0; font-weight:600;">
+    <input type="checkbox" name="xbs_awizacja" id="im-xbs-toggle" value="1" style="width:auto;" onchange="syncXbsFields()">
+    Awizacja XBS (Excel)
+  </label>
+  <p style="font-size:12px; color:#666; margin:6px 0 0;">Opcjonalnie: oprócz WZ pobierz wypełniony formularz awizacyjny. Excel powstaje po wydaniu – kliknij link na liście (Safari: ręcznie, nie auto-pobieranie).</p>
+  <div id="im-xbs-fields" style="display:none; margin-top:12px;">
+    <p style="font-size:12px;font-weight:600;margin:0 0 8px;color:#334155;">Dane dostawcy</p>
+    <label>Dostawca</label>
+    <input type="text" name="xbs_supplier" id="im-xbs-supplier" placeholder="np. HOLO Sp. z o.o" value="">
+    <label>Nazwisko</label>
+    <input type="text" name="xbs_supplier_person" id="im-xbs-supplier-person" placeholder="imię i nazwisko" value="">
+    <label>Nr tel. kom.</label>
+    <input type="text" name="xbs_supplier_phone" id="im-xbs-supplier-phone" placeholder="Numer telefonu">
+    <label>Adres</label>
+    <input type="text" name="xbs_supplier_address" id="im-xbs-supplier-address" placeholder="ulica; kod miasto">
+    <label>Numer zamówienia klienta</label>
+    <input type="text" name="xbs_order_no" id="im-xbs-order" placeholder="opcjonalnie">
+    <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Dane o dostarczanym produkcie</p>
+    <p style="font-size:11px;color:#666;margin:0 0 8px;">Nazwa, kod i ilość sztuk zaciągną się z wydania. Uzupełnij pozostałe kolumny:</p>
+    <label>Ilość sztuk na palecie / w kartonie</label>
+    <input type="text" name="xbs_qty_per_pallet" id="im-xbs-qty-pallet" placeholder="opcjonalnie">
+    <label>Waga brutto / szt.</label>
+    <input type="text" name="xbs_weight" id="im-xbs-weight" placeholder="opcjonalnie">
+    <label>Rodzaj materiału</label>
+    <select name="xbs_material" id="im-xbs-material">
+      <option value="">– wybierz –</option>
+      <option value="Papier">Papier</option>
+      <option value="Tekstylia">Tekstylia</option>
+      <option value="Spożywcze">Spożywcze</option>
+    </select>
+    <label>Suma palet</label>
+    <input type="text" name="xbs_pallets" id="im-xbs-pallets" placeholder="opcjonalnie">
+    <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Awizacja</p>
+    <label>Data dostawy *</label>
+    <input type="date" name="xbs_delivery_date" id="im-xbs-date">
+    <label>Godzina dostawy</label>
+    <input type="text" name="xbs_delivery_time" id="im-xbs-time" placeholder="np. 10:00">
+    <label>Uwagi</label>
+    <textarea name="xbs_notes" id="im-xbs-notes" rows="2" placeholder="opcjonalnie"></textarea>
+    <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Przewoźnik</p>
+    <label>Przewoźnik</label>
+    <input type="text" name="xbs_carrier" id="im-xbs-carrier" placeholder="opcjonalnie" value="">
+    <label>Nr rejestracyjny samochodu</label>
+    <input type="text" name="xbs_plate" id="im-xbs-plate" placeholder="opcjonalnie">
+  </div>
+</div>

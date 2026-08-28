@@ -89,6 +89,7 @@
     <td class="card-actions" data-label="Dokumenty">
       {% if r.status in ('wydane', 'wydane trwale', 'zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='wydanie') }}">PDF wydania</a>{% endif %}
       {% if r.status in ('zwrócone', 'utylizacja') %}<a class="btn small pdf-btn" href="{{ url_for('reservation_pdf', rid=r.id, kind='przyjecie') }}">PDF {{ 'utylizacji' if r.status == 'utylizacja' else 'przyjęcia' }}</a>{% endif %}
+      {% if r.xbs_awizacja_json %}<a class="btn small pdf-btn" href="{{ url_for('reservation_xbs', rid=r.id) }}">XBS awizacja</a>{% endif %}
     </td>
   </tr>
   {% else %}
@@ -115,31 +116,7 @@
   </button>
 </div>
 
-<div id="issue-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
-  <div class="card" style="width:min(520px, 94vw); margin:auto;">
-    <h2 style="margin-top:0;"><span id="im-heading">Wydanie</span> <span id="im-code"></span></h2>
-    <p style="font-size:13px; color:#555; margin-top:-6px;">
-      Planowany termin: <strong id="im-planned"></strong>
-    </p>
-    <p id="im-perm-note" style="display:none; font-size:13px; color:#3949ab; background:#eef0fb; padding:8px 10px; border-radius:8px;">
-      Wydanie trwałe – towar zostanie odjęty ze stanu i nie wróci do magazynu.
-    </p>
-    <form method="post" id="issue-form" class="js-busy-form" data-busy-text="Wydawanie…">
-      <div id="im-date-wrap">
-        <label>Termin zwrotu *</label>
-        <input type="date" name="date_to" id="im-date" required>
-        <p style="font-size:12px; color:#666; margin:6px 0 0;">Możesz zmienić datę zwrotu, jeśli nie koliduje z innymi rezerwacjami.</p>
-      </div>
-      <p id="im-bulk-note" style="display:none; font-size:13px; color:#555;">Zbiorcze wydanie z planowanymi terminami zwrotu (bez zmiany dat).</p>
-
-      <p id="im-error" class="flash error" style="display:none; margin-top:10px;"></p>
-      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn ok" id="im-submit" type="submit">Wydaj</button>
-        <a class="btn ghost" href="#" onclick="closeIssue(); return false;">Anuluj</a>
-      </div>
-    </form>
-  </div>
-</div>
+{% include "_issue_modal.html" %}
 
 <div id="change-return-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:center; justify-content:center; overflow:auto; padding:20px 0;">
   <div class="card" style="width:min(420px, 94vw);">
@@ -343,6 +320,30 @@ function effectiveIssueFrom(dateFrom){
   return dateFrom;
 }
 
+function syncXbsFields(){
+  const toggle = document.getElementById('im-xbs-toggle');
+  const fields = document.getElementById('im-xbs-fields');
+  const dateInp = document.getElementById('im-xbs-date');
+  if (!toggle || !fields) return;
+  const on = toggle.checked;
+  fields.style.display = on ? 'block' : 'none';
+  if (dateInp) dateInp.required = on;
+}
+
+function resetXbsFields(){
+  const toggle = document.getElementById('im-xbs-toggle');
+  if (toggle) toggle.checked = false;
+  ['im-xbs-supplier','im-xbs-supplier-person','im-xbs-supplier-phone','im-xbs-supplier-address',
+   'im-xbs-order','im-xbs-qty-pallet','im-xbs-weight','im-xbs-pallets','im-xbs-date','im-xbs-time',
+   'im-xbs-carrier','im-xbs-plate','im-xbs-notes'].forEach(function(id){
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const mat = document.getElementById('im-xbs-material');
+  if (mat) mat.value = '';
+  syncXbsFields();
+}
+
 function openIssue(rid, code, dateFrom, dateTo, permanent){
   issueBulkMode = false;
   issueDateFrom = dateFrom || '';
@@ -371,6 +372,7 @@ function openIssue(rid, code, dateFrom, dateTo, permanent){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
+  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -396,6 +398,7 @@ function openIssueBulk(){
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = 'Wydaj zaznaczone';
   document.getElementById('issue-form').action = '{{ url_for("bulk_action", action="issue") }}';
+  resetXbsFields();
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -408,6 +411,15 @@ function showIssueError(msg){
   err.style.display = 'block';
 }
 document.getElementById('issue-form').addEventListener('submit', function(e){
+  const xbsOn = document.getElementById('im-xbs-toggle') && document.getElementById('im-xbs-toggle').checked;
+  if (xbsOn) {
+    const d = (document.getElementById('im-xbs-date').value || '').trim();
+    if (!d) {
+      e.preventDefault();
+      showIssueError('Awizacja XBS: podaj datę dostawy.');
+      return;
+    }
+  }
   if (issueBulkMode) {
     document.querySelectorAll('#issue-form input[name="rid"]').forEach(function(el){ el.remove(); });
     document.querySelectorAll('#bulk input[name="rid"]:checked').forEach(function(cb){
@@ -1004,9 +1016,11 @@ function openReturnBulk(){
   const parts = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); });
   const retWid = {{ request.args.get('ret_wid', '')|tojson }};
   const retLoc = {{ request.args.get('ret_loc', '')|tojson }};
+  const xbsHint = {{ request.args.get('xbs_hint', '')|tojson }};
   if (retWid) parts.push('ret_wid=' + encodeURIComponent(retWid));
   if (retLoc) parts.push('ret_loc=' + encodeURIComponent(retLoc));
   const pdfHref = '/reservations/auto-pdf/' + kind + '?' + parts.join('&');
+  const xbsHref = '/reservations/auto-xbs?' + parts.join('&');
 
   // Banner zamiast „milczącego” auto-download – Safari często gubi połączenie przy natychmiastowym pobraniu
   const bar = document.createElement('div');
@@ -1014,7 +1028,8 @@ function openReturnBulk(){
   bar.id = 'auto-doc-banner';
   bar.style.cssText = 'position:sticky;top:56px;z-index:40;';
   bar.innerHTML = 'Trwa przygotowanie dokumentów… ' +
-    '<a href="' + pdfHref + '" id="auto-pdf-link">Pobierz PDF ręcznie</a>';
+    '<a href="' + pdfHref + '" id="auto-pdf-link">Pobierz PDF ręcznie</a>' +
+    (xbsHint === '1' && kind === 'wydanie' ? ' · <a href="' + xbsHref + '">Pobierz XBS</a>' : '');
   const wrap = document.querySelector('.wrap') || document.body;
   wrap.insertBefore(bar, wrap.firstChild);
 
@@ -1036,11 +1051,15 @@ function openReturnBulk(){
   }
   // Krótkie opóźnienie – najpierw render listy, potem download (mniej timeoutów na Safari)
   triggerDownload(pdfHref, 400);
+  if (xbsHint === '1' && kind === 'wydanie') {
+    triggerDownload(xbsHref, 2200);
+  }
   setTimeout(function(){
     if (bar && bar.parentNode) {
       bar.className = 'flash ok';
       bar.innerHTML = 'Jeśli pobieranie nie wystartowało: ' +
-        '<a href="' + pdfHref + '">PDF</a>.';
+        '<a href="' + pdfHref + '">PDF</a>' +
+        (xbsHint === '1' && kind === 'wydanie' ? ' · <a href="' + xbsHref + '">XBS</a>' : '') + '.';
     }
   }, 2500);
   if (window.history && history.replaceState) {
