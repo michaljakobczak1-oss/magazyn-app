@@ -1960,6 +1960,96 @@ def _get_reservation(con, rid):
     return r
 
 
+def _restore_stock_for_deleted_reservation(con, r):
+    """Oddaje sztuki na stan po usunięciu wydania trwałego / utylizacji."""
+    if r["status"] not in ("wydane trwale", "utylizacja"):
+        return
+    eid = r["equipment_id"]
+    qty = int(r["quantity"] or 0)
+    if qty <= 0:
+        return
+    con.execute(
+        """UPDATE equipment SET quantity = quantity + ?, archived=0, archived_at=NULL
+           WHERE id=?""",
+        (qty, eid),
+    )
+    eq = con.execute(
+        "SELECT warehouse_id, IFNULL(location,'') loc FROM equipment WHERE id=?",
+        (eid,),
+    ).fetchone()
+    wid = None
+    loc = ""
+    try:
+        wid = r["issue_warehouse_id"]
+        loc = r["issue_location"] or ""
+    except (KeyError, IndexError, TypeError):
+        wid = None
+    if not wid and eq:
+        wid = eq["warehouse_id"]
+        loc = eq["loc"] or ""
+    if wid:
+        add_equipment_stock(con, eid, wid, loc, qty)
+    sync_equipment_from_stock(con, eid, keep_total=True)
+
+
+def _delete_reservation_revert(con, r):
+    """Usuwa rezerwację i przywraca stan magazynu tam, gdzie trzeba."""
+    _restore_stock_for_deleted_reservation(con, r)
+    con.execute("DELETE FROM reservations WHERE id=?", (r["id"],))
+
+
+@app.route("/reservations/purge-recent", methods=["POST"])
+@login_required
+def purge_recent_reservations():
+    """Usuwa własne (lub wskazane przez admina) rezerwacje od podanej daty – z przywróceniem stanu."""
+    if request.form.get("confirm") != "USUN":
+        flash("Potwierdzenie nieprawidłowe.", "error")
+        return redirect(url_for("reservations"))
+    since = (request.form.get("since") or local_today().isoformat()).strip()[:10]
+    username = (request.form.get("username") or session.get("username") or "").strip()
+    if session.get("role") != "admin" and username != session.get("username"):
+        flash("Możesz usuwać tylko własne rezerwacje.", "error")
+        return redirect(url_for("reservations"))
+    rid_args = [x for x in request.form.getlist("rid") if str(x).strip().isdigit()]
+    con = get_db()
+    u = con.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if not u:
+        con.close()
+        flash(f"Nie znaleziono użytkownika „{username}”.", "error")
+        return redirect(url_for("reservations"))
+    if rid_args:
+        placeholders = ",".join("?" * len(rid_args))
+        rows = con.execute(
+            f"""SELECT * FROM reservations WHERE user_id=? AND id IN ({placeholders})
+                ORDER BY id""",
+            [u["id"], *rid_args],
+        ).fetchall()
+    else:
+        rows = con.execute(
+            """SELECT * FROM reservations WHERE user_id=?
+               AND (
+                 date(substr(created_at, 1, 10)) >= date(?)
+                 OR date(substr(COALESCE(issued_at, ''), 1, 10)) >= date(?)
+               )
+               ORDER BY id""",
+            (u["id"], since, since),
+        ).fetchall()
+    if not rows:
+        con.close()
+        flash("Brak rezerwacji do usunięcia.", "error")
+        return redirect(url_for("reservations"))
+    deleted = []
+    for r in rows:
+        deleted.append(int(r["id"]))
+        _delete_reservation_revert(con, r)
+    con.commit()
+    con.close()
+    flash(f"Usunięto {len(deleted)} rezerwacji ({', '.join('#'+str(i) for i in deleted)}). Stan magazynu przywrócony.", "ok")
+    if request.accept_mimetypes.best == "application/json" or request.args.get("json"):
+        return jsonify(ok=True, deleted=deleted, count=len(deleted))
+    return redirect(url_for("reservations"))
+
+
 @app.route("/reservations/purge-all", methods=["POST"])
 @login_required
 @admin_required
