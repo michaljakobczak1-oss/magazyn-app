@@ -352,7 +352,48 @@
   });
   const clearBtn = document.getElementById('equip-cart-clear');
   if (clearBtn) clearBtn.addEventListener('click', clearCart);
+  const reserveMultiUrl = {{ url_for('reserve_multi')|tojson }};
+  const wakeUrl = {{ url_for('login')|tojson }};
+
+  async function wakeServer(){
+    for (let i = 0; i < 4; i++) {
+      try {
+        const r = await fetch(wakeUrl, { credentials: 'same-origin', cache: 'no-store' });
+        if (r.ok) return true;
+      } catch (err) { /* Render budzi się – spróbuj ponownie */ }
+      await new Promise(function(resolve){ setTimeout(resolve, 2500); });
+    }
+    return false;
+  }
+
+  async function goReserveMulti(btn){
+    if (!checkedCount()) {
+      alert('Zaznacz przynajmniej jedną pozycję.');
+      return;
+    }
+    const busyLabel = btn ? (btn.textContent || btn.value || '').trim() : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Budzenie serwera…';
+    }
+    await wakeServer();
+    if (btn) btn.textContent = 'Ładowanie formularza…';
+    form.method = 'get';
+    form.action = reserveMultiUrl;
+    form.submit();
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = busyLabel || 'Zarezerwuj zaznaczone razem';
+    }
+  }
+
   form.addEventListener('submit', function(e){
+    const sub = e.submitter;
+    if (sub && sub.id === 'reserve-selected-btn') {
+      e.preventDefault();
+      goReserveMulti(sub);
+      return;
+    }
     if (!checkedCount()) {
       e.preventDefault();
       alert('Zaznacz przynajmniej jedną pozycję.');
@@ -361,15 +402,7 @@
 
   const floatBtn = document.getElementById('float-reserve-selected');
   if (floatBtn) {
-    floatBtn.addEventListener('click', function(){
-      if (!checkedCount()) {
-        alert('Zaznacz przynajmniej jedną pozycję.');
-        return;
-      }
-      form.method = 'get';
-      form.action = {{ url_for('reserve_multi')|tojson }};
-      form.submit();
-    });
+    floatBtn.addEventListener('click', function(){ goReserveMulti(floatBtn); });
   }
   const floatExport = document.getElementById('float-export-selected');
   if (floatExport) {
