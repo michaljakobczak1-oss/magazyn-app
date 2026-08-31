@@ -28,14 +28,6 @@
   <span class="desktop-only" style="font-size:13px; color:#666;">Dla zaznaczonych:</span>
   <button type="button" class="btn small ok" id="bulk-issue-btn" onclick="openIssueBulk()">Zbiorcze wydanie</button>
   <button type="button" class="btn small ok" id="bulk-return-btn" onclick="openReturnBulk()">Zbiorcze przyjęcie</button>
-  {% if session.user_id %}
-  <form method="post" action="{{ url_for('purge_recent_reservations') }}" style="display:inline;"
-        onsubmit="return confirm('Usunąć Twoje rezerwacje z dziś i przywrócić stan magazynu? Tej operacji nie cofniesz.');">
-    <input type="hidden" name="confirm" value="USUN">
-    <input type="hidden" name="since" value="{{ today }}">
-    <button type="submit" class="btn small ghost" style="color:#b45309; border-color:#fcd34d;">Usuń moje testy z dziś</button>
-  </form>
-  {% endif %}
 </div>
 <table class="data-cards">
   <thead>
