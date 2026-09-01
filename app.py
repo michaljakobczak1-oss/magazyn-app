@@ -1302,10 +1302,18 @@ def _parse_xbs_form(form):
     delivery_date = (form.get("xbs_delivery_date") or "").strip()
     if not delivery_date:
         return False
-    material = (form.get("xbs_material") or "").strip()
-    if material and material not in MATERIAL_OPTIONS:
-        material = ""
-    return {
+    items = {}
+    for key in form:
+        m = re.match(r"xbs_item_(\d+)_(qty_per_pallet|weight|material|pallets)$", key)
+        if not m:
+            continue
+        rid, field = m.group(1), m.group(2)
+        val = (form.get(key) or "").strip()
+        if field == "material" and val and val not in MATERIAL_OPTIONS:
+            val = ""
+        if val:
+            items.setdefault(rid, {})[field] = val
+    meta = {
         "supplier": (form.get("xbs_supplier") or "").strip(),
         "supplier_person": (form.get("xbs_supplier_person") or "").strip(),
         "supplier_phone": (form.get("xbs_supplier_phone") or "").strip(),
@@ -1316,11 +1324,21 @@ def _parse_xbs_form(form):
         "notes": (form.get("xbs_notes") or "").strip(),
         "carrier": (form.get("xbs_carrier") or "").strip(),
         "plate": (form.get("xbs_plate") or "").strip(),
-        "qty_per_pallet": (form.get("xbs_qty_per_pallet") or "").strip(),
-        "weight": (form.get("xbs_weight") or "").strip(),
-        "material": material,
-        "pallets": (form.get("xbs_pallets") or "").strip(),
+        "items": items,
     }
+    # Stare formularze (jedno pole wspólne) – zachowaj kompatybilność
+    for field, form_key in (
+        ("qty_per_pallet", "xbs_qty_per_pallet"),
+        ("weight", "xbs_weight"),
+        ("material", "xbs_material"),
+        ("pallets", "xbs_pallets"),
+    ):
+        val = (form.get(form_key) or "").strip()
+        if field == "material" and val and val not in MATERIAL_OPTIONS:
+            val = ""
+        if val:
+            meta[field] = val
+    return meta
 
 
 def _store_xbs_session(rids, meta):
@@ -1369,6 +1387,7 @@ def _xbs_items_for_rids(con, rids):
         ).fetchone()
         if row:
             items.append({
+                "rid": rid,
                 "code": row["code"],
                 "name": row["name"],
                 "quantity": row["quantity"],

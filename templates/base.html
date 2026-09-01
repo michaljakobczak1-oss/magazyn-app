@@ -92,6 +92,17 @@ tr.overdue:hover td { background:#fbd9d9; }
 form.inline { display:inline; }
 input, select, textarea { width:100%; padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:14px; font-family:inherit; }
 label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
+.xbs-product-list { display:flex; flex-direction:column; gap:12px; margin-top:8px; }
+.xbs-product-card {
+  border:1px solid #e2e8f0; border-radius:8px; padding:12px 14px; background:#f8fafc;
+}
+.xbs-product-card-head { margin-bottom:2px; font-size:13px; line-height:1.35; }
+.xbs-product-qty { color:#64748b; font-weight:500; font-size:12px; }
+.xbs-product-card label { margin-top:10px; margin-bottom:4px; font-size:12px; }
+.xbs-product-card label:first-of-type { margin-top:0; }
+#issue-modal > .card {
+  width:min(560px, 94vw); max-height:90vh; overflow-y:auto;
+}
 .card { background:#fff; border-radius:8px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); max-width:560px; }
 .card.wide { max-width:none; }
 .flash { padding:10px 14px; border-radius:6px; margin-bottom:14px; font-size:14px; }

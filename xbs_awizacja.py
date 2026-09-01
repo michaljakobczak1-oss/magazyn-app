@@ -121,9 +121,11 @@ def build_xbs_awizacja_xlsx(items, meta):
     material = (meta.get("material") or "").strip()
     if material not in MATERIAL_OPTIONS:
         material = ""
-    qty_per_pallet = _maybe_number(meta.get("qty_per_pallet"))
-    weight = _maybe_number(meta.get("weight"))
-    pallets = _maybe_number(meta.get("pallets"))
+    per_item = meta.get("items") or {}
+    default_qty_per_pallet = meta.get("qty_per_pallet")
+    default_weight = meta.get("weight")
+    default_material = material
+    default_pallets = meta.get("pallets")
 
     _set_top_left(ws, "D14", supplier)
     _set_top_left(ws, "D15", supplier_person)
@@ -164,12 +166,22 @@ def build_xbs_awizacja_xlsx(items, meta):
             ws.cell(row, 6).value = int(qty)
         except (TypeError, ValueError):
             ws.cell(row, 6).value = qty
+        rid = str(it.get("rid") or "")
+        row_meta = per_item.get(rid) or {}
+        qty_per_pallet = _maybe_number(
+            row_meta.get("qty_per_pallet") or default_qty_per_pallet
+        )
+        weight = _maybe_number(row_meta.get("weight") or default_weight)
+        row_material = (row_meta.get("material") or default_material or "").strip()
+        if row_material not in MATERIAL_OPTIONS:
+            row_material = ""
+        pallets = _maybe_number(row_meta.get("pallets") or default_pallets)
         if qty_per_pallet is not None:
             ws.cell(row, 7).value = qty_per_pallet
         if weight is not None:
             ws.cell(row, 8).value = weight
-        if material:
-            ws.cell(row, 9).value = material
+        if row_material:
+            ws.cell(row, 9).value = row_material
         if pallets is not None:
             ws.cell(row, 10).value = pallets
 

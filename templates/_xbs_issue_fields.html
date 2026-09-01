@@ -18,20 +18,8 @@
     <label>Numer zamówienia klienta</label>
     <input type="text" name="xbs_order_no" id="im-xbs-order" placeholder="opcjonalnie">
     <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Dane o dostarczanym produkcie</p>
-    <p style="font-size:11px;color:#666;margin:0 0 8px;">Nazwa, kod i ilość sztuk zaciągną się z wydania. Uzupełnij pozostałe kolumny:</p>
-    <label>Ilość sztuk na palecie / w kartonie</label>
-    <input type="text" name="xbs_qty_per_pallet" id="im-xbs-qty-pallet" placeholder="opcjonalnie">
-    <label>Waga brutto / szt.</label>
-    <input type="text" name="xbs_weight" id="im-xbs-weight" placeholder="opcjonalnie">
-    <label>Rodzaj materiału</label>
-    <select name="xbs_material" id="im-xbs-material">
-      <option value="">– wybierz –</option>
-      <option value="Papier">Papier</option>
-      <option value="Tekstylia">Tekstylia</option>
-      <option value="Spożywcze">Spożywcze</option>
-    </select>
-    <label>Suma palet</label>
-    <input type="text" name="xbs_pallets" id="im-xbs-pallets" placeholder="opcjonalnie">
+    <p style="font-size:11px;color:#666;margin:0 0 8px;">Nazwa, kod i ilość sztuk zaciągną się z wydania. Dla każdej pozycji osobno uzupełnij pola poniżej:</p>
+    <div id="im-xbs-products"></div>
     <p style="font-size:12px;font-weight:600;margin:14px 0 8px;color:#334155;">Awizacja</p>
     <label>Data dostawy *</label>
     <input type="date" name="xbs_delivery_date" id="im-xbs-date">
@@ -46,3 +34,61 @@
     <input type="text" name="xbs_plate" id="im-xbs-plate" placeholder="opcjonalnie">
   </div>
 </div>
+<script>
+function syncXbsFields(){
+  const toggle = document.getElementById('im-xbs-toggle');
+  const fields = document.getElementById('im-xbs-fields');
+  const dateInp = document.getElementById('im-xbs-date');
+  if (!toggle || !fields) return;
+  const on = toggle.checked;
+  fields.style.display = on ? 'block' : 'none';
+  if (dateInp) dateInp.required = on;
+}
+function resetXbsFields(){
+  const toggle = document.getElementById('im-xbs-toggle');
+  if (toggle) toggle.checked = false;
+  ['im-xbs-supplier','im-xbs-supplier-person','im-xbs-supplier-phone','im-xbs-supplier-address',
+   'im-xbs-order','im-xbs-date','im-xbs-time','im-xbs-carrier','im-xbs-plate','im-xbs-notes'].forEach(function(id){
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const products = document.getElementById('im-xbs-products');
+  if (products) products.innerHTML = '';
+  syncXbsFields();
+}
+function renderXbsProductRows(items){
+  const box = document.getElementById('im-xbs-products');
+  if (!box) return;
+  if (!items || !items.length) {
+    box.innerHTML = '';
+    return;
+  }
+  const esc = function(s){
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  };
+  let html = '<div class="xbs-product-list">';
+  items.forEach(function(it, idx){
+    const rid = String(it.rid || '');
+    const prefix = 'xbs_item_' + rid + '_';
+    const code = esc(it.code);
+    const name = esc(it.name);
+    const qty = esc(it.qty);
+    const title = name ? (code + ' – ' + name) : code;
+    html += '<div class="xbs-product-card">';
+    html += '<div class="xbs-product-card-head"><strong>' + title + '</strong>';
+    if (qty) html += ' <span class="xbs-product-qty">' + qty + ' szt.</span>';
+    html += '</div>';
+    html += '<label>Ilość sztuk na palecie / w kartonie</label>';
+    html += '<input type="text" name="' + prefix + 'qty_per_pallet" placeholder="opcjonalnie">';
+    html += '<label>Waga brutto / szt.</label>';
+    html += '<input type="text" name="' + prefix + 'weight" placeholder="opcjonalnie">';
+    html += '<label>Rodzaj materiału</label>';
+    html += '<select name="' + prefix + 'material"><option value="">– wybierz –</option><option value="Papier">Papier</option><option value="Tekstylia">Tekstylia</option><option value="Spożywcze">Spożywcze</option></select>';
+    html += '<label>Suma palet</label>';
+    html += '<input type="text" name="' + prefix + 'pallets" placeholder="opcjonalnie">';
+    html += '</div>';
+  });
+  html += '</div>';
+  box.innerHTML = html;
+}
+</script>

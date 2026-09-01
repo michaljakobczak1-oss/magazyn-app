@@ -320,31 +320,7 @@ function effectiveIssueFrom(dateFrom){
   return dateFrom;
 }
 
-function syncXbsFields(){
-  const toggle = document.getElementById('im-xbs-toggle');
-  const fields = document.getElementById('im-xbs-fields');
-  const dateInp = document.getElementById('im-xbs-date');
-  if (!toggle || !fields) return;
-  const on = toggle.checked;
-  fields.style.display = on ? 'block' : 'none';
-  if (dateInp) dateInp.required = on;
-}
-
-function resetXbsFields(){
-  const toggle = document.getElementById('im-xbs-toggle');
-  if (toggle) toggle.checked = false;
-  ['im-xbs-supplier','im-xbs-supplier-person','im-xbs-supplier-phone','im-xbs-supplier-address',
-   'im-xbs-order','im-xbs-qty-pallet','im-xbs-weight','im-xbs-pallets','im-xbs-date','im-xbs-time',
-   'im-xbs-carrier','im-xbs-plate','im-xbs-notes'].forEach(function(id){
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  const mat = document.getElementById('im-xbs-material');
-  if (mat) mat.value = '';
-  syncXbsFields();
-}
-
-function openIssue(rid, code, dateFrom, dateTo, permanent){
+function openIssue(rid, code, dateFrom, dateTo, permanent, itemName, itemQty){
   issueBulkMode = false;
   issueDateFrom = dateFrom || '';
   document.getElementById('im-heading').textContent = permanent ? 'Wydanie trwałe' : 'Wydanie';
@@ -373,6 +349,7 @@ function openIssue(rid, code, dateFrom, dateTo, permanent){
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
   resetXbsFields();
+  renderXbsProductRows([{ rid: rid, code: code || '', name: itemName || '', qty: itemQty || '' }]);
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -399,6 +376,15 @@ function openIssueBulk(){
   document.getElementById('im-submit').textContent = 'Wydaj zaznaczone';
   document.getElementById('issue-form').action = '{{ url_for("bulk_action", action="issue") }}';
   resetXbsFields();
+  const xbsItems = checked.map(function(cb){
+    return {
+      rid: cb.value,
+      code: cb.dataset.code || '',
+      name: cb.dataset.name || '',
+      qty: cb.dataset.qty || ''
+    };
+  });
+  renderXbsProductRows(xbsItems);
   document.getElementById('issue-modal').style.display = 'flex';
 }
 
@@ -455,7 +441,9 @@ document.addEventListener('click', function(e){
     btn.dataset.code || '',
     btn.dataset.from || '',
     btn.dataset.to || '',
-    btn.dataset.permanent === '1'
+    btn.dataset.permanent === '1',
+    btn.dataset.name || '',
+    btn.dataset.qty || ''
   );
 });
 
