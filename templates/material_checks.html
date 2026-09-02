@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Wizyty w magazynie – Magazyn{% endblock %}
+{% block content %}
+<h1>Wizyty w magazynie</h1>
+<div class="toolbar" style="margin-bottom:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <a class="btn" href="{{ url_for('material_check_new') }}">+ Zaplanuj wizytę</a>
+  <form method="get" style="display:flex; gap:8px; align-items:center;">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">Wszystkie statusy</option>
+      <option value="planowane" {{ 'selected' if status_filter == 'planowane' }}>planowane</option>
+      <option value="zakończone" {{ 'selected' if status_filter == 'zakończone' }}>zakończone</option>
+      <option value="anulowana" {{ 'selected' if status_filter == 'anulowana' }}>anulowana</option>
+    </select>
+  </form>
+</div>
+
+<table class="data-cards">
+  <thead>
+  <tr>
+    <th>Data</th><th>Magazyn</th><th>Kto jedzie</th><th>Kody / zakres</th><th>Uwagi</th><th>Klient / cel</th><th>PM</th><th>Status</th><th>Po wizycie</th><th>Akcje</th>
+  </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td data-label="Data"><strong>{{ r.visit_date }}</strong></td>
+    <td data-label="Magazyn">{{ r.warehouse_name }}</td>
+    <td data-label="Kto jedzie">{{ r.receiver }}</td>
+    <td data-label="Kody">
+      {% if item_rows[r.id] %}
+        {% for it in item_rows[r.id] %}
+          <a href="{{ url_for('equipment_detail', eid=it.equipment_id) }}" style="font-size:12px;"><strong>{{ it.code }}</strong></a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      {% else %}
+        <span style="color:#666;font-size:12px;">Wizyta ogólna</span>
+      {% endif %}
+    </td>
+    <td data-label="Uwagi">{{ r.notes or '–' }}</td>
+    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="PM">{{ dn(r) }}</td>
+    <td data-label="Status">
+      <span class="badge {{ 'sprawdzenie' if r.status == 'planowane' else ('zwrócone' if r.status == 'zakończone' else 'anulowana') }}">{{ r.status }}</span>
+    </td>
+    <td data-label="Po wizycie">{{ r.completion_notes or '–' }}</td>
+    <td class="card-actions" data-label="Akcje">
+      {% if r.status == 'planowane' and (session.role == 'admin' or r.user_id == session.user_id) %}
+      <button type="button" class="btn small ok" onclick="openComplete({{ r.id }})">Zakończ</button>
+      <form class="inline" method="post" action="{{ url_for('material_check_cancel', vid=r.id) }}" onsubmit="return confirm('Anulować tę wizytę?');">
+        <button class="btn small ghost" type="submit">Anuluj</button>
+      </form>
+      {% else %}–{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="10" style="display:block;text-align:left;border:0;">Brak wpisów.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<div id="complete-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:flex-start; justify-content:center; overflow:auto; padding:20px 0;">
+  <div class="card" style="margin:auto; width:min(480px,94vw);">
+    <h2 style="margin-top:0;">Zakończ wizytę</h2>
+    <form method="post" id="complete-form">
+      <label>Notatka po wizycie</label>
+      <textarea name="completion_notes" rows="4" placeholder="np. OK, brakuje 2 szt. BF0003…"></textarea>
+      <p style="font-size:12px;color:#666;">Opcjonalnie – wynik wizyty, braki, uwagi.</p>
+      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn ok" type="submit">Zakończ wizytę</button>
+        <button type="button" class="btn ghost" onclick="closeComplete()">Wróć</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function openComplete(vid){
+  document.getElementById('complete-form').action = '/sprawdzenia/' + vid + '/complete';
+  document.getElementById('complete-modal').style.display = 'flex';
+}
+function closeComplete(){
+  document.getElementById('complete-modal').style.display = 'none';
+}
+</script>
+{% endblock %}

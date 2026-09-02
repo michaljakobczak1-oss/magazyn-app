@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Wizyta w magazynie – Magazyn{% endblock %}
+{% block content %}
+{% set form = form or {} %}
+{% set self_val = self_pickup_value or '__self__' %}
+{% set recv = form.get('receiver', '') %}
+{% set self_selected = recv == self_val or (recv or '').startswith('Odbiór własny') %}
+{% set selected_set = selected_eids|default([])|map('int')|list %}
+<h1>Wizyta w magazynie</h1>
+<p style="color:#555; font-size:14px; margin-top:-6px;">
+  Zaplanuj wizytę bez rezerwacji i wydania towaru. Wpis pojawi się w <strong>Tygodniu w magazynie</strong>.
+</p>
+<div class="card form-card">
+  <form method="post" class="touch-form js-busy-form" id="mc-form" data-busy-text="Zapisywanie…">
+    <label>Data wizyty *</label>
+    <input type="date" name="visit_date" value="{{ form.get('visit_date', '') }}" required>
+
+    <label>Magazyn *</label>
+    <select name="warehouse_id" id="mc-warehouse" required>
+      <option value="" disabled {{ 'selected' if not form.get('warehouse_id') }}>– wybierz –</option>
+      {% for w in warehouses %}
+      <option value="{{ w.id }}" {{ 'selected' if form.get('warehouse_id')|string == w.id|string }}>{{ w.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Kto jedzie *</label>
+    <select name="receiver" required>
+      <option value="" disabled {{ 'selected' if not recv }}>– wybierz –</option>
+      <option value="{{ self_val }}" {{ 'selected' if self_selected }}>
+        Odbiór własny – {{ session.full_name or session.username }}
+      </option>
+      {% for p in receivers %}
+      <option value="{{ p.name }}" {{ 'selected' if recv == p.name }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Klient / cel</label>
+    <input name="client" placeholder="np. weryfikacja przed montażem" value="{{ form.get('client', '') }}">
+
+    <label>Kody do obejrzenia <span style="font-weight:400;color:#666;">(opcjonalnie)</span></label>
+    <p style="font-size:12px;color:#666;margin:0 0 8px;">Zaznacz pozycje z listy. Bez zaznaczeń = wizyta ogólna w magazynie.</p>
+    <div class="mc-picker">
+      <div class="mc-picker-toolbar">
+        <input type="search" id="mc-search" placeholder="Szukaj kod / nazwa…" autocomplete="off">
+        <label class="chk mc-picker-filter" style="margin:0;font-weight:500;white-space:nowrap;">
+          <input type="checkbox" id="mc-wh-only" style="width:auto;">
+          Tylko wybrany magazyn
+        </label>
+      </div>
+      <div class="mc-picker-selected" id="mc-selected">
+        <span class="mc-picker-empty" id="mc-selected-empty">Nie wybrano kodów — wizyta ogólna.</span>
+      </div>
+      <p class="mc-picker-meta" id="mc-meta"></p>
+      <div class="mc-picker-list" id="mc-list">
+        {% for eq in equipment_picker %}
+        <label class="mc-picker-row" data-wh="{{ eq.warehouse_id or '' }}"
+               data-code="{{ eq.code|lower }}"
+               data-q="{{ (eq.code ~ ' ' ~ eq.name ~ ' ' ~ (eq.warehouse_name or ''))|lower }}">
+          <input type="checkbox" name="eid" value="{{ eq.id }}" class="mc-pick"
+                 {{ 'checked' if eq.id in selected_set }}>
+          <span class="mc-picker-code">{{ eq.code }}</span>
+          <span class="mc-picker-name">{{ eq.name }}</span>
+          {% if eq.warehouse_name %}<span class="mc-picker-wh">{{ eq.warehouse_name }}</span>{% endif %}
+        </label>
+        {% else %}
+        <p class="mc-picker-nores" id="mc-no-data">Brak pozycji w katalogu.</p>
+        {% endfor %}
+      </div>
+      <p class="mc-picker-nores" id="mc-no-match" style="display:none;">Brak wyników — zmień wyszukiwanie lub odznacz „Tylko wybrany magazyn”.</p>
+    </div>
+
+    <label>Uwagi</label>
+    <textarea name="notes" rows="2" placeholder="np. proszę przygotować próbki">{{ form.get('notes', '') }}</textarea>
+
+    <div class="sticky-form-actions">
+      <button class="btn" type="submit">Zaplanuj wizytę</button>
+      <a class="btn ghost" href="{{ url_for('dashboard') }}">Anuluj</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  const whSel = document.getElementById('mc-warehouse');
+  const search = document.getElementById('mc-search');
+  const whOnly = document.getElementById('mc-wh-only');
+  const list = document.getElementById('mc-list');
+  const selectedBox = document.getElementById('mc-selected');
+  const emptyLbl = document.getElementById('mc-selected-empty');
+  const meta = document.getElementById('mc-meta');
+  const noMatch = document.getElementById('mc-no-match');
+  if (!list) return;
+
+  function rows(){
+    return Array.prototype.slice.call(list.querySelectorAll('.mc-picker-row'));
+  }
+
+  function selectedItems(){
+    return Array.prototype.slice.call(list.querySelectorAll('.mc-pick:checked'));
+  }
+
+  function renderSelected(){
+    const checked = selectedItems();
+    selectedBox.querySelectorAll('.mc-chip').forEach(function(el){ el.remove(); });
+    if (emptyLbl) emptyLbl.style.display = checked.length ? 'none' : '';
+    checked.forEach(function(cb){
+      const row = cb.closest('.mc-picker-row');
+      const chip = document.createElement('span');
+      chip.className = 'mc-chip';
+      chip.textContent = row.querySelector('.mc-picker-code').textContent;
+      selectedBox.appendChild(chip);
+    });
+  }
+
+  function syncRows(){
+    const q = (search && search.value || '').trim().toLowerCase();
+    const wh = whSel && whSel.value;
+    const limitWh = whOnly && whOnly.checked && wh;
+    let visible = 0;
+    rows().forEach(function(row){
+      const matchQ = !q || (row.getAttribute('data-q') || '').indexOf(q) !== -1
+        || (row.getAttribute('data-code') || '').indexOf(q) === 0;
+      const matchWh = !limitWh || String(row.getAttribute('data-wh') || '') === String(wh);
+      const show = matchQ && matchWh;
+      row.style.display = show ? '' : 'none';
+      if (show) visible += 1;
+    });
+    if (meta) {
+      meta.textContent = visible
+        ? ('Pokazano ' + visible + (visible === 1 ? ' pozycję' : (visible < 5 ? ' pozycje' : ' pozycji')))
+        : '';
+    }
+    if (noMatch) {
+      noMatch.style.display = (rows().length && !visible) ? 'block' : 'none';
+    }
+    if (list) list.style.display = (rows().length && !visible) ? 'none' : '';
+  }
+
+  list.addEventListener('change', function(e){
+    if (e.target && e.target.classList.contains('mc-pick')) renderSelected();
+  });
+  if (search) {
+    search.addEventListener('input', syncRows);
+    search.addEventListener('search', syncRows);
+  }
+  if (whSel) whSel.addEventListener('change', syncRows);
+  if (whOnly) whOnly.addEventListener('change', syncRows);
+  renderSelected();
+  syncRows();
+})();
+</script>
+{% endblock %}

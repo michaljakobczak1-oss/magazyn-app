@@ -373,6 +373,99 @@ def account_password():
     return redirect(request.referrer or url_for(default))
 
 
+# ---------- sprawdzenia materiałów (helpers) ----------
+
+
+def _parse_equipment_codes(con, raw_codes):
+    """Zwraca listę equipment_id z kodów (po linii / przecinku); pomija nieznane i archiwum."""
+    if not raw_codes:
+        return []
+    parts = re.split(r"[\s,;]+", raw_codes.upper())
+    seen = set()
+    ids = []
+    for code in parts:
+        code = code.strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        row = con.execute(
+            """SELECT id FROM equipment
+               WHERE code=? AND IFNULL(archived,0)=0""",
+            (code,),
+        ).fetchone()
+        if row:
+            ids.append(int(row["id"]))
+    return ids
+
+
+def _unknown_equipment_codes(con, raw_codes):
+    unknown = []
+    if not raw_codes:
+        return unknown
+    seen = set()
+    for code in re.split(r"[\s,;]+", raw_codes.upper()):
+        code = code.strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        row = con.execute("SELECT id, IFNULL(archived,0) a FROM equipment WHERE code=?", (code,)).fetchone()
+        if not row:
+            unknown.append(code)
+        elif row["a"]:
+            unknown.append(code + " (archiwum)")
+    return unknown
+
+
+def _equipment_ids_from_form(form, con):
+    """ID sprzętu z checkboxów formularza (tylko aktywny, nie z archiwum)."""
+    out = []
+    seen = set()
+    for x in form.getlist("eid"):
+        if not str(x).isdigit():
+            continue
+        eid = int(x)
+        if eid in seen:
+            continue
+        seen.add(eid)
+        row = con.execute(
+            "SELECT id FROM equipment WHERE id=? AND IFNULL(archived,0)=0",
+            (eid,),
+        ).fetchone()
+        if row:
+            out.append(eid)
+    return out
+
+
+def _visit_items_summary(con, visit_id):
+    rows = con.execute(
+        """SELECT e.code, e.name FROM warehouse_visit_items vi
+           JOIN equipment e ON e.id=vi.equipment_id
+           WHERE vi.visit_id=? ORDER BY e.code""",
+        (visit_id,),
+    ).fetchall()
+    if not rows:
+        return None
+    return ", ".join(r["code"] for r in rows)
+
+
+def _can_manage_visit(v):
+    if session.get("role") == "admin":
+        return True
+    return int(v["user_id"]) == int(session["user_id"])
+
+
+def _load_visit(con, vid):
+    return con.execute(
+        """SELECT v.*, w.name AS warehouse_name,
+                  u.username, u.first_name, u.last_name
+           FROM warehouse_visits v
+           JOIN warehouses w ON w.id=v.warehouse_id
+           JOIN users u ON u.id=v.user_id
+           WHERE v.id=?""",
+        (vid,),
+    ).fetchone()
+
+
 # ---------- dashboard (tydzień w magazynie) ----------
 
 @app.route("/dashboard")
@@ -402,13 +495,197 @@ def dashboard():
     overdue = con.execute(
         base_sql + " WHERE r.status='wydane' AND r.date_to<? ORDER BY r.date_to",
         (today_s,)).fetchall()
+    checks_week = con.execute(
+        """SELECT v.*, w.name AS warehouse_name,
+                  u.username, u.first_name, u.last_name
+           FROM warehouse_visits v
+           JOIN warehouses w ON w.id=v.warehouse_id
+           JOIN users u ON u.id=v.user_id
+           WHERE v.status='planowane'
+             AND v.visit_date>=? AND v.visit_date<=?
+           ORDER BY v.visit_date, w.name, v.id""",
+        (today_s, week_end_s)).fetchall()
+    check_summaries = {r["id"]: _visit_items_summary(con, r["id"]) for r in checks_week}
+    check_items = {}
+    for r in checks_week:
+        check_items[r["id"]] = con.execute(
+            """SELECT e.code, e.name, e.id AS equipment_id FROM warehouse_visit_items vi
+               JOIN equipment e ON e.id=vi.equipment_id
+               WHERE vi.visit_id=? ORDER BY e.code""",
+            (r["id"],),
+        ).fetchall()
     con.close()
     days_overdue = {r["id"]: (today - date.fromisoformat(r["date_to"])).days
                     for r in overdue}
     return render_template("dashboard.html", out_week=out_week,
                            back_week=back_week, overdue=overdue,
+                           checks_week=checks_week,
+                           check_summaries=check_summaries,
+                           check_items=check_items,
                            today=today_s, week_end=week_end_s,
                            days_overdue=days_overdue, dn=display_name)
+
+
+# ---------- sprawdzenia materiałów (wizyty w magazynie) ----------
+
+
+@app.route("/sprawdzenia")
+@login_required
+def material_checks():
+    status = (request.args.get("status") or "").strip()
+    con = get_db()
+    sql = """SELECT v.*, w.name AS warehouse_name,
+                    u.username, u.first_name, u.last_name
+             FROM warehouse_visits v
+             JOIN warehouses w ON w.id=v.warehouse_id
+             JOIN users u ON u.id=v.user_id
+             WHERE 1=1"""
+    params = []
+    if session.get("role") != "admin":
+        sql += " AND v.user_id=?"
+        params.append(session["user_id"])
+    if status:
+        sql += " AND v.status=?"
+        params.append(status)
+    sql += " ORDER BY v.visit_date DESC, v.id DESC LIMIT 200"
+    rows = con.execute(sql, params).fetchall()
+    summaries = {r["id"]: _visit_items_summary(con, r["id"]) for r in rows}
+    item_rows = {}
+    for r in rows:
+        item_rows[r["id"]] = con.execute(
+            """SELECT e.id AS equipment_id, e.code, e.name FROM warehouse_visit_items vi
+               JOIN equipment e ON e.id=vi.equipment_id
+               WHERE vi.visit_id=? ORDER BY e.code""",
+            (r["id"],),
+        ).fetchall()
+    con.close()
+    return render_template(
+        "material_checks.html",
+        rows=rows,
+        summaries=summaries,
+        item_rows=item_rows,
+        status_filter=status,
+        dn=display_name,
+    )
+
+
+@app.route("/sprawdzenia/new", methods=["GET", "POST"])
+@login_required
+def material_check_new():
+    con = get_db()
+    warehouses = active_warehouses(con)
+    receivers = active_partners(con)
+    form = {}
+    if request.method == "POST":
+        form = dict(request.form)
+        visit_date = (form.get("visit_date") or "").strip()
+        warehouse_id = (form.get("warehouse_id") or "").strip()
+        receiver = resolve_receiver(form.get("receiver", ""))
+        client = (form.get("client") or "").strip()
+        notes = (form.get("notes") or "").strip()
+        eids = _equipment_ids_from_form(request.form, con)
+        if not visit_date or not valid_pickup_date(visit_date):
+            flash("Podaj poprawną datę wizyty.", "error")
+        elif not warehouse_id.isdigit():
+            flash("Wybierz magazyn.", "error")
+        elif not receiver:
+            flash("Wybierz, kto jedzie do magazynu.", "error")
+        else:
+            now = local_now().isoformat(timespec="seconds")
+            cur = con.execute(
+                """INSERT INTO warehouse_visits
+                   (user_id, warehouse_id, visit_date, receiver, client, notes, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (session["user_id"], int(warehouse_id), visit_date, receiver,
+                 client, notes, "planowane", now),
+            )
+            vid = cur.lastrowid
+            for eid in eids:
+                con.execute(
+                    "INSERT INTO warehouse_visit_items (visit_id, equipment_id) VALUES (?,?)",
+                    (vid, eid),
+                )
+            con.commit()
+            con.close()
+            flash("Zaplanowano wizytę w magazynie.", "ok")
+            return redirect(url_for("dashboard"))
+    selected_eids = []
+    if request.method == "POST":
+        selected_eids = _equipment_ids_from_form(request.form, con)
+    else:
+        selected_eids = [int(x) for x in request.args.getlist("eid") if str(x).isdigit()]
+    equipment_picker = con.execute(
+        """SELECT e.id, e.code, e.name, e.warehouse_id, w.name AS warehouse_name
+           FROM equipment e
+           LEFT JOIN warehouses w ON w.id=e.warehouse_id
+           WHERE IFNULL(e.catalog,'main')='main' AND IFNULL(e.archived,0)=0
+           ORDER BY e.code"""
+    ).fetchall()
+    con.close()
+    return render_template(
+        "material_check_new.html",
+        warehouses=warehouses,
+        receivers=receivers,
+        equipment_picker=equipment_picker,
+        selected_eids=selected_eids,
+        form=form,
+        self_pickup_value=SELF_PICKUP_VALUE,
+    )
+
+
+@app.route("/sprawdzenia/<int:vid>/complete", methods=["POST"])
+@login_required
+def material_check_complete(vid):
+    con = get_db()
+    v = _load_visit(con, vid)
+    if not v:
+        con.close()
+        abort(404)
+    if not _can_manage_visit(v):
+        con.close()
+        flash("Brak uprawnień.", "error")
+        return redirect(url_for("material_checks"))
+    if v["status"] != "planowane":
+        con.close()
+        flash("Ta wizyta nie jest już aktywna.", "error")
+        return redirect(url_for("material_checks"))
+    notes = (request.form.get("completion_notes") or "").strip()
+    now = local_now().isoformat(timespec="seconds")
+    con.execute(
+        """UPDATE warehouse_visits SET status='zakończone', completion_notes=?,
+           completed_at=?, completed_by=? WHERE id=?""",
+        (notes, now, session["user_id"], vid),
+    )
+    con.commit()
+    con.close()
+    flash("Wizyta oznaczona jako zakończona.", "ok")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/sprawdzenia/<int:vid>/cancel", methods=["POST"])
+@login_required
+def material_check_cancel(vid):
+    con = get_db()
+    v = _load_visit(con, vid)
+    if not v:
+        con.close()
+        abort(404)
+    if not _can_manage_visit(v):
+        con.close()
+        flash("Brak uprawnień.", "error")
+        return redirect(url_for("material_checks"))
+    if v["status"] != "planowane":
+        con.close()
+        flash("Nie można anulować tego wpisu.", "error")
+        return redirect(url_for("material_checks"))
+    con.execute(
+        "UPDATE warehouse_visits SET status='anulowana' WHERE id=?",
+        (vid,),
+    )
+    con.commit()
+    con.close()
+    flash("Wizyta anulowana.", "ok")
+    return redirect(request.referrer or url_for("dashboard"))
 
 
 # ---------- rejestr sprzętu ----------

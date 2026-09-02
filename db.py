@@ -138,6 +138,30 @@ CREATE TABLE IF NOT EXISTS equipment_stock (
     UNIQUE(equipment_id, warehouse_id, location)
 );
 CREATE INDEX IF NOT EXISTS idx_eq_stock ON equipment_stock(equipment_id);
+
+CREATE TABLE IF NOT EXISTS warehouse_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+    visit_date TEXT NOT NULL,
+    receiver TEXT NOT NULL,
+    client TEXT,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'planowane',
+    completion_notes TEXT,
+    completed_at TEXT,
+    completed_by INTEGER REFERENCES users(id),
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_wh_visits_date ON warehouse_visits(visit_date, status);
+
+CREATE TABLE IF NOT EXISTS warehouse_visit_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visit_id INTEGER NOT NULL REFERENCES warehouse_visits(id) ON DELETE CASCADE,
+    equipment_id INTEGER NOT NULL REFERENCES equipment(id),
+    UNIQUE(visit_id, equipment_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wh_visit_items ON warehouse_visit_items(visit_id);
 """
 
 # kolumny dokładane migracją do starszych baz: tabela -> {kolumna: definicja}

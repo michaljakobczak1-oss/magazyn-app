@@ -7,6 +7,7 @@
 <div class="stat-cards">
   <div class="stat"><div class="num">{{ out_week|length }}</div><div class="lbl">pozycji wychodzi w tym tygodniu</div></div>
   <div class="stat green"><div class="num">{{ back_week|length }}</div><div class="lbl">pozycji wraca w tym tygodniu</div></div>
+  <div class="stat" style="border-color:#7dd3fc;"><div class="num" style="color:#0369a1;">{{ checks_week|length }}</div><div class="lbl">wizyt w magazynie</div></div>
   <div class="stat red"><div class="num">{{ overdue|length }}</div><div class="lbl">pozycji po terminie zwrotu</div></div>
 </div>
 
@@ -70,4 +71,64 @@
 {% else %}
 <p style="color:#666;">Brak przetrzymanych pozycji.</p>
 {% endif %}
+
+<h2>Wizyty w magazynie w tym tygodniu</h2>
+{% if checks_week %}
+<table class="data-cards" style="margin-bottom:24px;">
+  <thead>
+  <tr><th>Data</th><th>Magazyn</th><th>Kto jedzie</th><th>Kody / zakres</th><th>Uwagi</th><th>Klient / cel</th><th>PM</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for v in checks_week %}
+  <tr>
+    <td data-label="Data"><strong>{{ v.visit_date }}</strong></td>
+    <td data-label="Magazyn">{{ v.warehouse_name }}</td>
+    <td data-label="Kto jedzie">{{ v.receiver }}</td>
+    <td data-label="Kody">
+      {% if check_items[v.id] %}
+        {% for it in check_items[v.id] %}
+          <a href="{{ url_for('equipment_detail', eid=it.equipment_id) }}"><strong>{{ it.code }}</strong></a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      {% else %}
+        <span style="color:#666;font-size:12px;">Wizyta ogólna</span>
+      {% endif %}
+    </td>
+    <td data-label="Uwagi">{{ v.notes or '–' }}</td>
+    <td data-label="Klient / cel">{{ v.client or '–' }}</td>
+    <td data-label="PM">{{ dn(v) }}</td>
+    <td class="card-actions" data-label="">
+      {% if session.role == 'admin' or v.user_id == session.user_id %}
+      <button type="button" class="btn small ok" onclick="openCheckComplete({{ v.id }})">Zakończ</button>
+      {% endif %}
+      <a class="btn small ghost" href="{{ url_for('material_checks') }}">Lista</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#666; margin-bottom:24px;">Brak zaplanowanych wizyt w tym tygodniu.</p>
+{% endif %}
+
+<div id="check-complete-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:flex-start; justify-content:center; overflow:auto; padding:20px 0;">
+  <div class="card" style="margin:auto; width:min(480px,94vw);">
+    <h2 style="margin-top:0;">Zakończ wizytę</h2>
+    <form method="post" id="check-complete-form">
+      <label>Notatka po wizycie</label>
+      <textarea name="completion_notes" rows="4" placeholder="np. OK, brakuje 2 szt.…"></textarea>
+      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn ok" type="submit">Zakończ</button>
+        <button type="button" class="btn ghost" onclick="document.getElementById('check-complete-modal').style.display='none'">Anuluj</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function openCheckComplete(vid){
+  document.getElementById('check-complete-form').action = '/sprawdzenia/' + vid + '/complete';
+  document.getElementById('check-complete-modal').style.display = 'flex';
+}
+</script>
 {% endblock %}

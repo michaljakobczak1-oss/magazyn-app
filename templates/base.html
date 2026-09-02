@@ -100,6 +100,23 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .xbs-product-qty { color:#64748b; font-weight:500; font-size:12px; }
 .xbs-product-card label { margin-top:10px; margin-bottom:4px; font-size:12px; }
 .xbs-product-card label:first-of-type { margin-top:0; }
+.mc-picker { border:1px solid #e2e8f0; border-radius:8px; background:#fafbfc; padding:10px 12px; }
+.mc-picker-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+.mc-picker-toolbar input[type=search] { flex:1; min-width:160px; margin:0; }
+.mc-picker-filter { display:flex; align-items:center; gap:6px; font-size:12px; }
+.mc-picker-selected { display:flex; flex-wrap:wrap; gap:6px; min-height:28px; margin-bottom:8px; }
+.mc-picker-empty { font-size:12px; color:#64748b; }
+.mc-chip { display:inline-block; padding:2px 8px; border-radius:999px; background:#e0f2fe; color:#0369a1; font-size:12px; font-weight:600; }
+.mc-picker-meta { font-size:12px; color:#64748b; margin:0 0 6px; min-height:16px; }
+.mc-picker-nores { font-size:12px; color:#b45309; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:8px 10px; margin:0 0 8px; }
+.mc-picker-list { max-height:280px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:6px; background:#fff; min-height:48px; }
+.mc-picker-row { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-bottom:1px solid #f1f5f9; margin:0; font-weight:400; cursor:pointer; }
+.mc-picker-row:last-child { border-bottom:0; }
+.mc-picker-row:hover { background:#f8fafc; }
+.mc-picker-row input { width:auto; margin-top:3px; flex-shrink:0; }
+.mc-picker-code { font-weight:700; font-size:13px; min-width:72px; flex-shrink:0; }
+.mc-picker-name { flex:1; font-size:12px; color:#334155; line-height:1.35; }
+.mc-picker-wh { font-size:11px; color:#64748b; white-space:nowrap; }
 #issue-modal > .card {
   width:min(560px, 94vw); max-height:90vh; overflow-y:auto;
 }
@@ -122,7 +139,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .badge.damaged { background:#fde8e8; color:var(--err); border:1px solid var(--err); }
 .badge.ok { background:#e6f4ea; color:var(--ok); border:1px solid var(--ok); }
 .badge.own { background:#f0f0f0; color:#111; }
-.badge.tcl { background:#e8eaf6; color:#283593; border:1px solid #9fa8da; }
+.badge.sprawdzenie { background:#e0f2fe; color:#0369a1; border:1px solid #7dd3fc; }
 .thumb { width:48px; height:48px; object-fit:cover; border-radius:6px; cursor:zoom-in; }
 .zoomable { display:inline-block; line-height:0; }
 /* podgląd poza tabelą – fixed, całe zdjęcie (object-fit:contain), ~450 px */
@@ -723,6 +740,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   </button>
   <div class="nav-links" id="nav-links">
   <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
+  <a href="{{ url_for('material_checks') }}" class="{{ 'active' if request.endpoint in ('material_checks', 'material_check_new') }}">Wizyty w magazynie</a>
   <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Sprzęt</a>
   {% if can_manage_tcl %}
   <a href="{{ url_for('tcl_index') }}" class="{{ 'active' if request.endpoint in ('tcl_index', 'tcl_import') }}">Sprzęt TCL</a>
