@@ -688,6 +688,42 @@ def material_check_cancel(vid):
     return redirect(request.referrer or url_for("dashboard"))
 
 
+@app.route("/sprawdzenia/purge", methods=["POST"])
+@login_required
+@admin_required
+def material_checks_purge():
+    """Usuwa wizyty magazynowe (z pozycjami). Opcjonalnie zostawia wskazane ID i przywraca status planowane."""
+    if request.form.get("confirm") != "USUN":
+        flash("Potwierdzenie nieprawidłowe.", "error")
+        return redirect(url_for("material_checks"))
+    keep_ids = sorted({int(x) for x in request.form.getlist("keep") if str(x).strip().isdigit()})
+    restore = request.form.get("restore") == "1"
+    con = get_db()
+    all_ids = [int(r["id"]) for r in con.execute("SELECT id FROM warehouse_visits ORDER BY id").fetchall()]
+    delete_ids = [i for i in all_ids if i not in keep_ids]
+    for did in delete_ids:
+        con.execute("DELETE FROM warehouse_visits WHERE id=?", (did,))
+    if restore:
+        for kid in keep_ids:
+            con.execute(
+                """UPDATE warehouse_visits SET status='planowane',
+                   completion_notes=NULL, completed_at=NULL, completed_by=NULL
+                   WHERE id=?""",
+                (kid,),
+            )
+    con.commit()
+    con.close()
+    msg = f"Usunięto {len(delete_ids)} wizyt"
+    if keep_ids:
+        msg += f" (zostawiono: {', '.join('#'+str(i) for i in keep_ids)})"
+    if restore and keep_ids:
+        msg += " — przywrócono status planowane"
+    flash(msg + ".", "ok")
+    if request.accept_mimetypes.best == "application/json" or request.args.get("json"):
+        return jsonify(ok=True, deleted=delete_ids, kept=keep_ids, restored=restore)
+    return redirect(url_for("material_checks"))
+
+
 # ---------- rejestr sprzętu ----------
 
 def _equipment_list_filters(catalog="main"):
