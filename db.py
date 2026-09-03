@@ -205,6 +205,7 @@ MIGRATIONS = {
         "returner": "TEXT",
         "xbs_awizacja_json": "TEXT",
         "xbs_batch_id": "TEXT",
+        "delivery_date": "TEXT",
     },
     "recipients": {
         "city": "TEXT",

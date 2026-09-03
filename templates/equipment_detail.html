@@ -121,7 +121,15 @@
   {% for r in reservations %}
   {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
   <tr class="{{ 'overdue' if is_overdue }}">
-    <td class="card-main" data-label="Termin">{% if r.permanent %}{{ r.date_from }} <span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
+    <td class="card-main" data-label="Termin">
+      <span style="font-size:12px;color:#666;">odbiór</span> {{ r.date_from }}
+      {% if r.delivery_date %}<br><span style="font-size:12px;color:#666;">dostawa</span> {{ r.delivery_date }}{% endif %}
+      {% if r.permanent %}
+        <br><span class="badge wydane-trwale">wydanie trwałe</span>
+      {% else %}
+        <br><span style="font-size:12px;color:#666;">zwrot</span> {{ r.date_to }}
+      {% endif %}
+    </td>
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>

@@ -332,33 +332,38 @@ def _draw_protocol_page(c, kind, res, eq, user_name, operator_name=None, photos=
         ("Brand", _get(eq, "brand") or "-"),
     ])
     is_perm = bool(_get(res, "permanent")) or res["status"] == "wydane trwale"
+    delivery = (_get(res, "delivery_date") or "").strip()
     right = [
         ("Ilość sztuk", str(res["quantity"])),
-        ("Od" if is_perm else "Termin planowany",
-         res["date_from"] if is_perm else f"{res['date_from']} – {res['date_to']}"),
+        ("Termin odbioru (planowany)", res["date_from"]),
+    ]
+    if delivery:
+        right.append(("Data dostawy (planowana)", delivery))
+    if not is_perm:
+        right.append(("Termin zwrotu (planowany)", res["date_to"]))
+    right.extend([
         ("Klient / cel", res["client"] or "-"),
         ("Odbiera towar", res["receiver"] or "-"),
         ("Rezerwujący", user_name),
-    ]
+    ])
     if kind == "przyjecie":
         returner = _get(res, "returner") or res["receiver"] or "-"
         # wstaw po "Odbiera towar"
-        right.insert(4, ("Oddaje towar", returner))
+        idx = next((i for i, (lab, _) in enumerate(right) if lab == "Odbiera towar"), len(right) - 1)
+        right.insert(idx + 1, ("Oddaje towar", returner))
     if operator_name:
         right.append(("Obsługa magazynu", operator_name))
     issued = _fmt_ts(_get(res, "issued_at"))
     if issued:
-        right.append(("Data wydania", issued))
+        right.append(("Data wydania (rzeczywista)", issued))
     if kind == "wydanie":
         start, end = _actual_period(res, kind)
-        is_perm = bool(_get(res, "permanent")) or res["status"] == "wydane trwale"
-        if is_perm:
-            right[1] = ("Od", res["date_from"])
-        else:
-            right[1] = ("Termin", f"{start} – {end}")
+        # Zachowaj planowane daty; dodaj rzeczywisty okres tylko gdy różni się od planu
+        if not is_perm and (start != res["date_from"] or end != res["date_to"]):
+            right.append(("Termin (wydanie – zwrot)", f"{start} – {end}"))
     if kind == "przyjecie":
         start, end = _actual_period(res, kind)
-        right[1] = ("Termin (wydanie – zwrot)", f"{start} – {end}")
+        right.append(("Termin (wydanie – zwrot)", f"{start} – {end}"))
         if res["status"] == "utylizacja":
             right.append(("Rozstrzygnięcie", "UTYLIZACJA – towar nie wraca"))
             if _get(res, "damage_notes"):
@@ -636,6 +641,7 @@ def group_pdf(kind, rows):
         start, end = _actual_period(r, kind)
         issued_ts = _fmt_ts(_get(r, "issued_at"))
         returned_ts = _fmt_ts(_get(r, "returned_at"))
+        delivery = (_get(r, "delivery_date") or "").strip()
         term_x = col_x[3] + pad
         term_w = col_w[3] - 2 * pad
         if kind == "przyjecie" and (issued_ts or returned_ts):
@@ -646,6 +652,8 @@ def group_pdf(kind, rows):
                 line2 = "zwr. " + returned_ts
             else:
                 line2 = "– " + str(end)
+        elif delivery:
+            line1, line2 = "odb. " + str(r["date_from"]), "dost. " + delivery
         elif kind == "wydanie" and issued_ts:
             line1, line2 = str(start), "– " + str(end)
         else:

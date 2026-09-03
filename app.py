@@ -252,6 +252,11 @@ def reservation_dates_from_form(form):
     return d_from, d_to, permanent
 
 
+def delivery_date_from_form(form):
+    """Planowana data dostawy do adresata (opcjonalna, YYYY-MM-DD)."""
+    return (form.get("delivery_date") or "").strip()[:10] or None
+
+
 def active_partners(con):
     return con.execute(
         "SELECT * FROM logistics_partners WHERE active=1 ORDER BY name").fetchall()
@@ -1261,15 +1266,16 @@ def reserve(eid):
                     flash(rec_err, "error")
                 else:
                     try:
+                        delivery_date = delivery_date_from_form(request.form)
                         con.execute(
                             """INSERT INTO reservations (equipment_id, user_id, client,
-                               date_from, date_to, quantity, notes, receiver, permanent,
+                               date_from, date_to, delivery_date, quantity, notes, receiver, permanent,
                                project_number,
                                recipient_name, recipient_contact, recipient_phone,
                                recipient_address, recipient_city, recipient_email)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (eid, session["user_id"], request.form["client"].strip(),
-                             d_from, d_to, qty, request.form["notes"].strip(),
+                             d_from, d_to, delivery_date, qty, request.form["notes"].strip(),
                              receiver, permanent, proj,
                              rec["recipient_name"], rec["recipient_contact"],
                              rec["recipient_phone"], rec["recipient_address"],
@@ -1390,15 +1396,16 @@ def reserve_multi():
                     for it in items:
                         if it["id"] not in wanted:
                             continue
+                        delivery_date = delivery_date_from_form(request.form)
                         con.execute(
                             """INSERT INTO reservations (equipment_id, user_id, client,
-                               date_from, date_to, quantity, notes, group_id, receiver, permanent,
+                               date_from, date_to, delivery_date, quantity, notes, group_id, receiver, permanent,
                                project_number,
                                recipient_name, recipient_contact, recipient_phone,
                                recipient_address, recipient_city, recipient_email)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (it["id"], session["user_id"], request.form["client"].strip(),
-                             d_from, d_to, wanted[it["id"]],
+                             d_from, d_to, delivery_date, wanted[it["id"]],
                              request.form["notes"].strip(), gid,
                              receiver, permanent, proj,
                              rec["recipient_name"], rec["recipient_contact"],
@@ -1541,15 +1548,16 @@ def _split_partial(con, r, process_qty):
 
     cur = con.execute(
         """INSERT INTO reservations (
-            equipment_id, user_id, client, date_from, date_to, quantity, status,
+            equipment_id, user_id, client, date_from, date_to, delivery_date, quantity, status,
             group_id, receiver, permanent, project_number,
             issue_warehouse_id, issue_location,
             recipient_name, recipient_contact,
             recipient_phone, recipient_address, recipient_city, recipient_email, notes,
             issued_at, issued_by
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             r["equipment_id"], r["user_id"], g("client"), r["date_from"], r["date_to"],
+            g("delivery_date"),
             remaining, "wydane", g("group_id"), g("receiver"),
             1 if g("permanent") else 0, g("project_number"),
             g("issue_warehouse_id"), g("issue_location"),

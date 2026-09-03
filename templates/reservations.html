@@ -54,7 +54,14 @@
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
       {% if r.group_id %}<br><span class="badge" style="background:#e3ecf7;color:#1e3a5f;" title="wspólna rezerwacja">grupa {{ r.group_id[:4] }}</span>{% endif %}</td>
-    <td data-label="Termin">{% if r.permanent %}{{ r.date_from }} <span class="badge wydane-trwale">wydanie trwałe</span>{% else %}{{ r.date_from }} – {{ r.date_to }}{% endif %}
+    <td data-label="Termin">
+      <span style="font-size:12px;color:#666;">odbiór</span> {{ r.date_from }}
+      {% if r.delivery_date %}<br><span style="font-size:12px;color:#666;">dostawa</span> {{ r.delivery_date }}{% endif %}
+      {% if r.permanent %}
+        <br><span class="badge wydane-trwale">wydanie trwałe</span>
+      {% else %}
+        <br><span style="font-size:12px;color:#666;">zwrot</span> {{ r.date_to }}
+      {% endif %}
       {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
@@ -72,10 +79,10 @@
       {% if can_m and r.status == 'rezerwacja' %}
         {% if r.permanent %}
         <button type="button" class="btn small js-issue-btn" style="background:#3949ab;color:#fff;"
-                data-rid="{{ r.id }}" data-code="{{ r.code }}" data-from="{{ r.date_from }}" data-to="{{ r.date_to }}" data-permanent="1">Wydaj trwale</button>
+                data-rid="{{ r.id }}" data-code="{{ r.code }}" data-from="{{ r.date_from }}" data-to="{{ r.date_to }}" data-delivery="{{ r.delivery_date or '' }}" data-permanent="1">Wydaj trwale</button>
         {% else %}
         <button type="button" class="btn small ok js-issue-btn"
-                data-rid="{{ r.id }}" data-code="{{ r.code }}" data-from="{{ r.date_from }}" data-to="{{ r.date_to }}" data-permanent="0">Wydaj</button>
+                data-rid="{{ r.id }}" data-code="{{ r.code }}" data-from="{{ r.date_from }}" data-to="{{ r.date_to }}" data-delivery="{{ r.delivery_date or '' }}" data-permanent="0">Wydaj</button>
         {% endif %}
       {% endif %}
       {% if r.status == 'rezerwacja' and (r.user_id == session.user_id or session.role == 'admin') %}
@@ -320,14 +327,16 @@ function effectiveIssueFrom(dateFrom){
   return dateFrom;
 }
 
-function openIssue(rid, code, dateFrom, dateTo, permanent, itemName, itemQty){
+function openIssue(rid, code, dateFrom, dateTo, permanent, itemName, itemQty, deliveryDate){
   issueBulkMode = false;
   issueDateFrom = dateFrom || '';
   document.getElementById('im-heading').textContent = permanent ? 'Wydanie trwałe' : 'Wydanie';
   document.getElementById('im-code').textContent = code || '';
-  document.getElementById('im-planned').textContent = permanent
-    ? ('Od: ' + (dateFrom || '–'))
-    : ((dateFrom || '–') + ' – ' + (dateTo || '–'));
+  let planned = permanent
+    ? ('Odbiór: ' + (dateFrom || '–'))
+    : ('Odbiór: ' + (dateFrom || '–') + ' · Zwrot: ' + (dateTo || '–'));
+  if (deliveryDate) planned += ' · Dostawa: ' + deliveryDate;
+  document.getElementById('im-planned').textContent = planned;
   document.getElementById('im-perm-note').style.display = permanent ? 'block' : 'none';
   document.getElementById('im-date-wrap').style.display = permanent ? 'none' : 'block';
   document.getElementById('im-bulk-note').style.display = 'none';
@@ -349,6 +358,8 @@ function openIssue(rid, code, dateFrom, dateTo, permanent, itemName, itemQty){
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
   document.getElementById('issue-form').action = '/reservations/' + rid + '/issue';
   resetXbsFields();
+  const xbsDate = document.getElementById('im-xbs-date');
+  if (xbsDate && deliveryDate) xbsDate.value = deliveryDate;
   renderXbsProductRows([{ rid: rid, code: code || '', name: itemName || '', qty: itemQty || '' }]);
   document.getElementById('issue-modal').style.display = 'flex';
 }
@@ -443,7 +454,8 @@ document.addEventListener('click', function(e){
     btn.dataset.to || '',
     btn.dataset.permanent === '1',
     btn.dataset.name || '',
-    btn.dataset.qty || ''
+    btn.dataset.qty || '',
+    btn.dataset.delivery || ''
   );
 });
 

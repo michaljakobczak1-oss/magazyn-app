@@ -19,10 +19,13 @@
       <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu. Zaznacz datę <strong>Od</strong> (termin zwrotu nie dotyczy).</span>
     </label>
     <div id="date-fields">
-      <label>Od *</label>
+      <label>Odbiór z magazynu (planowany) *</label>
       <input name="date_from" id="date_from" type="date" value="{{ form.get('date_from', '') }}">
+      <label>Data dostawy (planowana)</label>
+      <input name="delivery_date" id="delivery_date" type="date" value="{{ form.get('delivery_date', '') }}">
+      <p style="font-size:12px;color:#666;margin:4px 0 0;">Opcjonalnie – kiedy towar ma być u adresata (osobno od odbioru z magazynu).</p>
       <span id="date-to-wrap">
-        <label>Do *</label>
+        <label>Zwrot do magazynu (planowany) *</label>
         <input name="date_to" id="date_to" type="date" value="{{ form.get('date_to', '') }}">
       </span>
     </div>
