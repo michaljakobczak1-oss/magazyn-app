@@ -17,7 +17,7 @@ from db import (get_db, init_db, reserved_qty, display_name, upsert_recipient,
                 next_free_after_return, replace_equipment_stock,
                 move_equipment_stock_on_return, take_equipment_stock,
                 add_equipment_stock, sync_equipment_from_stock,
-                sync_equipment_primary_photo, DB_PATH)
+                sync_equipment_primary_photo, stock_summary, DB_PATH)
 from pdf_gen import protocol_pdf, group_pdf
 from import_excel import run_import
 from export_excel import (
@@ -1052,11 +1052,21 @@ def equipment_detail(eid):
     avail_today = _usable_qty(eq) - reserved_qty(con, eid, today, today)
     manage_ids = {r["id"] for r in res if can_manage_reservation(r)}
     is_archived = bool(eq["archived"]) if "archived" in eq.keys() else False
+    stock_rows = con.execute(
+        """SELECT es.quantity, IFNULL(es.location,'') loc, w.name AS warehouse_name
+           FROM equipment_stock es
+           LEFT JOIN warehouses w ON w.id=es.warehouse_id
+           WHERE es.equipment_id=? AND es.quantity > 0
+           ORDER BY es.quantity DESC, es.id""",
+        (eid,),
+    ).fetchall()
+    stock_loc_summary = stock_summary(con, eid)
     con.close()
     return render_template("equipment_detail.html", eq=eq, reservations=res,
                            avail_today=avail_today, today=today, dn=display_name,
                            photo_rows=photo_rows, manage_ids=manage_ids,
-                           is_archived=is_archived)
+                           is_archived=is_archived, stock_rows=stock_rows,
+                           stock_loc_summary=stock_loc_summary)
 
 
 @app.route("/equipment/<int:eid>/repair", methods=["POST"])

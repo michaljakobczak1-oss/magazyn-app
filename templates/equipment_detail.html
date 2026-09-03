@@ -22,7 +22,16 @@
       <dt>Numer projektu</dt><dd>{{ eq.project_number or '–' }}</dd>
       <dt>Wymiary</dt><dd>{{ eq.dimensions or '–' }}</dd>
       <dt>Magazyn</dt><dd>{{ eq.warehouse_name or '–' }}{% if eq.warehouse_address %}<br><span style="font-size:12px;color:#666;">{{ eq.warehouse_address }}</span>{% endif %}</dd>
-      <dt>Miejsce w magazynie</dt><dd>{{ eq.location or '–' }}</dd>
+      <dt>Miejsce w magazynie</dt>
+      <dd>
+        {% if stock_rows and stock_rows|length > 1 %}
+          {% for s in stock_rows %}
+            {{ s.warehouse_name or '—' }}{% if s.loc %}/{{ s.loc }}{% endif %}: {{ s.quantity }} szt.{% if not loop.last %}<br>{% endif %}
+          {% endfor %}
+        {% else %}
+          {{ eq.location or '–' }}
+        {% endif %}
+      </dd>
       <dt>Własność</dt><dd>{{ eq.owner or '–' }}</dd>
       <dt>Brand</dt><dd>{{ eq.brand or '–' }}</dd>
       <dt>Rodzaj materiału</dt><dd>{{ 'własny agencji (00)' if eq.material_type == 'wlasny' else 'materiał klienta' }}</dd>

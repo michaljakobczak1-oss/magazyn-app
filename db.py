@@ -487,18 +487,21 @@ def take_equipment_stock(con, equipment_id, qty, prefer_warehouse_id=None):
 
 
 def move_equipment_stock_on_return(con, equipment_id, qty, to_warehouse_id, to_location):
-    """Przy zwrocie: przenosi qty szt. ze starego stanu na magazyn/miejsce przyjęcia.
+    """Przy zwrocie: przenosi tylko qty szt. na magazyn/miejsce przyjęcia.
 
-    Nie zmienia łącznej quantity sprzętu – tylko rozkład po magazynach.
+    Reszta stanu zostaje na dotychczasowych lokalizacjach. Karta produktu
+    (equipment.location) synchronizuje się z największym stanem; przy wielu
+    miejscach UI pokazuje rozkład ze stock.
     """
     qty = int(qty)
     if qty <= 0:
         return False
+    loc = (to_location or "").strip()
     eq = con.execute("SELECT warehouse_id FROM equipment WHERE id=?", (equipment_id,)).fetchone()
     prefer = eq["warehouse_id"] if eq else None
     ensure_equipment_stock(con, equipment_id)
     take_equipment_stock(con, equipment_id, qty, prefer_warehouse_id=prefer)
-    add_equipment_stock(con, equipment_id, to_warehouse_id, to_location, qty)
+    add_equipment_stock(con, equipment_id, to_warehouse_id, loc, qty)
     sync_equipment_from_stock(con, equipment_id, keep_total=True)
     return True
 
