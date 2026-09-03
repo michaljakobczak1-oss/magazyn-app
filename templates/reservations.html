@@ -628,6 +628,7 @@ function syncReturnModalUI(){
     else if (anyDispose) btn = 'Oznacz jako utylizacja';
     else if (anyDamage) btn = 'Przyjmij zwrot (z uszkodzeniem)';
     document.getElementById('rm-submit').textContent = btn;
+    document.getElementById('rm-submit').setAttribute('data-busy-label', btn);
     const whBulk = document.getElementById('rm-warehouse-bulk');
     const retBulk = document.getElementById('rm-returner-bulk');
     if (whBulk) whBulk.disabled = !anyReturn;
@@ -659,6 +660,7 @@ function syncReturnModalUI(){
   else if (qtyDisp > 0) btn = 'Oznacz jako utylizacja';
   else if (qtyDmg > 0) btn = 'Przyjmij zwrot uszkodzony';
   document.getElementById('rm-submit').textContent = btn;
+  document.getElementById('rm-submit').setAttribute('data-busy-label', btn);
 }
 
 function prepareSingleSubmit(){
@@ -762,6 +764,7 @@ function resetReturnModal(){
   document.getElementById('rm-damage-notes-bulk').value = '';
   document.getElementById('rm-error').style.display = 'none';
   document.querySelectorAll('#return-form .rm-bulk-sync').forEach(function(el){ el.remove(); });
+  if (typeof clearFormBusy === 'function') clearFormBusy(document.getElementById('return-form'));
   syncReturnModalUI();
 }
 function closeReturnModal(){

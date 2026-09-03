@@ -929,6 +929,17 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 })();
 /* Blokada podwójnego kliknięcia + komunikat „trwa zapis” (Safari nie wygląda wtedy jakby „nic się nie działo”). */
 (function(){
+  function clearBusy(form){
+    if (!form) return;
+    form.removeAttribute('data-submitting');
+    var buttons = form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]');
+    for (var i = 0; i < buttons.length; i++) {
+      var b = buttons[i];
+      b.disabled = false;
+      var label = b.getAttribute('data-busy-label');
+      if (label != null && b.tagName === 'BUTTON') b.textContent = label;
+    }
+  }
   function markBusy(form, btn){
     if (form.getAttribute('data-submitting') === '1') return false;
     form.setAttribute('data-submitting', '1');
@@ -955,8 +966,14 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     if (!markBusy(form, e.submitter || null)) {
       e.preventDefault();
       e.stopPropagation();
+      return;
     }
+    // Walidacja w innych handlerach może anulować submit – wtedy odblokuj przycisk.
+    setTimeout(function(){
+      if (e.defaultPrevented) clearBusy(form);
+    }, 0);
   }, true);
+  window.clearFormBusy = clearBusy;
 })();
 </script>
 {% block scripts %}{% endblock %}
