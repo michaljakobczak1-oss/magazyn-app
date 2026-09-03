@@ -642,31 +642,34 @@ def group_pdf(kind, rows):
         issued_ts = _fmt_ts(_get(r, "issued_at"))
         returned_ts = _fmt_ts(_get(r, "returned_at"))
         delivery = (_get(r, "delivery_date") or "").strip()
+        is_perm = bool(_get(r, "permanent")) or r["status"] == "wydane trwale"
         term_x = col_x[3] + pad
         term_w = col_w[3] - 2 * pad
+        term_lines = []  # (text, bold)
         if kind == "przyjecie" and (issued_ts or returned_ts):
-            line1 = ("wyd. " + issued_ts) if issued_ts else str(start)
+            term_lines.append((("wyd. " + issued_ts) if issued_ts else str(start), True))
             if r["status"] == "utylizacja" and returned_ts:
-                line2 = "utyl. " + returned_ts
+                term_lines.append(("utyl. " + returned_ts, False))
             elif returned_ts:
-                line2 = "zwr. " + returned_ts
+                term_lines.append(("zwr. " + returned_ts, False))
             else:
-                line2 = "– " + str(end)
-        elif delivery:
-            line1, line2 = "odb. " + str(r["date_from"]), "dost. " + delivery
-        elif kind == "wydanie" and issued_ts:
-            line1, line2 = str(start), "– " + str(end)
+                term_lines.append(("– " + str(end), False))
         else:
-            line1, line2 = str(start), "– " + str(end)
-        t1 = _wrap_width(c, line1, FONT_B, 7.5, term_w)[:1]
-        t2 = _wrap_width(c, line2, FONT, 7.5, term_w)[:1]
-        _draw_col_lines(c, term_x, ty, t1, FONT_B, 7.5)
-        if t2:
-            _draw_col_lines(c, term_x, ty - 3.5 * mm, t2, FONT, 7.5)
+            term_lines.append(("odb. " + str(r["date_from"] or start), True))
+            if delivery:
+                term_lines.append(("dost. " + delivery, False))
+            if not is_perm and (r["date_to"] or end):
+                term_lines.append(("zwr. " + str(r["date_to"] or end), False))
+        line_gap = 3.5 * mm
+        for i, (txt, bold) in enumerate(term_lines[:3]):
+            wrapped = _wrap_width(c, txt, FONT_B if bold else FONT, 7.5, term_w)[:1]
+            _draw_col_lines(c, term_x, ty - i * line_gap, wrapped,
+                            FONT_B if bold else FONT, 7.5)
+        client_y = ty - len(term_lines[:3]) * line_gap
         if _get(r, "client"):
             c.setFillColor(colors.HexColor("#444444"))
             for i, wl in enumerate(_wrap_width(c, r["client"], FONT, 7, term_w)[:1]):
-                c.drawString(term_x, ty - 7 * mm - i * 3.2 * mm, wl)
+                c.drawString(term_x, client_y - i * 3.2 * mm, wl)
             c.setFillColor(colors.black)
         c.setFont(FONT, 8)
         wh_name = _get(r, "warehouse_name") or "-"
