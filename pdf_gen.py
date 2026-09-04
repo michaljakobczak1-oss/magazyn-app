@@ -48,8 +48,8 @@ def _resolve_photo(fn):
     return None
 
 
-def _photo_thumb_reader(fn, max_px=160):
-    """Mały JPEG w pamięci – zbiorcze PDF z dziesiątkami zdjęć nie timeoutują na Render."""
+def _photo_thumb_reader(fn, max_px=160, quality=70):
+    """Mały JPEG w pamięci – kompromis waga ↔ czytelność na PDF."""
     path = _resolve_photo(fn)
     if not path:
         return None
@@ -59,7 +59,8 @@ def _photo_thumb_reader(fn, max_px=160):
             im = im.convert("RGB")
             im.thumbnail((max_px, max_px))
             buf = BytesIO()
-            im.save(buf, format="JPEG", quality=70, optimize=True)
+            # quality 65–75: ostre na wydruku, bez pełnych MB ze zdjęć
+            im.save(buf, format="JPEG", quality=quality, optimize=True)
             buf.seek(0)
             return ImageReader(buf)
     except Exception:
@@ -252,12 +253,12 @@ def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
     drawn_h = 0
     images = []
     for fn, kind in entries:
-        path = _resolve_photo(fn)
-        if not path:
+        # ~480 px / q72 – ostre na stronie protokołu (~3 cm), bez full-res MB
+        img = _photo_thumb_reader(fn, max_px=480, quality=72)
+        if not img:
             images.append(None)
             continue
         try:
-            img = ImageReader(str(path))
             iw, ih = img.getSize()
             scale = min(cell_w / iw, max_ph / ih)
             dw, dh = iw * scale, ih * scale
@@ -636,7 +637,8 @@ def group_pdf(kind, rows):
             y = table_head(y)
         yr = y - row_h
         if r["photo"]:
-            img = _photo_thumb_reader(r["photo"], max_px=140)
+            # ~130 px / q68 – czytelne w kolumnie zbiorczego WZ, wciąż lekkie
+            img = _photo_thumb_reader(r["photo"], max_px=130, quality=68)
             if img:
                 try:
                     iw, ih = img.getSize()
