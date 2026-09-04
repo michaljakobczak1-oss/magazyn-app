@@ -1772,7 +1772,9 @@ def _redirect_after_issue(done_ids, xbs_meta):
     if xbs_meta:
         _store_xbs_session(done_ids, xbs_meta)
         flash("Awizacja XBS: Excel pobierze się zaraz po PDF (lub link w kolumnie Dokumenty).", "ok")
-    kw = {"auto_pdf": "wydanie", "rid": done_ids}
+    # rids w sesji – unikamy długiego URL i gubienia auto-PDF przy dużych wydaniach
+    session["pending_pdf"] = {"kind": "wydanie", "rids": [int(x) for x in done_ids]}
+    kw = {"auto_pdf": "wydanie", "pending": "1"}
     if xbs_meta:
         kw["xbs_hint"] = "1"
     return redirect(url_for("reservations", **kw))
@@ -2288,10 +2290,20 @@ def pdf_group(kind):
     if kind not in ("wydanie", "przyjecie"):
         abort(404)
     con = get_db()
-    result = _pdf_for_rids(con, kind, request.args.getlist("rid"))
+    rids = request.args.getlist("rid")
+    group = (request.args.get("group") or "").strip()
+    if not rids and group:
+        rows = con.execute(
+            """SELECT id FROM reservations
+               WHERE group_id=? OR group_id LIKE ?
+               ORDER BY id""",
+            (group, group + "%"),
+        ).fetchall()
+        rids = [str(r["id"]) for r in rows]
+    result = _pdf_for_rids(con, kind, rids)
     con.close()
     if not result:
-        flash("Zaznacz przynajmniej jedną rezerwację.", "error")
+        flash("Zaznacz przynajmniej jedną rezerwację (albo podaj group=).", "error")
         return redirect(url_for("reservations"))
     buf, name = result
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
@@ -2573,9 +2585,16 @@ def auto_pdf(kind):
         con = get_db()
         ret_wid = request.args.get("ret_wid", "").strip()
         ret_loc = request.args.get("ret_loc", "").strip()
-        result = _pdf_for_rids(con, kind, request.args.getlist("rid"),
+        rids = request.args.getlist("rid")
+        if not rids and request.args.get("pending") == "1":
+            pending = session.get("pending_pdf") or {}
+            if pending.get("kind") == kind:
+                rids = [str(x) for x in (pending.get("rids") or [])]
+        result = _pdf_for_rids(con, kind, rids,
                                ret_wid=ret_wid or None, ret_loc=ret_loc or None)
         con.close()
+        if result and request.args.get("pending") == "1":
+            session.pop("pending_pdf", None)
     except Exception as exc:
         flash(f"Nie udało się wygenerować PDF: {exc}. Spróbuj ponownie z listy rezerwacji.", "error")
         return redirect(url_for("reservations"))

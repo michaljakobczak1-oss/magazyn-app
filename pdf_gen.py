@@ -48,6 +48,27 @@ def _resolve_photo(fn):
     return None
 
 
+def _photo_thumb_reader(fn, max_px=160):
+    """Mały JPEG w pamięci – zbiorcze PDF z dziesiątkami zdjęć nie timeoutują na Render."""
+    path = _resolve_photo(fn)
+    if not path:
+        return None
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            im.thumbnail((max_px, max_px))
+            buf = BytesIO()
+            im.save(buf, format="JPEG", quality=70, optimize=True)
+            buf.seek(0)
+            return ImageReader(buf)
+    except Exception:
+        try:
+            return ImageReader(str(path))
+        except Exception:
+            return None
+
+
 # kompatybilność wsteczna
 UPLOADS = _BASE / "static" / "uploads"
 
@@ -615,14 +636,13 @@ def group_pdf(kind, rows):
             y = table_head(y)
         yr = y - row_h
         if r["photo"]:
-            p = _resolve_photo(r["photo"])
-            if p:
+            img = _photo_thumb_reader(r["photo"], max_px=140)
+            if img:
                 try:
-                    img = ImageReader(str(p))
                     iw, ih = img.getSize()
                     s = min((col_w[0] - 2 * mm) / iw, (row_h - 4 * mm) / ih)
                     c.drawImage(img, col_x[0] + 1 * mm, yr + 2 * mm, iw * s, ih * s,
-                                preserveAspectRatio=True, anchor="sw")
+                                preserveAspectRatio=True, mask="auto", anchor="sw")
                 except Exception:
                     pass
         ty = y - 5 * mm

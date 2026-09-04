@@ -1012,18 +1012,22 @@ function openReturnBulk(){
   syncReturnModalUI();
   document.getElementById('return-modal').style.display = 'flex';
 }
-{% if request.args.get('auto_pdf') and request.args.getlist('rid') %}
+{% if request.args.get('auto_pdf') and (request.args.getlist('rid') or request.args.get('pending') == '1') %}
 (function(){
   const kind = {{ request.args.get('auto_pdf')|tojson }};
   const rids = {{ request.args.getlist('rid')|tojson }};
+  const pending = {{ request.args.get('pending', '')|tojson }};
   const parts = rids.map(function(id){ return 'rid=' + encodeURIComponent(id); });
+  if (pending === '1' && !parts.length) parts.push('pending=1');
   const retWid = {{ request.args.get('ret_wid', '')|tojson }};
   const retLoc = {{ request.args.get('ret_loc', '')|tojson }};
   const xbsHint = {{ request.args.get('xbs_hint', '')|tojson }};
   if (retWid) parts.push('ret_wid=' + encodeURIComponent(retWid));
   if (retLoc) parts.push('ret_loc=' + encodeURIComponent(retLoc));
   const pdfHref = '/reservations/auto-pdf/' + kind + '?' + parts.join('&');
-  const xbsHref = '/reservations/auto-xbs?' + parts.join('&');
+  const xbsHref = '/reservations/auto-xbs?' + (rids.length
+    ? rids.map(function(id){ return 'rid=' + encodeURIComponent(id); }).join('&')
+    : parts.join('&'));
 
   // Banner zamiast „milczącego” auto-download – Safari często gubi połączenie przy natychmiastowym pobraniu
   const bar = document.createElement('div');
