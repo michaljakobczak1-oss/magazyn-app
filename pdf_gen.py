@@ -684,9 +684,13 @@ def group_pdf(kind, rows):
                 term_lines.append(("zwr. " + str(r["date_to"] or end), False))
         line_gap = 3.5 * mm
         for i, (txt, bold) in enumerate(term_lines[:3]):
-            wrapped = _wrap_width(c, txt, FONT_B if bold else FONT, 7.5, term_w)[:1]
-            _draw_col_lines(c, term_x, ty - i * line_gap, wrapped,
-                            FONT_B if bold else FONT, 7.5)
+            # Jedna linia na datę – bez zawijania „2026-09-” / „03”
+            font = FONT_B if bold else FONT
+            size = 7.5
+            while size >= 6.0 and c.stringWidth(txt, font, size) > term_w:
+                size -= 0.5
+            c.setFont(font, size)
+            c.drawString(term_x, ty - i * line_gap, txt)
         client_y = ty - len(term_lines[:3]) * line_gap
         if _get(r, "client"):
             c.setFillColor(colors.HexColor("#444444"))

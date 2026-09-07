@@ -1169,6 +1169,7 @@ def reservations():
     f = request.args.get("status", "")
     mine = request.args.get("mine", "")
     overdue = request.args.get("overdue", "")
+    done = request.args.get("done", "")
     today = local_today().isoformat()
     con = get_db()
     sql = """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
@@ -1182,6 +1183,9 @@ def reservations():
     where, params = [], []
     if f:
         where.append("r.status=?"); params.append(f)
+    elif overdue != "1" and done != "1":
+        # Domyślnie ukryj zrealizowane – widać je po „pokaż zrealizowane” albo filtrze statusu
+        where.append("r.status NOT IN ('zwrócone','utylizacja','anulowana')")
     if mine == "1":
         where.append("r.user_id=?"); params.append(session["user_id"])
     if overdue == "1":
@@ -1198,7 +1202,7 @@ def reservations():
     manage_ids = {r["id"] for r in rows if can_manage_reservation(r)}
     con.close()
     return render_template("reservations.html", rows=rows, f=f, mine=mine,
-                           overdue=overdue, today=today, dn=display_name,
+                           overdue=overdue, done=done, today=today, dn=display_name,
                            warehouses=warehouses, receivers=receivers,
                            manage_ids=manage_ids,
                            self_pickup_value=SELF_PICKUP_VALUE)

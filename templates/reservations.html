@@ -4,7 +4,7 @@
 {% block content %}
 <h1>{{ 'Moje rezerwacje' if mine == '1' else 'Rezerwacje' }}{% if overdue == '1' %} – po terminie{% endif %}</h1>
 <div class="toolbar">
-  <form method="get" style="display:flex; gap:8px; align-items:center;">
+  <form method="get" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
     {% if mine == '1' %}<input type="hidden" name="mine" value="1">{% endif %}
     <select name="status" onchange="this.form.submit()">
       <option value="">Wszystkie statusy</option>
@@ -15,6 +15,11 @@
     <label class="chk" style="display:flex; align-items:center; gap:6px; margin:0; font-weight:400;">
       <input type="checkbox" name="overdue" value="1" style="width:auto;" {{ 'checked' if overdue == '1' }} onchange="this.form.submit()">
       tylko po terminie
+    </label>
+    <label class="chk" style="display:flex; align-items:center; gap:6px; margin:0; font-weight:400;"
+           title="zwrócone, utylizacja, anulowana">
+      <input type="checkbox" name="done" value="1" style="width:auto;" {{ 'checked' if done == '1' }} onchange="this.form.submit()">
+      pokaż zrealizowane
     </label>
   </form>
 </div>
@@ -54,15 +59,15 @@
       {% if r.catalog == 'tcl' %}<br><span class="badge tcl">TCL</span>{% endif %}
       {% if r.warehouse_name or r.location %}<br><span style="font-size:11px;color:#666;">{{ r.warehouse_name or '–' }}{% if r.location %} / {{ r.location }}{% endif %}</span>{% endif %}
       {% if r.group_id %}<br><span class="badge" style="background:#e3ecf7;color:#1e3a5f;" title="wspólna rezerwacja">grupa {{ r.group_id[:4] }}</span>{% endif %}</td>
-    <td data-label="Termin">
-      <span style="font-size:12px;color:#666;">odbiór</span> {{ r.date_from }}
-      {% if r.delivery_date %}<br><span style="font-size:12px;color:#666;">dostawa</span> {{ r.delivery_date }}{% endif %}
+    <td data-label="Termin" class="term-cell">
+      <div class="term-line"><span class="term-lbl">odbiór</span> {{ r.date_from }}</div>
+      {% if r.delivery_date %}<div class="term-line"><span class="term-lbl">dostawa</span> {{ r.delivery_date }}</div>{% endif %}
       {% if r.permanent %}
-        <br><span class="badge wydane-trwale">wydanie trwałe</span>
+        <div class="term-line"><span class="badge wydane-trwale">wydanie trwałe</span></div>
       {% else %}
-        <br><span style="font-size:12px;color:#666;">zwrot</span> {{ r.date_to }}
+        <div class="term-line"><span class="term-lbl">zwrot</span> {{ r.date_to }}</div>
       {% endif %}
-      {% if is_overdue %}<br><span class="badge overdue">po terminie</span>{% endif %}</td>
+      {% if is_overdue %}<div class="term-line"><span class="badge overdue">po terminie</span></div>{% endif %}</td>
     <td data-label="Szt.">{{ r.quantity }}</td>
     <td data-label="Klient / cel">{{ r.client or '–' }}</td>
     <td data-label="Adresat">{{ r.recipient_name or '–' }}{% if r.recipient_city %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_city }}</span>{% endif %}{% if r.recipient_address %}<br><span style="font-size:11px;color:#666;">{{ r.recipient_address }}</span>{% endif %}</td>
