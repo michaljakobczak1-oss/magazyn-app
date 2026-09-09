@@ -1033,15 +1033,16 @@ function openReturnBulk(){
   const xbsHref = '/reservations/auto-xbs?' + (rids.length
     ? rids.map(function(id){ return 'rid=' + encodeURIComponent(id); }).join('&')
     : parts.join('&'));
+  const nHint = rids.length || '';
 
-  // Banner zamiast „milczącego” auto-download – Safari często gubi połączenie przy natychmiastowym pobraniu
   const bar = document.createElement('div');
   bar.className = 'flash warn';
   bar.id = 'auto-doc-banner';
   bar.style.cssText = 'position:sticky;top:56px;z-index:40;';
-  bar.innerHTML = 'Trwa przygotowanie dokumentów… ' +
+  bar.innerHTML = 'Trwa przygotowanie dokumentów' + (nHint ? ' (' + nHint + ' poz.)' : '') + '… ' +
     '<a href="' + pdfHref + '" id="auto-pdf-link">Pobierz PDF ręcznie</a>' +
-    (xbsHint === '1' && kind === 'wydanie' ? ' · <a href="' + xbsHref + '">Pobierz XBS</a>' : '');
+    (xbsHint === '1' && kind === 'wydanie' ? ' · <a href="' + xbsHref + '">Pobierz XBS</a>' : '') +
+    '<br><span style="font-size:12px;opacity:.9;">Przy wielu pozycjach poczekaj kilka–kilkanaście sekund albo użyj linku powyżej.</span>';
   const wrap = document.querySelector('.wrap') || document.body;
   wrap.insertBefore(bar, wrap.firstChild);
 

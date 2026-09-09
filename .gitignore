@@ -10,3 +10,9 @@ __pycache__/
 
 # lokalne dane importu (xlsx + zdjęcia)
 import_data/
+
+# cache miniatur do PDF (generowane lokalnie / na Render)
+data/pdf_thumbs/
+
+# osobny projekt (deploy w innym repo / Render Static Site)
+picperfect_re/

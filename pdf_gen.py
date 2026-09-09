@@ -49,25 +49,55 @@ def _resolve_photo(fn):
 
 
 def _photo_thumb_reader(fn, max_px=160, quality=70):
-    """Mały JPEG w pamięci – kompromis waga ↔ czytelność na PDF."""
+    """Mały JPEG w pamięci (+ cache na dysku) – kompromis waga ↔ czytelność."""
     path = _resolve_photo(fn)
     if not path:
         return None
     try:
-        from PIL import Image
+        mtime = int(path.stat().st_mtime)
+        size = int(path.stat().st_size)
+    except OSError:
+        mtime, size = 0, 0
+    cache_dir = _BASE / "data" / "pdf_thumbs"
+    cache_name = f"{path.stem}_{mtime}_{size}_{max_px}q{quality}.jpg"
+    cache_path = cache_dir / cache_name
+    try:
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            return ImageReader(str(cache_path))
+    except OSError:
+        pass
+    try:
+        from PIL import Image, ImageOps
         with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)
             im = im.convert("RGB")
-            im.thumbnail((max_px, max_px))
+            # LANCZOS = ostrzejsze pomniejszenie niż domyślne
+            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.LANCZOS)
+            im.thumbnail((max_px, max_px), resample)
             buf = BytesIO()
-            # quality 65–75: ostre na wydruku, bez pełnych MB ze zdjęć
             im.save(buf, format="JPEG", quality=quality, optimize=True)
-            buf.seek(0)
-            return ImageReader(buf)
+            raw = buf.getvalue()
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(raw)
+        except OSError:
+            pass
+        return ImageReader(BytesIO(raw))
     except Exception:
         try:
             return ImageReader(str(path))
         except Exception:
             return None
+
+
+def _group_thumb_params(n_rows):
+    """Adaptacyjne miniatury: więcej pozycji → nieco mniejsze thumbs (wciąż czytelne)."""
+    n = int(n_rows or 0)
+    if n <= 15:
+        return 150, 72
+    if n <= 35:
+        return 130, 68
+    return 110, 65
 
 
 # kompatybilność wsteczna
@@ -235,7 +265,7 @@ def _normalize_photo_entries(photo_names):
                 fn, kind = None, "normal"
         if fn:
             out.append((fn, kind or "normal"))
-    return out[:5]
+    return out[:3]
 
 
 def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
@@ -253,8 +283,8 @@ def _draw_photos(c, m, y, w, photo_names, max_h=32 * mm):
     drawn_h = 0
     images = []
     for fn, kind in entries:
-        # ~480 px / q72 – ostre na stronie protokołu (~3 cm), bez full-res MB
-        img = _photo_thumb_reader(fn, max_px=480, quality=72)
+        # ~520 px / q74 + LANCZOS – ostre na protokole, bez full-res
+        img = _photo_thumb_reader(fn, max_px=520, quality=74)
         if not img:
             images.append(None)
             continue
@@ -452,6 +482,10 @@ def protocol_pdf(kind, res, eq, user_name, operator_name=None, photos=None):
     """kind: 'wydanie' | 'przyjecie'. Kompaktowy układ na 1 stronę A4."""
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
+    try:
+        c.setPageCompression(1)
+    except Exception:
+        pass
     _draw_protocol_page(c, kind, res, eq, user_name, operator_name, photos)
     c.showPage()
     c.save()
@@ -466,6 +500,10 @@ def protocols_pdf(kind, pages):
     """
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
+    try:
+        c.setPageCompression(1)
+    except Exception:
+        pass
     for p in pages:
         _draw_protocol_page(
             c, kind, p["res"], p["eq"], p["user_name"],
@@ -478,11 +516,16 @@ def protocols_pdf(kind, pages):
 
 def group_pdf(kind, rows):
     """Zbiorczy protokół tabelaryczny (pozostawiony dla kompatybilności / jawnego eksportu)."""
-    # Zdjęcia z dysku trwałego – _resolve_photo
+    # Zdjęcia z dysku trwałego – _resolve_photo / _photo_thumb_reader
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
+    try:
+        c.setPageCompression(1)
+    except Exception:
+        pass
     w, h = A4
     m = 18 * mm
+    thumb_px, thumb_q = _group_thumb_params(len(rows))
 
     title = ("ZBIORCZY PROTOKÓŁ WYDANIA SPRZĘTU" if kind == "wydanie"
              else "ZBIORCZY PROTOKÓŁ PRZYJĘCIA / UTYLIZACJI")
@@ -637,8 +680,7 @@ def group_pdf(kind, rows):
             y = table_head(y)
         yr = y - row_h
         if r["photo"]:
-            # ~130 px / q68 – czytelne w kolumnie zbiorczego WZ, wciąż lekkie
-            img = _photo_thumb_reader(r["photo"], max_px=130, quality=68)
+            img = _photo_thumb_reader(r["photo"], max_px=thumb_px, quality=thumb_q)
             if img:
                 try:
                     iw, ih = img.getSize()

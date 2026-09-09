@@ -1777,7 +1777,24 @@ def _redirect_after_issue(done_ids, xbs_meta):
         _store_xbs_session(done_ids, xbs_meta)
         flash("Awizacja XBS: Excel pobierze się zaraz po PDF (lub link w kolumnie Dokumenty).", "ok")
     # rids w sesji – unikamy długiego URL i gubienia auto-PDF przy dużych wydaniach
-    session["pending_pdf"] = {"kind": "wydanie", "rids": [int(x) for x in done_ids]}
+    pending = {"kind": "wydanie", "rids": [int(x) for x in done_ids]}
+    try:
+        con = get_db()
+        placeholders = ",".join("?" * len(done_ids))
+        groups = {
+            (r["group_id"] or "").strip()
+            for r in con.execute(
+                f"SELECT group_id FROM reservations WHERE id IN ({placeholders})",
+                [int(x) for x in done_ids],
+            ).fetchall()
+            if (r["group_id"] or "").strip()
+        }
+        con.close()
+        if len(groups) == 1:
+            pending["group"] = next(iter(groups))
+    except Exception:
+        pass
+    session["pending_pdf"] = pending
     kw = {"auto_pdf": "wydanie", "pending": "1"}
     if xbs_meta:
         kw["xbs_hint"] = "1"
