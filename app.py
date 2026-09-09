@@ -477,8 +477,11 @@ def _load_visit(con, vid):
 @login_required
 def dashboard():
     today = local_today()
-    week_end = today + timedelta(days=6)
-    today_s, week_end_s = today.isoformat(), week_end.isoformat()
+    # Tydzień kalendarzowy: poniedziałek – niedziela (nie „dziś + 6 dni”)
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+    today_s = today.isoformat()
+    week_start_s, week_end_s = week_start.isoformat(), week_end.isoformat()
     con = get_db()
     base_sql = """SELECT r.*, u.username, u.first_name, u.last_name,
                   e.code, e.name, e.location, IFNULL(e.catalog,'main') AS catalog,
@@ -491,12 +494,12 @@ def dashboard():
         base_sql + """ WHERE r.status='rezerwacja'
                        AND r.date_from>=? AND r.date_from<=?
                        ORDER BY r.date_from, e.code""",
-        (today_s, week_end_s)).fetchall()
+        (week_start_s, week_end_s)).fetchall()
     back_week = con.execute(
         base_sql + """ WHERE r.status='wydane'
                        AND r.date_to>=? AND r.date_to<=?
                        ORDER BY r.date_to, e.code""",
-        (today_s, week_end_s)).fetchall()
+        (week_start_s, week_end_s)).fetchall()
     overdue = con.execute(
         base_sql + " WHERE r.status='wydane' AND r.date_to<? ORDER BY r.date_to",
         (today_s,)).fetchall()
@@ -509,7 +512,7 @@ def dashboard():
            WHERE v.status='planowane'
              AND v.visit_date>=? AND v.visit_date<=?
            ORDER BY v.visit_date, w.name, v.id""",
-        (today_s, week_end_s)).fetchall()
+        (week_start_s, week_end_s)).fetchall()
     check_summaries = {r["id"]: _visit_items_summary(con, r["id"]) for r in checks_week}
     check_items = {}
     for r in checks_week:
@@ -527,7 +530,7 @@ def dashboard():
                            checks_week=checks_week,
                            check_summaries=check_summaries,
                            check_items=check_items,
-                           today=today_s, week_end=week_end_s,
+                           today=today_s, week_start=week_start_s, week_end=week_end_s,
                            days_overdue=days_overdue, dn=display_name)
 
 

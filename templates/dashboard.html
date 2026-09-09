@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Tydzień w magazynie – Magazyn{% endblock %}
 {% block content %}
-<h1>Tydzień w magazynie <span style="font-weight:400; color:#666; font-size:16px;">({{ today }} – {{ week_end }})</span></h1>
-<p style="color:#555; margin-top:-8px; font-size:14px;">Zaplanowane transporty w najbliższych 7 dniach – możesz sprawdzić, czy da się podłączyć ze swoją wysyłką.</p>
+<h1>Tydzień w magazynie <span style="font-weight:400; color:#666; font-size:16px;">({{ week_start }} – {{ week_end }})</span></h1>
+<p style="color:#555; margin-top:-8px; font-size:14px;">Tydzień kalendarzowy: <strong>poniedziałek – niedziela</strong>. Zaplanowane transporty w tym okresie – możesz sprawdzić, czy da się podłączyć ze swoją wysyłką.</p>
 
 <div class="stat-cards">
   <div class="stat"><div class="num">{{ out_week|length }}</div><div class="lbl">pozycji wychodzi w tym tygodniu</div></div>
@@ -47,10 +47,10 @@
 </table>
 {% endmacro %}
 
-<h2>Wychodzi w tym tygodniu (rezerwacje od {{ today }} do {{ week_end }})</h2>
+<h2>Wychodzi w tym tygodniu (rezerwacje od {{ week_start }} do {{ week_end }})</h2>
 {{ res_table(out_week, 'Brak planowanych wydań w tym tygodniu.') }}
 
-<h2>Wraca w tym tygodniu (wydane, termin zwrotu {{ today }} – {{ week_end }})</h2>
+<h2>Wraca w tym tygodniu (wydane, termin zwrotu {{ week_start }} – {{ week_end }})</h2>
 {{ res_table(back_week, 'Brak planowanych zwrotów w tym tygodniu.') }}
 
 <h2 style="color:var(--err);">Po terminie zwrotu</h2>
