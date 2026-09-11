@@ -480,8 +480,11 @@ def dashboard():
     # Tydzień kalendarzowy: poniedziałek – niedziela (nie „dziś + 6 dni”)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=6)
+    next_start = week_start + timedelta(days=7)
+    next_end = week_end + timedelta(days=7)
     today_s = today.isoformat()
     week_start_s, week_end_s = week_start.isoformat(), week_end.isoformat()
+    next_start_s, next_end_s = next_start.isoformat(), next_end.isoformat()
     con = get_db()
     base_sql = """SELECT r.*, u.username, u.first_name, u.last_name,
                   e.code, e.name, e.location, IFNULL(e.catalog,'main') AS catalog,
@@ -490,32 +493,46 @@ def dashboard():
                   JOIN users u ON u.id=r.user_id
                   JOIN equipment e ON e.id=r.equipment_id
                   LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
-    out_week = con.execute(
-        base_sql + """ WHERE r.status='rezerwacja'
-                       AND r.date_from>=? AND r.date_from<=?
-                       ORDER BY r.date_from, e.code""",
-        (week_start_s, week_end_s)).fetchall()
-    back_week = con.execute(
-        base_sql + """ WHERE r.status='wydane'
-                       AND r.date_to>=? AND r.date_to<=?
-                       ORDER BY r.date_to, e.code""",
-        (week_start_s, week_end_s)).fetchall()
+
+    def _out(start_s, end_s):
+        return con.execute(
+            base_sql + """ WHERE r.status='rezerwacja'
+                           AND r.date_from>=? AND r.date_from<=?
+                           ORDER BY r.date_from, e.code""",
+            (start_s, end_s)).fetchall()
+
+    def _back(start_s, end_s):
+        return con.execute(
+            base_sql + """ WHERE r.status='wydane'
+                           AND r.date_to>=? AND r.date_to<=?
+                           ORDER BY r.date_to, e.code""",
+            (start_s, end_s)).fetchall()
+
+    def _checks(start_s, end_s):
+        return con.execute(
+            """SELECT v.*, w.name AS warehouse_name,
+                      u.username, u.first_name, u.last_name
+               FROM warehouse_visits v
+               JOIN warehouses w ON w.id=v.warehouse_id
+               JOIN users u ON u.id=v.user_id
+               WHERE v.status='planowane'
+                 AND v.visit_date>=? AND v.visit_date<=?
+               ORDER BY v.visit_date, w.name, v.id""",
+            (start_s, end_s)).fetchall()
+
+    out_week = _out(week_start_s, week_end_s)
+    back_week = _back(week_start_s, week_end_s)
+    out_next = _out(next_start_s, next_end_s)
+    back_next = _back(next_start_s, next_end_s)
     overdue = con.execute(
         base_sql + " WHERE r.status='wydane' AND r.date_to<? ORDER BY r.date_to",
         (today_s,)).fetchall()
-    checks_week = con.execute(
-        """SELECT v.*, w.name AS warehouse_name,
-                  u.username, u.first_name, u.last_name
-           FROM warehouse_visits v
-           JOIN warehouses w ON w.id=v.warehouse_id
-           JOIN users u ON u.id=v.user_id
-           WHERE v.status='planowane'
-             AND v.visit_date>=? AND v.visit_date<=?
-           ORDER BY v.visit_date, w.name, v.id""",
-        (week_start_s, week_end_s)).fetchall()
-    check_summaries = {r["id"]: _visit_items_summary(con, r["id"]) for r in checks_week}
+    checks_week = _checks(week_start_s, week_end_s)
+    checks_next = _checks(next_start_s, next_end_s)
+    all_checks = list(checks_week) + list(checks_next)
+    check_summaries = {r["id"]: _visit_items_summary(con, r["id"]) for r in all_checks}
     check_items = {}
-    for r in checks_week:
+    for r in all_checks:
         check_items[r["id"]] = con.execute(
             """SELECT e.code, e.name, e.id AS equipment_id FROM warehouse_visit_items vi
                JOIN equipment e ON e.id=vi.equipment_id
@@ -527,10 +544,13 @@ def dashboard():
                     for r in overdue}
     return render_template("dashboard.html", out_week=out_week,
                            back_week=back_week, overdue=overdue,
-                           checks_week=checks_week,
+                           out_next=out_next, back_next=back_next,
+                           checks_week=checks_week, checks_next=checks_next,
                            check_summaries=check_summaries,
                            check_items=check_items,
-                           today=today_s, week_start=week_start_s, week_end=week_end_s,
+                           today=today_s,
+                           week_start=week_start_s, week_end=week_end_s,
+                           next_start=next_start_s, next_end=next_end_s,
                            days_overdue=days_overdue, dn=display_name)
 
 

@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Tydzień w magazynie – Magazyn{% endblock %}
 {% block content %}
-<h1>Tydzień w magazynie <span style="font-weight:400; color:#666; font-size:16px;">({{ week_start }} – {{ week_end }})</span></h1>
-<p style="color:#555; margin-top:-8px; font-size:14px;">Tydzień kalendarzowy: <strong>poniedziałek – niedziela</strong>. Zaplanowane transporty w tym okresie – możesz sprawdzić, czy da się podłączyć ze swoją wysyłką.</p>
+<h1>Tydzień w magazynie</h1>
+<p style="color:#555; margin-top:-8px; font-size:14px;">Tydzień kalendarzowy: <strong>poniedziałek – niedziela</strong>. Widok obejmuje <strong>bieżący</strong> ({{ week_start }} – {{ week_end }}) i <strong>następny</strong> tydzień ({{ next_start }} – {{ next_end }}).</p>
 
 <div class="stat-cards">
-  <div class="stat"><div class="num">{{ out_week|length }}</div><div class="lbl">pozycji wychodzi w tym tygodniu</div></div>
-  <div class="stat green"><div class="num">{{ back_week|length }}</div><div class="lbl">pozycji wraca w tym tygodniu</div></div>
-  <div class="stat" style="border-color:#7dd3fc;"><div class="num" style="color:#0369a1;">{{ checks_week|length }}</div><div class="lbl">wizyt w magazynie</div></div>
+  <div class="stat"><div class="num">{{ out_week|length }}</div><div class="lbl">wychodzi w tym tygodniu</div></div>
+  <div class="stat green"><div class="num">{{ back_week|length }}</div><div class="lbl">wraca w tym tygodniu</div></div>
+  <div class="stat"><div class="num">{{ out_next|length }}</div><div class="lbl">wychodzi w następnym tygodniu</div></div>
+  <div class="stat green"><div class="num">{{ back_next|length }}</div><div class="lbl">wraca w następnym tygodniu</div></div>
+  <div class="stat" style="border-color:#7dd3fc;"><div class="num" style="color:#0369a1;">{{ (checks_week|length) + (checks_next|length) }}</div><div class="lbl">wizyt (ten + następny)</div></div>
   <div class="stat red"><div class="num">{{ overdue|length }}</div><div class="lbl">pozycji po terminie zwrotu</div></div>
 </div>
 
@@ -47,47 +49,14 @@
 </table>
 {% endmacro %}
 
-<h2>Wychodzi w tym tygodniu (rezerwacje od {{ week_start }} do {{ week_end }})</h2>
-{{ res_table(out_week, 'Brak planowanych wydań w tym tygodniu.') }}
-
-<h2>Wraca w tym tygodniu (wydane, termin zwrotu {{ week_start }} – {{ week_end }})</h2>
-{{ res_table(back_week, 'Brak planowanych zwrotów w tym tygodniu.') }}
-
-<h2 style="color:var(--err);">Po terminie zwrotu</h2>
-{% if overdue %}
-<table class="data-cards">
-  <thead>
-  <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>Miasto</th><th>Odbiera</th><th>PM</th><th></th></tr>
-  </thead>
-  <tbody>
-  {% for r in overdue %}
-  <tr class="overdue">
-    <td class="card-main" data-label="Kod"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
-    <td data-label="Nazwa">{{ r.name }}</td>
-    <td data-label="Szt.">{{ r.quantity }}</td>
-    <td data-label="Termin zwrotu">{{ r.date_to }}</td>
-    <td data-label="Dni po terminie"><span class="badge overdue">{{ days_overdue[r.id] }} dni</span></td>
-    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
-    <td data-label="Miasto">{{ r.recipient_city or '–' }}</td>
-    <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
-    <td data-label="PM">{{ dn(r) }}</td>
-    <td class="card-actions" data-label=""><a class="btn small" href="{{ url_for('reservations', overdue=1) }}">Po terminie</a></td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p style="color:#666;">Brak przetrzymanych pozycji.</p>
-{% endif %}
-
-<h2>Wizyty w magazynie w tym tygodniu</h2>
-{% if checks_week %}
+{% macro visits_table(rows, empty_msg) %}
+{% if rows %}
 <table class="data-cards" style="margin-bottom:24px;">
   <thead>
   <tr><th>Data</th><th>Magazyn</th><th>Kto jedzie</th><th>Kody / zakres</th><th>Uwagi</th><th>Klient / cel</th><th>PM</th><th></th></tr>
   </thead>
   <tbody>
-  {% for v in checks_week %}
+  {% for v in rows %}
   <tr>
     <td class="date-cell" data-label="Data"><strong>{{ v.visit_date }}</strong></td>
     <td data-label="Magazyn">{{ v.warehouse_name }}</td>
@@ -115,7 +84,57 @@
   </tbody>
 </table>
 {% else %}
-<p style="color:#666; margin-bottom:24px;">Brak zaplanowanych wizyt w tym tygodniu.</p>
+<p style="color:#666; margin-bottom:24px;">{{ empty_msg }}</p>
+{% endif %}
+{% endmacro %}
+
+<h2 style="margin-top:8px;">Ten tydzień ({{ week_start }} – {{ week_end }})</h2>
+
+<h3 style="font-size:16px; margin:16px 0 8px;">Wychodzi w tym tygodniu</h3>
+{{ res_table(out_week, 'Brak planowanych wydań w tym tygodniu.') }}
+
+<h3 style="font-size:16px; margin:16px 0 8px;">Wraca w tym tygodniu</h3>
+{{ res_table(back_week, 'Brak planowanych zwrotów w tym tygodniu.') }}
+
+<h3 style="font-size:16px; margin:16px 0 8px;">Wizyty w magazynie w tym tygodniu</h3>
+{{ visits_table(checks_week, 'Brak zaplanowanych wizyt w tym tygodniu.') }}
+
+<h2 style="margin-top:28px;">Następny tydzień ({{ next_start }} – {{ next_end }})</h2>
+
+<h3 style="font-size:16px; margin:16px 0 8px;">Wychodzi w następnym tygodniu</h3>
+{{ res_table(out_next, 'Brak planowanych wydań w następnym tygodniu.') }}
+
+<h3 style="font-size:16px; margin:16px 0 8px;">Wraca w następnym tygodniu</h3>
+{{ res_table(back_next, 'Brak planowanych zwrotów w następnym tygodniu.') }}
+
+<h3 style="font-size:16px; margin:16px 0 8px;">Wizyty w magazynie w następnym tygodniu</h3>
+{{ visits_table(checks_next, 'Brak zaplanowanych wizyt w następnym tygodniu.') }}
+
+<h2 style="color:var(--err); margin-top:28px;">Po terminie zwrotu</h2>
+{% if overdue %}
+<table class="data-cards">
+  <thead>
+  <tr><th>Kod</th><th>Nazwa</th><th>Szt.</th><th>Termin zwrotu</th><th>Dni po terminie</th><th>Klient / cel</th><th>Miasto</th><th>Odbiera</th><th>PM</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for r in overdue %}
+  <tr class="overdue">
+    <td class="card-main" data-label="Kod"><a href="{{ url_for('equipment_detail', eid=r.equipment_id) }}"><strong>{{ r.code }}</strong></a></td>
+    <td data-label="Nazwa">{{ r.name }}</td>
+    <td data-label="Szt.">{{ r.quantity }}</td>
+    <td data-label="Termin zwrotu">{{ r.date_to }}</td>
+    <td data-label="Dni po terminie"><span class="badge overdue">{{ days_overdue[r.id] }} dni</span></td>
+    <td data-label="Klient / cel">{{ r.client or '–' }}</td>
+    <td data-label="Miasto">{{ r.recipient_city or '–' }}</td>
+    <td data-label="Odbiera">{{ r.receiver or '–' }}</td>
+    <td data-label="PM">{{ dn(r) }}</td>
+    <td class="card-actions" data-label=""><a class="btn small" href="{{ url_for('reservations', overdue=1) }}">Po terminie</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#666;">Brak przetrzymanych pozycji.</p>
 {% endif %}
 
 <div id="check-complete-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:90; align-items:flex-start; justify-content:center; overflow:auto; padding:20px 0;">
