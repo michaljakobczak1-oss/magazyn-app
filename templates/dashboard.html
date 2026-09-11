@@ -88,7 +88,32 @@
 {% endif %}
 {% endmacro %}
 
-<h2 style="margin-top:8px;">Ten tydzień ({{ week_start }} – {{ week_end }})</h2>
+<style>
+.week-banner {
+  display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  margin:28px 0 12px; padding:12px 16px; border-radius:10px; border:1px solid transparent;
+}
+.week-banner:first-of-type { margin-top:8px; }
+.week-banner h2 { margin:0; font-size:18px; line-height:1.3; }
+.week-banner .week-dates {
+  font-size:14px; font-weight:600; letter-spacing:0.01em; white-space:nowrap;
+}
+.week-banner.this-week {
+  background:linear-gradient(90deg, #eef8a8 0%, #f7fbe0 100%);
+  border-color:#c9db6a;
+}
+.week-banner.this-week .week-dates { color:#4a5a10; }
+.week-banner.next-week {
+  background:linear-gradient(90deg, #dbeafe 0%, #eff6ff 100%);
+  border-color:#93c5fd;
+}
+.week-banner.next-week .week-dates { color:#1e3a8a; }
+</style>
+
+<div class="week-banner this-week">
+  <h2>Ten tydzień</h2>
+  <span class="week-dates">{{ week_start }} – {{ week_end }}</span>
+</div>
 
 <h3 style="font-size:16px; margin:16px 0 8px;">Wychodzi w tym tygodniu</h3>
 {{ res_table(out_week, 'Brak planowanych wydań w tym tygodniu.') }}
@@ -99,7 +124,10 @@
 <h3 style="font-size:16px; margin:16px 0 8px;">Wizyty w magazynie w tym tygodniu</h3>
 {{ visits_table(checks_week, 'Brak zaplanowanych wizyt w tym tygodniu.') }}
 
-<h2 style="margin-top:28px;">Następny tydzień ({{ next_start }} – {{ next_end }})</h2>
+<div class="week-banner next-week">
+  <h2>Następny tydzień</h2>
+  <span class="week-dates">{{ next_start }} – {{ next_end }}</span>
+</div>
 
 <h3 style="font-size:16px; margin:16px 0 8px;">Wychodzi w następnym tygodniu</h3>
 {{ res_table(out_next, 'Brak planowanych wydań w następnym tygodniu.') }}
