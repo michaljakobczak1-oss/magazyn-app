@@ -754,7 +754,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   {% endif %}
   <a href="{{ url_for('reservations') }}" class="{{ 'active' if request.endpoint == 'reservations' and not request.args.get('mine') }}">Rezerwacje</a>
   <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>
-  <a href="{{ url_for('billing_index') }}" class="{{ 'active' if request.endpoint in ('billing_index', 'billing_detail', 'billing_edit', 'billing_new') }}">Rozliczenia</a>
+  <a href="{{ url_for('billing_index') }}" class="{{ 'active' if request.endpoint in ('billing_index', 'billing_detail', 'billing_edit', 'billing_new', 'billing_delete') }}">Rozliczenia</a>
   {% if session.role == 'admin' %}
   <a href="{{ url_for('archive_index') }}" class="{{ 'active' if request.endpoint == 'archive_index' }}">Archiwum</a>
   <a href="{{ url_for('dictionaries') }}" class="{{ 'active' if request.endpoint == 'dictionaries' }}">Słowniki</a>

@@ -5,7 +5,13 @@
 <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
   <h1 style="margin:0;">{{ project.project_number }} <span style="font-weight:500;">{{ project.name }}</span></h1>
   {% if can_edit %}
-  <a class="btn" href="{{ url_for('billing_edit', project_number=project.project_number) }}">Edytuj</a>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <a class="btn" href="{{ url_for('billing_edit', project_number=project.project_number) }}">Edytuj</a>
+    <form method="post" action="{{ url_for('billing_delete', project_number=project.project_number) }}"
+          onsubmit="return confirm('Usunąć ten projekt z rozliczeń? Sprzęt w katalogu pozostanie.');">
+      <button type="submit" class="btn danger">Usuń</button>
+    </form>
+  </div>
   {% endif %}
 </div>
 

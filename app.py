@@ -936,6 +936,28 @@ def billing_edit(project_number):
     )
 
 
+@app.route("/rozliczenia/<path:project_number>/delete", methods=["POST"])
+@login_required
+def billing_delete(project_number):
+    project_number = (project_number or "").strip()
+    con = get_db()
+    proj = _load_billing_project(con, project_number)
+    if not proj:
+        con.close()
+        abort(404)
+    if not _can_edit_billing_project(
+        proj, session["user_id"], session.get("role"), session.get("full_name") or ""
+    ):
+        con.close()
+        flash("Brak uprawnień do usunięcia tego projektu.", "error")
+        return redirect(url_for("billing_index"))
+    con.execute("DELETE FROM billing_projects WHERE id=?", (proj["id"],))
+    con.commit()
+    con.close()
+    flash(f"Usunięto projekt {project_number} z rozliczeń.", "ok")
+    return redirect(url_for("billing_index"))
+
+
 @app.route("/rozliczenia/<path:project_number>")
 @login_required
 def billing_detail(project_number):

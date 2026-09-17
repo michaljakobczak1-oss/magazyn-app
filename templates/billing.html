@@ -39,6 +39,10 @@
     <td class="card-actions" data-label="">
       {% if p.can_edit %}
       <a class="btn small" href="{{ url_for('billing_edit', project_number=p.project_number) }}">Edytuj</a>
+      <form class="inline" method="post" action="{{ url_for('billing_delete', project_number=p.project_number) }}"
+            onsubmit="return confirm('Usunąć {{ p.project_number }} z rozliczeń?');" style="display:inline;">
+        <button type="submit" class="btn small danger">Usuń</button>
+      </form>
       {% endif %}
     </td>
   </tr>
