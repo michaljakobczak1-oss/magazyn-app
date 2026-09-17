@@ -990,7 +990,7 @@ def billing_detail(project_number):
         proj, session["user_id"], session.get("role"), session.get("full_name") or ""
     )
     items = con.execute(
-        """SELECT e.id, e.code, e.name, e.quantity, e.location, e.owner, e.brand,
+        """SELECT e.id, e.code, e.name, e.photo, e.quantity, e.location, e.owner, e.brand,
                   e.material_type, e.condition, IFNULL(e.archived,0) AS archived,
                   w.name AS warehouse_name
            FROM equipment e
