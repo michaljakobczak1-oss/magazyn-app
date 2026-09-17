@@ -684,8 +684,13 @@ def _billing_project_number_suggestions(con):
     return out
 
 
-def _billing_pm_users(con, is_admin, user_id):
-    if is_admin:
+def _billing_pm_users(con, is_admin, user_id, *, allow_all_for_admin=False):
+    """Lista PM do selecta.
+
+    Domyślnie tylko zalogowany user (także admin przy dodawaniu).
+    Pełna lista wyłącznie gdy admin edytuje (allow_all_for_admin=True).
+    """
+    if is_admin and allow_all_for_admin:
         return con.execute(
             """SELECT id, username, first_name, last_name FROM users
                WHERE active=1 ORDER BY last_name, first_name, username"""
@@ -830,7 +835,10 @@ def billing_index():
 def billing_new():
     is_admin = session.get("role") == "admin"
     con = get_db()
-    pm_users = _billing_pm_users(con, is_admin, session["user_id"])
+    # Przy dodawaniu każdy (także admin) wybiera tylko siebie jako PM
+    pm_users = _billing_pm_users(
+        con, is_admin, session["user_id"], allow_all_for_admin=False
+    )
     suggestions = _billing_project_number_suggestions(con)
     form = _billing_empty_form(session["user_id"])
 
@@ -839,9 +847,11 @@ def billing_new():
             "project_number", "name", "pm_user_id",
             "date_from", "date_to", "monthly_cost", "notes",
         )}
+        # nowe projekty zawsze na konto twórcy
+        form["pm_user_id"] = str(session["user_id"])
         ok, err, data = _process_billing_form(
             con, form,
-            is_admin=is_admin,
+            is_admin=True,  # twórca może być adminem; PM i tak wymuszony wyżej
             user_id=session["user_id"],
             full_name=session.get("full_name") or "",
         )
@@ -894,7 +904,10 @@ def billing_edit(project_number):
         return redirect(url_for("billing_index"))
 
     is_admin = session.get("role") == "admin"
-    pm_users = _billing_pm_users(con, is_admin, session["user_id"])
+    # Admin przy edycji może przepisać projekt na innego PM; user tylko siebie
+    pm_users = _billing_pm_users(
+        con, is_admin, session["user_id"], allow_all_for_admin=True
+    )
     suggestions = _billing_project_number_suggestions(con)
     form = _billing_form_from_project(proj)
 
