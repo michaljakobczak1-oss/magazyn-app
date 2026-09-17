@@ -5,15 +5,18 @@
 <p style="margin:0 0 8px;"><a href="{{ url_for('billing_index') }}">← Rozliczenia</a></p>
 <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
   <h1 style="margin:0;">{{ project.project_number }} <span style="font-weight:500;">{{ project.name }}</span></h1>
-  {% if can_edit %}
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% if items %}
+    <a class="btn" href="{{ url_for('billing_export', project_number=project.project_number) }}">Eksport Excel</a>
+    {% endif %}
+    {% if can_edit %}
     <a class="btn" href="{{ url_for('billing_edit', project_number=project.project_number) }}">Edytuj</a>
     <form method="post" action="{{ url_for('billing_delete', project_number=project.project_number) }}"
           onsubmit="return confirm('Usunąć ten projekt z rozliczeń? Sprzęt w katalogu pozostanie.');">
       <button type="submit" class="btn danger">Usuń</button>
     </form>
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 
 <div class="card" style="margin-bottom:20px;">

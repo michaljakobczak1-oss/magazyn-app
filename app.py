@@ -607,8 +607,8 @@ def _can_see_billing_project(proj, user_id, role, full_name=""):
 
 
 def _can_edit_billing_project(proj, user_id, role, full_name=""):
-    """Edycja: admin wszystko; user tylko własne projekty."""
-    return _can_see_billing_project(proj, user_id, role, full_name)
+    """Edycja / dodawanie / usuwanie – tylko admin. PM ma wyłącznie podgląd (+ eksport)."""
+    return role == "admin"
 
 
 def _date_input_value(iso_date):
@@ -823,13 +823,18 @@ def billing_index():
     return render_template(
         "billing.html",
         projects=visible,
+        is_admin=session.get("role") == "admin",
     )
 
 
 @app.route("/rozliczenia/nowy", methods=["GET", "POST"])
 @login_required
 def billing_new():
-    is_admin = session.get("role") == "admin"
+    if session.get("role") != "admin":
+        flash("Tylko admin może dodawać projekty do rozliczeń.", "error")
+        return redirect(url_for("billing_index"))
+
+    is_admin = True
     con = get_db()
     pm_users = _billing_pm_users(con, is_admin, session["user_id"])
     suggestions = _billing_project_number_suggestions(con)
@@ -840,8 +845,6 @@ def billing_new():
             "project_number", "name", "pm_user_id",
             "date_from", "date_to", "monthly_cost", "notes",
         )}
-        if not is_admin:
-            form["pm_user_id"] = str(session["user_id"])
         ok, err, data = _process_billing_form(
             con, form,
             is_admin=is_admin,
@@ -969,6 +972,47 @@ def billing_delete(project_number):
     con.close()
     flash(f"Usunięto projekt {project_number} z rozliczeń.", "ok")
     return redirect(url_for("billing_index"))
+
+
+@app.route("/rozliczenia/<path:project_number>/export")
+@login_required
+def billing_export(project_number):
+    """Excel z miniaturami – pozycje przypisane do numeru projektu."""
+    project_number = (project_number or "").strip()
+    con = get_db()
+    proj = _load_billing_project(con, project_number)
+    if not proj:
+        con.close()
+        abort(404)
+    if not _can_see_billing_project(
+        proj, session["user_id"], session.get("role"), session.get("full_name") or ""
+    ):
+        con.close()
+        flash("Brak dostępu do tego projektu.", "error")
+        return redirect(url_for("billing_index"))
+    rows = con.execute(
+        """SELECT e.*, w.name AS warehouse_name
+           FROM equipment e
+           LEFT JOIN warehouses w ON w.id=e.warehouse_id
+           WHERE IFNULL(e.project_number,'')=?
+             AND IFNULL(e.archived,0)=0
+           ORDER BY e.code""",
+        (project_number,),
+    ).fetchall()
+    con.close()
+    if not rows:
+        flash("Brak pozycji do eksportu dla tego projektu.", "error")
+        return redirect(url_for("billing_detail", project_number=project_number))
+    buf = build_catalog_miniatures_xlsx(rows, UPLOAD_DIR)
+    stamp = local_now().strftime("%Y%m%d_%H%M")
+    safe = re.sub(r"[^\w.\-]+", "_", project_number)[:60]
+    name = f"rozliczenia_{safe}_{stamp}.xlsx"
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=name,
+    )
 
 
 @app.route("/rozliczenia/<path:project_number>")

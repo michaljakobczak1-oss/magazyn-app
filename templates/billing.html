@@ -6,9 +6,11 @@
   Rozliczenia magazynowania u klientów – podgląd projektów. Wgląd tylko do własnych projektów.
 </p>
 
+{% if is_admin %}
 <p style="margin-bottom:16px;">
   <a class="btn" href="{{ url_for('billing_new') }}">Dodaj projekt</a>
 </p>
+{% endif %}
 
 {% if projects %}
 <table class="data-cards">
@@ -28,7 +30,7 @@
   <tr>
     <td class="card-main" data-label="Projekt">
       <a href="{{ url_for('billing_detail', project_number=p.project_number) }}">
-        <strong>{{ p.project_number }}</strong> {{ p.name }}
+        <strong>{{ p.project_number }}</strong>
       </a>
     </td>
     <td data-label="PM / Właściciel">{{ p.pm_display }}</td>
