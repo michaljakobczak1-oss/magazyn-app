@@ -35,8 +35,7 @@
     <input name="name" value="{{ form.name }}" required placeholder="np. Pure nights">
 
     <label>PM / właściciel *</label>
-    {% if mode == 'new' or not is_admin %}
-    {# Dodawanie: zawsze tylko siebie. User przy edycji też tylko siebie. #}
+    {% if not is_admin %}
     <select name="pm_user_id" disabled>
       {% for u in pm_users %}
       <option value="{{ u.id }}" selected>{{ dn(u) }} ({{ u.username }})</option>
@@ -53,7 +52,6 @@
       </option>
       {% endfor %}
     </select>
-    <p style="font-size:12px;color:#666;margin:4px 0 0;">Admin może przepisać projekt na innego PM.</p>
     {% endif %}
 
     <label>Data od</label>
