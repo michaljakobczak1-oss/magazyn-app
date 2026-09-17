@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ project.project_number }} {{ project.name }} – Rozliczenia{% endblock %}
+{% block content %}
+<p style="margin:0 0 8px;"><a href="{{ url_for('billing_index') }}">← Rozliczenia</a></p>
+<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+  <h1 style="margin:0;">{{ project.project_number }} <span style="font-weight:500;">{{ project.name }}</span></h1>
+  {% if can_edit %}
+  <a class="btn" href="{{ url_for('billing_edit', project_number=project.project_number) }}">Edytuj</a>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px 24px;">
+    <div>
+      <div style="font-size:12px;color:#666;">PM / Właściciel</div>
+      <div><strong>{{ project.pm_display }}</strong></div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#666;">Data od</div>
+      <div><strong>{{ project.date_from_label }}</strong></div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#666;">Data do</div>
+      <div><strong>{{ project.date_to_label }}</strong></div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#666;">Koszt miesięczny dla klienta</div>
+      <div><strong>{{ project.cost_label }}</strong></div>
+    </div>
+  </div>
+</div>
+
+<h2 style="font-size:18px;">Sprzęt przypisany do projektu ({{ items|length }})</h2>
+{% if items %}
+<table class="data-cards">
+  <thead>
+  <tr>
+    <th>Kod</th>
+    <th>Nazwa</th>
+    <th>Magazyn / miejsce</th>
+    <th>Szt.</th>
+    <th>Własność</th>
+    <th>Stan</th>
+    <th></th>
+  </tr>
+  </thead>
+  <tbody>
+  {% for it in items %}
+  <tr {% if it.archived %}style="opacity:.65;"{% endif %}>
+    <td class="card-main" data-label="Kod">
+      <a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a>
+      {% if it.archived %}<br><span class="badge">archiwum</span>{% endif %}
+    </td>
+    <td data-label="Nazwa">{{ it.name }}</td>
+    <td data-label="Magazyn / miejsce">{{ it.warehouse_name or '–' }}{% if it.location %} / {{ it.location }}{% endif %}</td>
+    <td data-label="Szt.">{{ it.quantity }}</td>
+    <td data-label="Własność">{{ it.owner or '–' }}</td>
+    <td data-label="Stan">{{ it.condition or '–' }}</td>
+    <td class="card-actions" data-label="">
+      <a class="btn small" href="{{ url_for('equipment_detail', eid=it.id) }}">Karta</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#666;">Brak pozycji w katalogu z numerem projektu <strong>{{ project.project_number }}</strong>.</p>
+{% endif %}
+{% endblock %}

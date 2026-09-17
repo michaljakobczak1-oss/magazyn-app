@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'new' %}Nowy projekt – Rozliczenia{% else %}Edycja {{ form.project_number }} – Rozliczenia{% endif %}{% endblock %}
+{% block content %}
+<p style="margin:0 0 8px;">
+  {% if mode == 'edit' and project %}
+  <a href="{{ url_for('billing_detail', project_number=project.project_number) }}">← {{ project.project_number }}</a>
+  {% else %}
+  <a href="{{ url_for('billing_index') }}">← Rozliczenia</a>
+  {% endif %}
+</p>
+<h1>{% if mode == 'new' %}Nowy projekt w rozliczeniach{% else %}Edycja projektu{% endif %}</h1>
+{% if not is_admin and mode == 'edit' %}
+<p style="color:#555; font-size:14px;">Edytujesz swój projekt. Numer i PM może zmienić admin.</p>
+{% endif %}
+
+<form method="post" class="card form-card js-busy-form" data-busy-text="Zapisywanie…">
+  <div class="touch-form">
+    <label>Numer projektu *</label>
+    {% if mode == 'edit' and not is_admin %}
+    <input value="{{ form.project_number }}" disabled>
+    <input type="hidden" name="project_number" value="{{ form.project_number }}">
+    {% else %}
+    <input name="project_number" list="project-number-suggestions"
+           value="{{ form.project_number }}" required
+           placeholder="wybierz z listy lub wpisz">
+    <datalist id="project-number-suggestions">
+      {% for pn in project_suggestions %}
+      <option value="{{ pn }}"></option>
+      {% endfor %}
+    </datalist>
+    <p style="font-size:12px;color:#666;margin:4px 0 0;">Lista z numerów w katalogu i rozliczeniach – możesz też wpisać nowy.</p>
+    {% endif %}
+
+    <label>Nazwa projektu *</label>
+    <input name="name" value="{{ form.name }}" required placeholder="np. Pure nights">
+
+    <label>PM / właściciel *</label>
+    {% if mode == 'edit' and not is_admin %}
+    <select name="pm_user_id" disabled>
+      {% for u in pm_users %}
+      <option value="{{ u.id }}" {{ 'selected' if form.pm_user_id == u.id|string }}>{{ dn(u) }}</option>
+      {% endfor %}
+    </select>
+    <input type="hidden" name="pm_user_id" value="{{ form.pm_user_id }}">
+    {% else %}
+    <select name="pm_user_id" required>
+      <option value="" disabled {{ 'selected' if not form.pm_user_id }}>– wybierz –</option>
+      {% for u in pm_users %}
+      <option value="{{ u.id }}" {{ 'selected' if form.pm_user_id == u.id|string }}>
+        {{ dn(u) }} ({{ u.username }})
+      </option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <label>Data od</label>
+    <input name="date_from" type="date" value="{{ form.date_from }}">
+
+    <label>Data do</label>
+    <input name="date_to" type="date" value="{{ form.date_to }}">
+
+    <label>Koszt miesięczny dla klienta (zł)</label>
+    <input name="monthly_cost" inputmode="decimal" placeholder="np. 1340" value="{{ form.monthly_cost }}">
+
+    <label>Uwagi</label>
+    <textarea name="notes" rows="3">{{ form.notes }}</textarea>
+
+    <div class="sticky-form-actions">
+      <button class="btn" type="submit">{% if mode == 'new' %}Dodaj{% else %}Zapisz{% endif %}</button>
+      {% if mode == 'edit' and project %}
+      <a class="btn ghost" href="{{ url_for('billing_detail', project_number=project.project_number) }}">Anuluj</a>
+      {% else %}
+      <a class="btn ghost" href="{{ url_for('billing_index') }}">Anuluj</a>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endblock %}

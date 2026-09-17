@@ -554,6 +554,430 @@ def dashboard():
                            days_overdue=days_overdue, dn=display_name)
 
 
+# ---------- rozliczenia magazynowania ----------
+
+_MONTH_PL = {
+    1: "sty", 2: "lut", 3: "mar", 4: "kwi", 5: "maj", 6: "cze",
+    7: "lip", 8: "sie", 9: "wrz", 10: "paź", 11: "lis", 12: "gru",
+}
+
+
+def _format_month_pl(iso_date):
+    """'2026-01-01' -> 'sty 2026'; puste / złe -> '–'."""
+    if not iso_date:
+        return "–"
+    try:
+        d = date.fromisoformat(str(iso_date)[:10])
+    except ValueError:
+        return str(iso_date)
+    return f"{_MONTH_PL.get(d.month, d.month)} {d.year}"
+
+
+def _format_money_pln(value):
+    if value is None:
+        return "do uzupełnienia"
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if n == int(n):
+        return f"{int(n):,}".replace(",", " ") + " zł"
+    return f"{n:,.2f}".replace(",", " ").replace(".", ",") + " zł"
+
+
+def _billing_pm_label_norm(text):
+    s = (text or "").lower()
+    for a, b in (
+        ("ą", "a"), ("ć", "c"), ("ę", "e"), ("ł", "l"), ("ń", "n"),
+        ("ó", "o"), ("ś", "s"), ("ź", "z"), ("ż", "z"),
+    ):
+        s = s.replace(a, b)
+    return " ".join(s.split())
+
+
+def _can_see_billing_project(proj, user_id, role, full_name=""):
+    if role == "admin":
+        return True
+    if proj["pm_user_id"] and int(proj["pm_user_id"]) == int(user_id):
+        return True
+    # miękkie dopasowanie po etykiecie PM, zanim konto zostanie podpięte w pm_user_id
+    label = _billing_pm_label_norm(proj["pm_label"] if "pm_label" in proj.keys() else "")
+    mine = _billing_pm_label_norm(full_name)
+    return bool(label and mine and label == mine)
+
+
+def _can_edit_billing_project(proj, user_id, role, full_name=""):
+    """Edycja: admin wszystko; user tylko własne projekty."""
+    return _can_see_billing_project(proj, user_id, role, full_name)
+
+
+def _date_input_value(iso_date):
+    """Wartość do <input type=date>."""
+    if not iso_date:
+        return ""
+    s = str(iso_date).strip()
+    return s[:10] if len(s) >= 10 else s
+
+
+def _parse_date_input(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10]).isoformat()
+    except ValueError:
+        return False
+
+
+def _format_date_pl(iso_date):
+    if not iso_date:
+        return "–"
+    try:
+        d = date.fromisoformat(str(iso_date)[:10])
+    except ValueError:
+        return str(iso_date)
+    return d.strftime("%d.%m.%Y")
+
+
+def _parse_money_input(raw):
+    """ '1 340 zł' / '1340,50' -> float albo None jeśli puste."""
+    s = (raw or "").strip().lower().replace("zł", "").replace(" ", "").replace("\u00a0", "")
+    if not s or s in ("do uzupełnienia", "-", "–"):
+        return None
+    s = s.replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return False  # niepoprawne
+
+
+def _load_billing_project(con, project_number):
+    return con.execute(
+        """SELECT bp.*, u.username, u.first_name, u.last_name
+           FROM billing_projects bp
+           LEFT JOIN users u ON u.id=bp.pm_user_id
+           WHERE bp.project_number=? AND IFNULL(bp.active,1)=1""",
+        (project_number,),
+    ).fetchone()
+
+
+def _billing_project_number_suggestions(con):
+    rows = con.execute(
+        """SELECT DISTINCT trim(project_number) AS pn FROM (
+             SELECT project_number FROM equipment
+             UNION
+             SELECT project_number FROM billing_projects
+           )
+           WHERE IFNULL(project_number,'')!=''
+           ORDER BY 1 COLLATE NOCASE"""
+    ).fetchall()
+    return [r["pn"] for r in rows if r["pn"]]
+
+
+def _billing_pm_users(con, is_admin, user_id):
+    if is_admin:
+        return con.execute(
+            """SELECT id, username, first_name, last_name FROM users
+               WHERE active=1 ORDER BY last_name, first_name, username"""
+        ).fetchall()
+    return con.execute(
+        """SELECT id, username, first_name, last_name FROM users
+           WHERE active=1 AND id=?""",
+        (user_id,),
+    ).fetchall()
+
+
+def _billing_form_from_project(proj):
+    return {
+        "project_number": proj["project_number"],
+        "name": proj["name"],
+        "pm_user_id": str(proj["pm_user_id"] or ""),
+        "date_from": _date_input_value(proj["date_from"]),
+        "date_to": _date_input_value(proj["date_to"]),
+        "monthly_cost": (
+            "" if proj["monthly_cost"] is None
+            else str(int(proj["monthly_cost"]))
+            if float(proj["monthly_cost"]) == int(proj["monthly_cost"])
+            else str(proj["monthly_cost"])
+        ),
+        "notes": proj["notes"] or "",
+    }
+
+
+def _billing_empty_form(user_id):
+    return {
+        "project_number": "",
+        "name": "",
+        "pm_user_id": str(user_id),
+        "date_from": "",
+        "date_to": "",
+        "monthly_cost": "",
+        "notes": "",
+    }
+
+
+def _process_billing_form(con, form, *, is_admin, user_id, full_name, exclude_id=None):
+    """Walidacja + wartości do INSERT/UPDATE. Zwraca (ok, error_msg, data_dict)."""
+    project_number = (form.get("project_number") or "").strip()
+    name = (form.get("name") or "").strip()
+    if not project_number:
+        return False, "Podaj lub wybierz numer projektu.", None
+    if not name:
+        return False, "Podaj nazwę projektu.", None
+
+    d_from = _parse_date_input(form.get("date_from"))
+    d_to = _parse_date_input(form.get("date_to"))
+    if form.get("date_from") and d_from is False:
+        return False, "Nieprawidłowa data od.", None
+    if form.get("date_to") and d_to is False:
+        return False, "Nieprawidłowa data do.", None
+    if d_from is False:
+        d_from = None
+    if d_to is False:
+        d_to = None
+    if d_from and d_to and d_from > d_to:
+        return False, "Data od nie może być późniejsza niż data do.", None
+
+    cost = _parse_money_input(form.get("monthly_cost"))
+    if cost is False:
+        return False, "Nieprawidłowy koszt miesięczny.", None
+
+    raw_pm = (form.get("pm_user_id") or "").strip()
+    if not raw_pm.isdigit():
+        return False, "Wybierz PM / właściciela z listy.", None
+    pm_user_id = int(raw_pm)
+    if not is_admin and pm_user_id != int(user_id):
+        return False, "Możesz przypisać projekt tylko do siebie.", None
+    u = con.execute(
+        "SELECT id, first_name, last_name, username FROM users WHERE id=? AND active=1",
+        (pm_user_id,),
+    ).fetchone()
+    if not u:
+        return False, "Nieprawidłowy PM / właściciel.", None
+    pm_label = display_name(u)
+
+    q = "SELECT id FROM billing_projects WHERE project_number=?"
+    args = [project_number]
+    if exclude_id:
+        q += " AND id!=?"
+        args.append(exclude_id)
+    if con.execute(q, args).fetchone():
+        return False, f"Numer projektu „{project_number}” jest już na liście rozliczeń.", None
+
+    return True, None, {
+        "project_number": project_number,
+        "name": name,
+        "pm_user_id": pm_user_id,
+        "pm_label": pm_label,
+        "date_from": d_from,
+        "date_to": d_to,
+        "monthly_cost": cost,
+        "notes": (form.get("notes") or "").strip() or None,
+    }
+
+
+@app.route("/rozliczenia")
+@login_required
+def billing_index():
+    con = get_db()
+    rows = con.execute(
+        """SELECT bp.*, u.username, u.first_name, u.last_name
+           FROM billing_projects bp
+           LEFT JOIN users u ON u.id=bp.pm_user_id
+           WHERE IFNULL(bp.active,1)=1
+           ORDER BY bp.date_to, bp.project_number"""
+    ).fetchall()
+    visible = []
+    for r in rows:
+        if not _can_see_billing_project(
+            r, session["user_id"], session.get("role"), session.get("full_name") or ""
+        ):
+            continue
+        d = dict(r)
+        d["date_from_label"] = _format_date_pl(r["date_from"])
+        d["date_to_label"] = _format_date_pl(r["date_to"])
+        d["cost_label"] = _format_money_pln(r["monthly_cost"])
+        d["pm_display"] = (r["pm_label"] or "").strip() or display_name(r) or "–"
+        d["can_edit"] = _can_edit_billing_project(
+            r, session["user_id"], session.get("role"), session.get("full_name") or ""
+        )
+        eq_count = con.execute(
+            """SELECT COUNT(*) c FROM equipment
+               WHERE IFNULL(project_number,'')=? AND IFNULL(archived,0)=0""",
+            (r["project_number"],),
+        ).fetchone()["c"]
+        d["equipment_count"] = eq_count
+        visible.append(d)
+    con.close()
+    return render_template(
+        "billing.html",
+        projects=visible,
+    )
+
+
+@app.route("/rozliczenia/nowy", methods=["GET", "POST"])
+@login_required
+def billing_new():
+    is_admin = session.get("role") == "admin"
+    con = get_db()
+    pm_users = _billing_pm_users(con, is_admin, session["user_id"])
+    suggestions = _billing_project_number_suggestions(con)
+    form = _billing_empty_form(session["user_id"])
+
+    if request.method == "POST":
+        form = {k: (request.form.get(k) or "").strip() for k in (
+            "project_number", "name", "pm_user_id",
+            "date_from", "date_to", "monthly_cost", "notes",
+        )}
+        ok, err, data = _process_billing_form(
+            con, form,
+            is_admin=is_admin,
+            user_id=session["user_id"],
+            full_name=session.get("full_name") or "",
+        )
+        if not ok:
+            flash(err, "error")
+        else:
+            con.execute(
+                """INSERT INTO billing_projects
+                   (project_number, name, pm_user_id, pm_label,
+                    date_from, date_to, monthly_cost, notes, active)
+                   VALUES (?,?,?,?,?,?,?,?,1)""",
+                (
+                    data["project_number"], data["name"], data["pm_user_id"],
+                    data["pm_label"], data["date_from"], data["date_to"],
+                    data["monthly_cost"], data["notes"],
+                ),
+            )
+            con.commit()
+            con.close()
+            flash("Dodano projekt do rozliczeń.", "ok")
+            return redirect(url_for("billing_detail", project_number=data["project_number"]))
+
+    con.close()
+    return render_template(
+        "billing_form.html",
+        mode="new",
+        form=form,
+        is_admin=is_admin,
+        pm_users=pm_users,
+        project_suggestions=suggestions,
+        dn=display_name,
+        project=None,
+    )
+
+
+@app.route("/rozliczenia/<path:project_number>/edit", methods=["GET", "POST"])
+@login_required
+def billing_edit(project_number):
+    project_number = (project_number or "").strip()
+    con = get_db()
+    proj = _load_billing_project(con, project_number)
+    if not proj:
+        con.close()
+        abort(404)
+    if not _can_edit_billing_project(
+        proj, session["user_id"], session.get("role"), session.get("full_name") or ""
+    ):
+        con.close()
+        flash("Brak uprawnień do edycji tego projektu.", "error")
+        return redirect(url_for("billing_index"))
+
+    is_admin = session.get("role") == "admin"
+    pm_users = _billing_pm_users(con, is_admin, session["user_id"])
+    suggestions = _billing_project_number_suggestions(con)
+    form = _billing_form_from_project(proj)
+
+    if request.method == "POST":
+        form = {k: (request.form.get(k) or "").strip() for k in (
+            "project_number", "name", "pm_user_id",
+            "date_from", "date_to", "monthly_cost", "notes",
+        )}
+        # user nie zmienia numeru ani PM na kogoś innego
+        if not is_admin:
+            form["project_number"] = proj["project_number"]
+            form["pm_user_id"] = str(proj["pm_user_id"] or session["user_id"])
+        ok, err, data = _process_billing_form(
+            con, form,
+            is_admin=is_admin,
+            user_id=session["user_id"],
+            full_name=session.get("full_name") or "",
+            exclude_id=proj["id"],
+        )
+        if not ok:
+            flash(err, "error")
+        else:
+            con.execute(
+                """UPDATE billing_projects SET
+                   project_number=?, name=?, pm_user_id=?, pm_label=?,
+                   date_from=?, date_to=?, monthly_cost=?, notes=?
+                   WHERE id=?""",
+                (
+                    data["project_number"], data["name"], data["pm_user_id"],
+                    data["pm_label"], data["date_from"], data["date_to"],
+                    data["monthly_cost"], data["notes"], proj["id"],
+                ),
+            )
+            con.commit()
+            con.close()
+            flash("Zapisano zmiany projektu.", "ok")
+            return redirect(url_for("billing_detail", project_number=data["project_number"]))
+
+    con.close()
+    return render_template(
+        "billing_form.html",
+        mode="edit",
+        form=form,
+        is_admin=is_admin,
+        pm_users=pm_users,
+        project_suggestions=suggestions,
+        dn=display_name,
+        project=proj,
+    )
+
+
+@app.route("/rozliczenia/<path:project_number>")
+@login_required
+def billing_detail(project_number):
+    project_number = (project_number or "").strip()
+    con = get_db()
+    proj = _load_billing_project(con, project_number)
+    if not proj:
+        con.close()
+        abort(404)
+    if not _can_see_billing_project(
+        proj, session["user_id"], session.get("role"), session.get("full_name") or ""
+    ):
+        con.close()
+        flash("Brak dostępu do tego projektu.", "error")
+        return redirect(url_for("billing_index"))
+    can_edit = _can_edit_billing_project(
+        proj, session["user_id"], session.get("role"), session.get("full_name") or ""
+    )
+    items = con.execute(
+        """SELECT e.id, e.code, e.name, e.quantity, e.location, e.owner, e.brand,
+                  e.material_type, e.condition, IFNULL(e.archived,0) AS archived,
+                  w.name AS warehouse_name
+           FROM equipment e
+           LEFT JOIN warehouses w ON w.id=e.warehouse_id
+           WHERE IFNULL(e.project_number,'')=?
+           ORDER BY IFNULL(e.archived,0), e.code""",
+        (project_number,),
+    ).fetchall()
+    con.close()
+    proj_d = dict(proj)
+    proj_d["date_from_label"] = _format_date_pl(proj["date_from"])
+    proj_d["date_to_label"] = _format_date_pl(proj["date_to"])
+    proj_d["cost_label"] = _format_money_pln(proj["monthly_cost"])
+    proj_d["pm_display"] = (proj["pm_label"] or "").strip() or display_name(proj) or "–"
+    return render_template(
+        "billing_detail.html",
+        project=proj_d,
+        items=items,
+        can_edit=can_edit,
+    )
+
+
 # ---------- sprawdzenia materiałów (wizyty w magazynie) ----------
 
 

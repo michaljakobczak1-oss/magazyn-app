@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Rozliczenia – Magazyn{% endblock %}
+{% block content %}
+<h1>Rozliczenia</h1>
+<p style="color:#555; margin-top:-8px; font-size:14px;">
+  Rozliczenia magazynowania u klientów – podgląd projektów. Wgląd tylko do własnych projektów.
+</p>
+
+<p style="margin-bottom:16px;">
+  <a class="btn" href="{{ url_for('billing_new') }}">Dodaj projekt</a>
+</p>
+
+{% if projects %}
+<table class="data-cards">
+  <thead>
+  <tr>
+    <th>Projekt</th>
+    <th>PM / Właściciel</th>
+    <th>Data od</th>
+    <th>Data do</th>
+    <th>Koszt miesięczny dla klienta</th>
+    <th>Pozycje</th>
+    <th></th>
+  </tr>
+  </thead>
+  <tbody>
+  {% for p in projects %}
+  <tr>
+    <td class="card-main" data-label="Projekt">
+      <a href="{{ url_for('billing_detail', project_number=p.project_number) }}">
+        <strong>{{ p.project_number }}</strong> {{ p.name }}
+      </a>
+    </td>
+    <td data-label="PM / Właściciel">{{ p.pm_display }}</td>
+    <td class="date-cell" data-label="Data od">{{ p.date_from_label }}</td>
+    <td class="date-cell" data-label="Data do">{{ p.date_to_label }}</td>
+    <td data-label="Koszt miesięczny">{{ p.cost_label }}</td>
+    <td data-label="Pozycje">{{ p.equipment_count }}</td>
+    <td class="card-actions" data-label="">
+      {% if p.can_edit %}
+      <a class="btn small" href="{{ url_for('billing_edit', project_number=p.project_number) }}">Edytuj</a>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#666;">Brak projektów magazynowania do wyświetlenia.</p>
+{% endif %}
+{% endblock %}

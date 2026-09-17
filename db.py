@@ -162,6 +162,22 @@ CREATE TABLE IF NOT EXISTS warehouse_visit_items (
     UNIQUE(visit_id, equipment_id)
 );
 CREATE INDEX IF NOT EXISTS idx_wh_visit_items ON warehouse_visit_items(visit_id);
+
+-- Projekty magazynowania (zakładka Rozliczenia)
+CREATE TABLE IF NOT EXISTS billing_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_number TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    pm_user_id INTEGER REFERENCES users(id),
+    pm_label TEXT,
+    date_from TEXT,
+    date_to TEXT,
+    monthly_cost REAL,
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_billing_pm ON billing_projects(pm_user_id);
 """
 
 # kolumny dokładane migracją do starszych baz: tabela -> {kolumna: definicja}
@@ -288,6 +304,34 @@ def init_db():
         con.execute(
             "INSERT INTO users (username, password_hash, role, first_name, last_name) VALUES (?,?,?,?,?)",
             ("admin", generate_password_hash("admin123", method="pbkdf2:sha256"), "admin", "Administrator", ""),
+        )
+        con.commit()
+
+    # Seed MVP: jeden projekt rozliczeń (zielony z arkusza PM)
+    if con.execute(
+        "SELECT COUNT(*) c FROM billing_projects WHERE project_number=?",
+        ("4687_02",),
+    ).fetchone()["c"] == 0:
+        # Podłącz PM po imieniu+nazwisku, jeśli konto już istnieje
+        pm = con.execute(
+            """SELECT id FROM users
+               WHERE active=1 AND lower(trim(IFNULL(first_name,'')||' '||IFNULL(last_name,'')))
+                     IN ('mati stępniak', 'mati stepniak', 'mateusz stępniak', 'mateusz stepniak')
+               LIMIT 1"""
+        ).fetchone()
+        con.execute(
+            """INSERT INTO billing_projects
+               (project_number, name, pm_user_id, pm_label, date_from, date_to, monthly_cost, active)
+               VALUES (?,?,?,?,?,?,?,1)""",
+            (
+                "4687_02",
+                "Pure nights",
+                pm["id"] if pm else None,
+                "Mati Stępniak",
+                "2026-01-01",
+                "2026-12-31",
+                1340.0,
+            ),
         )
         con.commit()
     con.close()
