@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_thumb.html" import thumb %}
 {% block title %}{{ project.project_number }} {{ project.name }} – Rozliczenia{% endblock %}
 {% block content %}
 <p style="margin:0 0 8px;"><a href="{{ url_for('billing_index') }}">← Rozliczenia</a></p>
@@ -41,6 +42,7 @@
 <table class="data-cards">
   <thead>
   <tr>
+    <th></th>
     <th>Kod</th>
     <th>Nazwa</th>
     <th>Magazyn / miejsce</th>
@@ -53,6 +55,7 @@
   <tbody>
   {% for it in items %}
   <tr {% if it.archived %}style="opacity:.65;"{% endif %}>
+    <td class="card-thumb">{{ thumb(it.photo) }}</td>
     <td class="card-main" data-label="Kod">
       <a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a>
       {% if it.archived %}<br><span class="badge">archiwum</span>{% endif %}
