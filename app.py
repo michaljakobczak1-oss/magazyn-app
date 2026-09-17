@@ -662,6 +662,7 @@ def _load_billing_project(con, project_number):
 
 
 def _billing_project_number_suggestions(con):
+    """Numery projektów z katalogu/rozliczeń – tylko rzeczywiste (z cyframi), bez kategorii typu EVENT/CC."""
     rows = con.execute(
         """SELECT DISTINCT trim(project_number) AS pn FROM (
              SELECT project_number FROM equipment
@@ -671,7 +672,16 @@ def _billing_project_number_suggestions(con):
            WHERE IFNULL(project_number,'')!=''
            ORDER BY 1 COLLATE NOCASE"""
     ).fetchall()
-    return [r["pn"] for r in rows if r["pn"]]
+    out = []
+    for r in rows:
+        pn = (r["pn"] or "").strip()
+        if not pn:
+            continue
+        # odrzuć etykiety/kategorie bez cyfr (np. EVENT, CC, DEKORACJE)
+        if not re.search(r"\d", pn):
+            continue
+        out.append(pn)
+    return out
 
 
 def _billing_pm_users(con, is_admin, user_id):
