@@ -88,6 +88,14 @@ def admin_required(f):
 TCL_DEPT_NAME = "Warrens"
 
 
+def _norm_dept(name):
+    """Normalizacja nazwy działu: Warren's / Warrens → warrens."""
+    s = (name or "").strip().lower()
+    for ch in ("'", "’", "`", '"', " "):
+        s = s.replace(ch, "")
+    return s
+
+
 def equipment_catalog(eq):
     """main | tcl"""
     try:
@@ -97,11 +105,10 @@ def equipment_catalog(eq):
 
 
 def can_manage_tcl():
-    """Admin albo dział Warrens – zarządzanie katalogiem TCL."""
+    """Admin albo dział Warrens / Warren's – zarządzanie katalogiem TCL."""
     if session.get("role") == "admin":
         return True
-    dept = (session.get("department") or "").strip()
-    return dept.lower() == TCL_DEPT_NAME.lower()
+    return _norm_dept(session.get("department") or "") == _norm_dept(TCL_DEPT_NAME)
 
 
 def tcl_required(f):
