@@ -288,6 +288,22 @@ def init_db():
         con.execute("INSERT INTO departments (name, active) VALUES (?,1)", ("Warrens",))
         con.commit()
 
+    # migracja: stary import TCL EVENT – brak daty zwrotu był zapisywany jako koniec roku (np. 2026-12-31)
+    # → otwarty termin (sentinel), zgodnie z ustaleniami Marka
+    cleared = con.execute(
+        """UPDATE reservations
+           SET date_to='9999-12-31'
+           WHERE client='TCL / EVENT (import)'
+             AND status IN ('rezerwacja','wydane')
+             AND date_to GLOB '????-12-31'
+             AND date_to < '9999-01-01'
+             AND equipment_id IN (
+               SELECT id FROM equipment WHERE IFNULL(catalog,'main')='tcl'
+             )"""
+    ).rowcount
+    if cleared:
+        con.commit()
+
     # migracja: dotychczasowa sztywna lista odbierających -> słownik podwykonawców
     if con.execute("SELECT COUNT(*) c FROM logistics_partners").fetchone()["c"] == 0:
         for name in ("Markosik", "Stefaniak"):
