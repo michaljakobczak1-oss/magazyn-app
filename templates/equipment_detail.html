@@ -3,6 +3,9 @@
 {% block content %}
 <h1>{{ eq.code }} – {{ eq.name }}
   {% if (eq.catalog or 'main') == 'tcl' %}<span class="badge tcl">TCL</span>{% endif %}
+  {% if tcl_status == 'EVENT' %}<span class="badge" style="background:#fff3cd;color:#7a5b00;">EVENT</span>
+  {% elif tcl_status == 'UTL' %}<span class="badge damaged">UTL</span>
+  {% elif tcl_status == 'MAG' %}<span class="badge avail-ok">MAG</span>{% endif %}
   {% if eq.material_type == 'wlasny' %}<span class="badge own">materiał własny</span>{% endif %}
   {% if is_archived %}<span class="badge" style="background:#eee;color:#444;">archiwum</span>{% endif %}
   {% if (eq.damaged_quantity or 0) == 0 and eq.condition != 'sprawny' %}<span class="badge damaged">{{ eq.condition }}</span>{% endif %}
@@ -19,6 +22,19 @@
 <div class="eq-detail">
   <div class="eq-detail-info card">
     <dl class="grid">
+      {% if (eq.catalog or 'main') == 'tcl' %}
+      <dt>Kategoria</dt><dd>{{ eq.tcl_category or '–' }}{% if eq.tcl_subcategory %} / {{ eq.tcl_subcategory }}{% endif %}</dd>
+      <dt>S/N</dt><dd>{{ eq.serial_number or '–' }}</dd>
+      <dt>Rząd / paleta</dt><dd>{{ eq.tcl_aisle or '–' }}{% if eq.tcl_pallet %} / {{ eq.tcl_pallet }}{% endif %}</dd>
+      <dt>Akcesoria</dt>
+      <dd>
+        Pilot: {{ 'tak' if eq.has_remote else 'nie' }} ·
+        Kabel: {{ 'tak' if eq.has_power_cable else 'nie' }} ·
+        Nogi: {{ 'tak' if eq.has_stand else 'nie' }}
+      </dd>
+      <dt>Status TCL</dt>
+      <dd>{{ tcl_status or '–' }} <span style="font-size:12px;color:#666;">(wyliczany: rezerwacje / stan)</span></dd>
+      {% endif %}
       <dt>Numer projektu</dt><dd>{{ eq.project_number or '–' }}</dd>
       <dt>Wymiary</dt><dd>{{ eq.dimensions or '–' }}</dd>
       <dt>Magazyn</dt><dd>{{ eq.warehouse_name or '–' }}{% if eq.warehouse_address %}<br><span style="font-size:12px;color:#666;">{{ eq.warehouse_address }}</span>{% endif %}</dd>

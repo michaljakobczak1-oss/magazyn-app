@@ -89,8 +89,9 @@ TCL_DEPT_NAME = "Warrens"
 
 
 def _norm_dept(name):
-    """Normalizacja nazwy działu: Warren's / Warrens → warrens."""
+    """Normalizacja nazwy działu: Warren's / Warrens / warren s → warrens."""
     s = (name or "").strip().lower()
+    # usuń apostrofy / cudzysłowy / spacje zbędne
     for ch in ("'", "’", "`", '"', " "):
         s = s.replace(ch, "")
     return s
@@ -108,7 +109,8 @@ def can_manage_tcl():
     """Admin albo dział Warrens / Warren's – zarządzanie katalogiem TCL."""
     if session.get("role") == "admin":
         return True
-    return _norm_dept(session.get("department") or "") == _norm_dept(TCL_DEPT_NAME)
+    dept = _norm_dept(session.get("department") or "")
+    return dept == _norm_dept(TCL_DEPT_NAME) or dept == "warrens"
 
 
 def tcl_required(f):
@@ -1274,6 +1276,10 @@ def _equipment_list_filters(catalog="main"):
         "f_warehouse": request.args.get("warehouse", "").strip(),
         "f_own": request.args.get("own", "").strip(),
         "f_condition": request.args.get("condition", "").strip(),
+        "f_tcl_category": request.args.get("tcl_category", "").strip(),
+        "f_tcl_subcategory": request.args.get("tcl_subcategory", "").strip(),
+        "f_tcl_location": request.args.get("tcl_location", "").strip(),
+        "f_tcl_status": request.args.get("tcl_status", "").strip().upper(),
         "catalog": catalog,
     }
 
@@ -1284,8 +1290,11 @@ def _equipment_where(filters):
     where, params = ["IFNULL(e.catalog,'main')=?", "IFNULL(e.archived,0)=0"], [catalog]
     q = filters.get("q") or ""
     if q:
-        where.append("(e.code LIKE ? OR e.name LIKE ?)")
-        params += [f"%{q}%"] * 2
+        where.append(
+            "(e.code LIKE ? OR e.name LIKE ? OR IFNULL(e.serial_number,'') LIKE ?"
+            " OR IFNULL(e.tcl_category,'') LIKE ? OR IFNULL(e.tcl_subcategory,'') LIKE ?)"
+        )
+        params += [f"%{q}%"] * 5
     if filters.get("f_project"):
         where.append("e.project_number = ?"); params.append(filters["f_project"])
     if filters.get("f_owner"):
@@ -1311,7 +1320,56 @@ def _equipment_where(filters):
             params.append(f_condition)
         else:
             where.append("e.condition = ?"); params.append(f_condition)
+    if catalog == "tcl":
+        if filters.get("f_tcl_category"):
+            where.append("IFNULL(e.tcl_category,'') = ?")
+            params.append(filters["f_tcl_category"])
+        if filters.get("f_tcl_subcategory"):
+            where.append("IFNULL(e.tcl_subcategory,'') = ?")
+            params.append(filters["f_tcl_subcategory"])
+        if filters.get("f_tcl_location"):
+            where.append("IFNULL(e.location,'') = ?")
+            params.append(filters["f_tcl_location"])
     return where, params
+
+
+def _tcl_runtime_status(eq, avail):
+    """Status operacyjny TCL: MAG / EVENT / UTL (model A)."""
+    if (eq["condition"] or "") == "do utylizacji":
+        return "UTL"
+    try:
+        usable = _usable_qty(eq)
+    except Exception:
+        usable = int(eq["quantity"] or 0)
+    if usable <= 0:
+        return "UTL" if (eq["condition"] or "") == "do utylizacji" else "EVENT"
+    if avail is not None and avail < usable:
+        return "EVENT"
+    return "MAG"
+
+
+def _save_tcl_extra_fields(con, eid, form):
+    """Dodatkowe pola karty TCL (po zapisie EQ_COLS)."""
+    def flag(name):
+        return 1 if form.get(name) in ("1", "on", "true", "yes") else 0
+    con.execute(
+        """UPDATE equipment SET
+           tcl_category=?, tcl_subcategory=?, serial_number=?,
+           tcl_aisle=?, tcl_pallet=?,
+           has_remote=?, has_power_cable=?, has_stand=?
+           WHERE id=?""",
+        (
+            (form.get("tcl_category") or "").strip() or None,
+            (form.get("tcl_subcategory") or "").strip() or None,
+            (form.get("serial_number") or "").strip() or None,
+            (form.get("tcl_aisle") or "").strip() or None,
+            (form.get("tcl_pallet") or "").strip() or None,
+            flag("has_remote"),
+            flag("has_power_cable"),
+            flag("has_stand"),
+            eid,
+        ),
+    )
 
 
 def _fetch_equipment_rows(con, filters):
@@ -1332,11 +1390,27 @@ def _render_equipment_index(catalog="main"):
     f_warehouse = filters["f_warehouse"]
     f_own = filters["f_own"]
     f_condition = filters["f_condition"]
+    f_tcl_category = filters["f_tcl_category"]
+    f_tcl_subcategory = filters["f_tcl_subcategory"]
+    f_tcl_location = filters["f_tcl_location"]
+    f_tcl_status = filters["f_tcl_status"]
     per_page_raw = (request.args.get("per_page") or "all").strip().lower()
     page_raw = (request.args.get("page") or "1").strip()
 
     con = get_db()
     all_items = _fetch_equipment_rows(con, filters)
+
+    today = local_today().isoformat()
+    availability_all = {
+        it["id"]: _usable_qty(it) - reserved_qty(con, it["id"], today, today)
+        for it in all_items
+    }
+    tcl_status_all = {}
+    if catalog == "tcl":
+        for it in all_items:
+            tcl_status_all[it["id"]] = _tcl_runtime_status(it, availability_all[it["id"]])
+        if f_tcl_status in ("MAG", "EVENT", "UTL"):
+            all_items = [it for it in all_items if tcl_status_all.get(it["id"]) == f_tcl_status]
 
     total = len(all_items)
     per_page_choices = ["all", 25, 50, 100]
@@ -1377,11 +1451,23 @@ def _render_equipment_index(catalog="main"):
     brands = _dedupe_brand_labels(brands_raw)
     warehouses = active_warehouses(con)
 
-    today = local_today().isoformat()
-    availability = {
-        it["id"]: _usable_qty(it) - reserved_qty(con, it["id"], today, today)
-        for it in items
-    }
+    tcl_categories = tcl_subcategories = tcl_locations = []
+    if catalog == "tcl":
+        tcl_categories = [r[0] for r in con.execute(
+            """SELECT DISTINCT tcl_category FROM equipment
+               WHERE IFNULL(catalog,'main')='tcl' AND IFNULL(archived,0)=0
+                 AND IFNULL(tcl_category,'')!='' ORDER BY 1""")]
+        tcl_subcategories = [r[0] for r in con.execute(
+            """SELECT DISTINCT tcl_subcategory FROM equipment
+               WHERE IFNULL(catalog,'main')='tcl' AND IFNULL(archived,0)=0
+                 AND IFNULL(tcl_subcategory,'')!='' ORDER BY 1""")]
+        tcl_locations = [r[0] for r in con.execute(
+            """SELECT DISTINCT location FROM equipment
+               WHERE IFNULL(catalog,'main')='tcl' AND IFNULL(archived,0)=0
+                 AND IFNULL(location,'')!='' ORDER BY 1""")]
+
+    availability = {it["id"]: availability_all[it["id"]] for it in items}
+    tcl_status = {it["id"]: tcl_status_all.get(it["id"]) for it in items} if catalog == "tcl" else {}
 
     eids = [it["id"] for it in items]
     stock_map = {}
@@ -1403,7 +1489,11 @@ def _render_equipment_index(catalog="main"):
         stock_map=stock_map,
         q=q, f_project=f_project, f_owner=f_owner, f_brand=f_brand,
         f_warehouse=f_warehouse, f_own=f_own, f_condition=f_condition,
+        f_tcl_category=f_tcl_category, f_tcl_subcategory=f_tcl_subcategory,
+        f_tcl_location=f_tcl_location, f_tcl_status=f_tcl_status,
         projects=projects, owners=owners, brands=brands, warehouses=warehouses,
+        tcl_categories=tcl_categories, tcl_subcategories=tcl_subcategories,
+        tcl_locations=tcl_locations, tcl_status=tcl_status,
         total=total, page=page, total_pages=total_pages,
         per_page=per_page_value, per_page_choices=per_page_choices,
         catalog=catalog,
@@ -1482,6 +1572,8 @@ def equipment_new():
                 f"INSERT INTO equipment ({EQ_COLS}) VALUES ({','.join('?'*16)})", vals)
             eid = cur.lastrowid
             con.execute("UPDATE equipment SET catalog=? WHERE id=?", (catalog, eid))
+            if catalog == "tcl":
+                _save_tcl_extra_fields(con, eid, request.form)
             for i, fn in enumerate(new_photos):
                 con.execute(
                     """INSERT INTO equipment_photos (equipment_id, filename, sort_order, kind)
@@ -1545,6 +1637,8 @@ def equipment_edit(eid):
                                           primary_photo=primary)
             sets = ", ".join(c.strip() + "=?" for c in EQ_COLS.split(","))
             con.execute(f"UPDATE equipment SET {sets} WHERE id=?", vals + (eid,))
+            if cat == "tcl":
+                _save_tcl_extra_fields(con, eid, request.form)
             con.execute("DELETE FROM equipment_photos WHERE equipment_id=?", (eid,))
             for i, fn in enumerate(final):
                 kind = photo_kinds.get(fn, "normal") if fn in kept else "normal"
@@ -1563,9 +1657,15 @@ def equipment_edit(eid):
             con.close()
         return redirect(url_for("equipment_edit", eid=eid))
     warehouses = active_warehouses(con)
+    tcl_avail = tcl_status = None
+    if cat == "tcl":
+        today = local_today().isoformat()
+        tcl_avail = _usable_qty(eq) - reserved_qty(con, eid, today, today)
+        tcl_status = _tcl_runtime_status(eq, tcl_avail)
     con.close()
     return render_template("equipment_form.html", eq=eq, warehouses=warehouses,
-                           photos=photos, photo_kinds=photo_kinds)
+                           photos=photos, photo_kinds=photo_kinds,
+                           catalog=cat, tcl_avail=tcl_avail, tcl_status=tcl_status)
 
 
 @app.route("/equipment/<int:eid>")
@@ -1589,6 +1689,9 @@ def equipment_detail(eid):
     today = local_today().isoformat()
     avail_today = _usable_qty(eq) - reserved_qty(con, eid, today, today)
     manage_ids = {r["id"] for r in res if can_manage_reservation(r)}
+    tcl_status = None
+    if equipment_catalog(eq) == "tcl":
+        tcl_status = _tcl_runtime_status(eq, avail_today)
     is_archived = bool(eq["archived"]) if "archived" in eq.keys() else False
     stock_rows = con.execute(
         """SELECT es.quantity, IFNULL(es.location,'') loc, w.name AS warehouse_name
@@ -1604,7 +1707,8 @@ def equipment_detail(eid):
                            avail_today=avail_today, today=today, dn=display_name,
                            photo_rows=photo_rows, manage_ids=manage_ids,
                            is_archived=is_archived, stock_rows=stock_rows,
-                           stock_loc_summary=stock_loc_summary)
+                           stock_loc_summary=stock_loc_summary,
+                           tcl_status=tcl_status)
 
 
 @app.route("/equipment/<int:eid>/repair", methods=["POST"])
@@ -3697,6 +3801,38 @@ def _catalog_import_flow(catalog="main", endpoint="catalog_import"):
         def job():
             messages = []
             try:
+                # TCL: plik „Stan Magazynowy” (arkusz TCL Stuff)
+                if catalog == "tcl":
+                    from openpyxl import load_workbook as _lw
+                    from import_tcl_stan import run_tcl_stan_import
+                    peek = _lw(xlsx_path, read_only=True)
+                    names = set(peek.sheetnames)
+                    peek.close()
+                    if "TCL Stuff" in names or "Archiwum" in names:
+                        messages.append("Wykryto format Stan Magazynowy – import TCL (model A).")
+                        st = run_tcl_stan_import(
+                            xlsx_path, include_archive=True, upload_dir=UPLOAD_DIR
+                        )
+                        totals = {
+                            "added": st.get("inserted", 0),
+                            "updated": st.get("updated", 0),
+                            "skipped": st.get("skipped", 0),
+                            "no_photo": 0,
+                            "events": st.get("events", 0),
+                            "archived": st.get("archived", 0),
+                            "photos_attached": st.get("photos_attached", 0),
+                            "running": False,
+                            "messages": messages + [
+                                f"EVENT (rezerwacje wydane): {st.get('events', 0)}",
+                                f"Archiwum: {st.get('archived', 0)}",
+                                f"Zdjęcia z Excela: {st.get('photos_attached', 0)} pozycji",
+                            ] + (st.get("errors") or [])[:15],
+                        }
+                        status_path.write_text(
+                            json.dumps(totals, ensure_ascii=False), encoding="utf-8"
+                        )
+                        return
+
                 photos_dir = None
                 if zip_path and zip_path.exists():
                     extract_dir = work / "extracted"

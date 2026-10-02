@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS equipment (
     catalog TEXT NOT NULL DEFAULT 'main',        -- main | tcl
     archived INTEGER NOT NULL DEFAULT 0,        -- 1 = w archiwum (np. po wydaniu trwałym do 0)
     archived_at TEXT,
+    -- pola katalogu TCL (Stan Magazynowy)
+    tcl_category TEXT,
+    tcl_subcategory TEXT,
+    serial_number TEXT,
+    tcl_aisle TEXT,                              -- rząd
+    tcl_pallet TEXT,                             -- paleta
+    has_remote INTEGER NOT NULL DEFAULT 0,
+    has_power_cable INTEGER NOT NULL DEFAULT 0,
+    has_stand INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -200,6 +209,14 @@ MIGRATIONS = {
         "catalog": "TEXT NOT NULL DEFAULT 'main'",
         "archived": "INTEGER NOT NULL DEFAULT 0",
         "archived_at": "TEXT",
+        "tcl_category": "TEXT",
+        "tcl_subcategory": "TEXT",
+        "serial_number": "TEXT",
+        "tcl_aisle": "TEXT",
+        "tcl_pallet": "TEXT",
+        "has_remote": "INTEGER NOT NULL DEFAULT 0",
+        "has_power_cable": "INTEGER NOT NULL DEFAULT 0",
+        "has_stand": "INTEGER NOT NULL DEFAULT 0",
     },
     "reservations": {
         "group_id": "TEXT",

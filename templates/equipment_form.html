@@ -6,6 +6,107 @@
 <div class="card">
   <form method="post" enctype="multipart/form-data">
     {% if not eq %}<input type="hidden" name="catalog" value="{{ form_catalog }}">{% endif %}
+
+    {% if form_catalog == 'tcl' %}
+    {# Domyślne wartości katalogu TCL (jak w imporcie z Excela) #}
+    <input type="hidden" name="material_type" value="klient">
+    <input type="hidden" name="owner" value="{{ eq.owner if eq and eq.owner else 'TCL' }}">
+    <input type="hidden" name="brand" value="{{ eq.brand if eq and eq.brand else 'TCL' }}">
+    <input type="hidden" name="project_number" value="{{ eq.project_number if eq else '' }}">
+    <input type="hidden" name="dimensions" value="{{ eq.dimensions if eq else '' }}">
+    <input type="hidden" name="warehouse_id" value="{{ eq.warehouse_id if eq and eq.warehouse_id else '' }}">
+    <input type="hidden" name="storage_instructions" value="{{ eq.storage_instructions if eq else '' }}">
+    <input type="hidden" name="condition_notes" value="{{ eq.condition_notes if eq else '' }}">
+
+    <h2 style="font-size:15px;margin:0 0 8px;color:#333;">Sprzęt</h2>
+    <label>Etykieta *</label>
+    <input name="code" required value="{{ eq.code if eq else '' }}" placeholder="np. TCL001">
+
+    <label>Lokalizacja</label>
+    <input name="location" value="{{ eq.location if eq else '' }}" placeholder="np. MG2, C3, C5">
+
+    <label>Rząd</label>
+    <input name="tcl_aisle" value="{{ eq.tcl_aisle if eq else '' }}" placeholder="np. R10">
+
+    <label>Paleta (PAL[01-99])</label>
+    <input name="tcl_pallet" value="{{ eq.tcl_pallet if eq else '' }}" placeholder="np. P33">
+
+    <label>Kategoria</label>
+    <input name="tcl_category" value="{{ eq.tcl_category if eq else '' }}" placeholder="np. Elektronika">
+
+    <label>Podkategoria</label>
+    <input name="tcl_subcategory" value="{{ eq.tcl_subcategory if eq else '' }}" placeholder='np. TV 75"'>
+
+    <label>Zdjęcie</label>
+    {% if photos %}
+    <div class="photo-keep">
+      {% for fn in photos %}
+      <label>
+        <img src="{{ url_for('static', filename='uploads/' + fn) }}" alt="">
+        <span><input type="checkbox" name="keep_photo" value="{{ fn }}" checked style="width:auto;"> zachowaj</span>
+        {% if photo_kinds is defined and photo_kinds.get(fn) == 'damage' %}
+        <span class="badge damaged">uszkodzenie</span>
+        {% elif photo_kinds is defined and photo_kinds.get(fn) == 'repaired' %}
+        <span class="badge ok">naprawione</span>
+        {% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    <p style="font-size:12px; color:#666; margin:0 0 6px;">Odznacz, aby usunąć. Nowe poniżej (łącznie max 5).</p>
+    {% endif %}
+    <input name="photos" type="file" accept="image/*" multiple>
+
+    <label>Zdjęcie dodatkowe {% if eq and eq.packaging_photo %}(zostaw puste, aby zachować obecne){% endif %}</label>
+    <input name="packaging_photo" type="file" accept="image/*">
+    {% if eq and eq.packaging_photo %}
+    <img class="photo-lg" style="margin-top:8px;" src="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}">
+    {% endif %}
+
+    <label>Model *</label>
+    <input name="name" required value="{{ eq.name if eq else '' }}" placeholder="np. 75A300WX1">
+
+    <label>S/N</label>
+    <input name="serial_number" value="{{ eq.serial_number if eq else '' }}">
+
+    <div class="chk" style="margin:10px 0; display:flex; gap:16px; flex-wrap:wrap;">
+      <label style="display:flex; gap:6px; align-items:center; margin:0;">
+        <input type="checkbox" name="has_remote" value="1" style="width:auto;" {{ 'checked' if eq and eq.has_remote }}> Pilot
+      </label>
+      <label style="display:flex; gap:6px; align-items:center; margin:0;">
+        <input type="checkbox" name="has_power_cable" value="1" style="width:auto;" {{ 'checked' if eq and eq.has_power_cable }}> Kabel zasilający
+      </label>
+      <label style="display:flex; gap:6px; align-items:center; margin:0;">
+        <input type="checkbox" name="has_stand" value="1" style="width:auto;" {{ 'checked' if eq and eq.has_stand }}> Nogi / podstawa
+      </label>
+    </div>
+
+    <label>Stan (czy działa)</label>
+    <select name="condition">
+      {% for c in ['sprawny','uszkodzony','do utylizacji'] %}
+      <option value="{{ c }}" {{ 'selected' if eq and eq.condition == c }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+
+    <h2 style="font-size:15px;margin:18px 0 8px;color:#333;">Ilości / ruchy mag</h2>
+    <label>Przyjęcie TTL *</label>
+    <input name="quantity" type="number" min="0" required value="{{ eq.quantity if eq else 1 }}">
+    <p style="font-size:12px;color:#666;margin:-4px 0 10px;">
+      TTL = ile sztuk przyjęto na stan.
+      {% if eq and tcl_avail is defined %}
+      Wydanie / zajęte dziś: <strong>{{ (eq.quantity or 0) - (tcl_avail or 0) }}</strong> ·
+      Inwentaryzacja (dostępne dziś): <strong>{{ tcl_avail }}</strong>
+      {% if tcl_status %} · Status: <strong>{{ tcl_status }}</strong>{% endif %}
+      {% else %}
+      Wydanie i status EVENT ustawiasz przez <strong>rezerwację / wydanie</strong> w Magazynie.
+      {% endif %}
+    </p>
+
+    <h2 style="font-size:15px;margin:18px 0 8px;color:#333;">Szczegóły</h2>
+    <label>Uwagi</label>
+    <textarea name="notes" rows="3">{{ eq.notes if eq else '' }}</textarea>
+
+    {% else %}
+    {# ----- katalog główny (bez zmian koncepcji) ----- #}
     <label>Kod w aplikacji *</label>
     <input name="code" required value="{{ eq.code if eq else '' }}">
     <label>Rodzaj materiału *</label>
@@ -67,9 +168,11 @@
     {% if eq and eq.packaging_photo %}<img class="photo-lg" style="margin-top:8px;" src="{{ url_for('static', filename='uploads/' + eq.packaging_photo) }}">{% endif %}
     <label>Uwagi</label>
     <textarea name="notes" rows="2">{{ eq.notes if eq else '' }}</textarea>
+    {% endif %}
+
     <div style="margin-top:16px; display:flex; gap:10px;">
       <button class="btn">Zapisz</button>
-      <a class="btn ghost" href="{{ url_for('index') }}">Anuluj</a>
+      <a class="btn ghost" href="{{ url_for('tcl_index' if form_catalog == 'tcl' else 'index') }}">Anuluj</a>
     </div>
   </form>
 </div>
