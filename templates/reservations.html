@@ -1,11 +1,17 @@
 {% extends "base.html" %}
 {% from "_thumb.html" import thumb %}
-{% block title %}Rezerwacje – Magazyn{% endblock %}
+{% set catalog = catalog or 'main' %}
+{% set is_tcl_list = catalog == 'tcl' %}
+{% block title %}{{ 'Rezerwacje TCL' if is_tcl_list else ('Moje rezerwacje' if mine == '1' else 'Rezerwacje') }} – Magazyn{% endblock %}
 {% block content %}
-<h1>{{ 'Moje rezerwacje' if mine == '1' else 'Rezerwacje' }}{% if overdue == '1' %} – po terminie{% endif %}</h1>
+<h1>{% if is_tcl_list %}Rezerwacje TCL <span class="badge tcl">TCL</span>{% elif mine == '1' %}Moje rezerwacje{% else %}Rezerwacje{% endif %}{% if overdue == '1' %} – po terminie{% endif %}</h1>
+{% if is_tcl_list %}
+<p style="color:#555;margin-top:-8px;">Osobna lista rezerwacji sprzętu TCL (Warrens). Nie miesza się z rezerwacjami ogólnymi.</p>
+{% endif %}
 <div class="toolbar">
   <form method="get" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
     {% if mine == '1' %}<input type="hidden" name="mine" value="1">{% endif %}
+    {% if is_tcl_list %}<input type="hidden" name="catalog" value="tcl">{% endif %}
     <select name="status" onchange="this.form.submit()">
       <option value="">Wszystkie statusy</option>
       {% for s in ['rezerwacja','wydane','wydane trwale','zwrócone','utylizacja','anulowana'] %}
@@ -24,6 +30,7 @@
   </form>
 </div>
 <form method="post" id="bulk">
+{% if is_tcl_list %}<input type="hidden" name="catalog" value="tcl">{% endif %}
 <div id="bulk-top-actions" style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <label class="chk" style="display:flex; align-items:center; gap:6px; margin:0; font-weight:400;">
     <input type="checkbox" id="rid-select-all-mobile" style="width:auto;"
@@ -46,7 +53,8 @@
   </thead>
   <tbody>
   {% for r in rows %}
-  {% set is_overdue = r.status == 'wydane' and r.date_to < today %}
+  {% set open_ret = is_open_return(r.date_to) %}
+  {% set is_overdue = r.status == 'wydane' and (not open_ret) and r.date_to < today %}
   {% set can_m = r.id in manage_ids %}
   <tr class="{{ 'overdue' if is_overdue }}">
     <td class="card-check"><input type="checkbox" name="rid" value="{{ r.id }}" style="width:auto;"
@@ -64,6 +72,8 @@
       {% if r.delivery_date %}<div class="term-line"><span class="term-lbl">dostawa</span> {{ r.delivery_date }}</div>{% endif %}
       {% if r.permanent %}
         <div class="term-line"><span class="badge wydane-trwale">wydanie trwałe</span></div>
+      {% elif open_ret %}
+        <div class="term-line"><span class="term-lbl">zwrot</span> <em style="color:#666;">brak terminu</em></div>
       {% else %}
         <div class="term-line"><span class="term-lbl">zwrot</span> {{ r.date_to }}</div>
       {% endif %}
@@ -94,7 +104,7 @@
       <button class="btn small ghost" formaction="{{ url_for('cancel', rid=r.id) }}" formmethod="post">Anuluj</button>
       {% endif %}
       {% if can_m and r.status == 'wydane' %}
-      <button type="button" class="btn small ghost" onclick="openChangeReturn({{ r.id }}, '{{ r.code }}', '{{ r.date_from }}', '{{ r.date_to }}')">Zmień termin</button>
+      <button type="button" class="btn small ghost" onclick="openChangeReturn({{ r.id }}, '{{ r.code }}', '{{ r.date_from }}', {{ r.date_to|tojson }}, {{ (r.catalog == 'tcl')|tojson }})">Zmień termin</button>
       <button type="button" class="btn small ok" onclick='openReturn({{ r.id }}, {{ r.code|tojson }}, {{ r.quantity }}, {{ (r.receiver or "")|tojson }}, {{ (r.issue_warehouse_name or "")|tojson }}, {{ (r.location or r.issue_location or "")|tojson }})'>Przyjmij zwrot</button>
       {% endif %}
     </td>
@@ -137,8 +147,10 @@
       Start: <strong id="cr-from"></strong> · obecny zwrot: <strong id="cr-old"></strong>
     </p>
     <form method="post" id="change-return-form">
-      <label>Nowy termin zwrotu *</label>
-      <input type="date" name="date_to" id="cr-date" required>
+      {% if is_tcl_list %}<input type="hidden" name="catalog" value="tcl">{% endif %}
+      <label>Nowy termin zwrotu <span id="cr-req-mark">*</span></label>
+      <input type="date" name="date_to" id="cr-date">
+      <p id="cr-open-hint" style="display:none;font-size:12px;color:#666;margin:4px 0 0;">TCL: zostaw puste, jeśli termin powrotu nadal nieznany.</p>
       <div id="cr-error" class="flash error" style="display:none; margin:10px 0;"></div>
       <div style="margin-top:16px; display:flex; gap:10px;">
         <button class="btn ok">Zmień termin</button>
@@ -324,8 +336,21 @@ let rmBulkMode = false;
 })();
 
 const ISSUE_TODAY = {{ today|tojson }};
+const IS_TCL_LIST = {{ is_tcl_list|tojson }};
 let issueBulkMode = false;
 let issueDateFrom = '';
+let issueAllowOpenReturn = false;
+
+function isOpenReturnDate(d){
+  const s = (d == null ? '' : String(d)).slice(0, 10);
+  return !s || s >= '9999-01-01';
+}
+function formatReturnLabel(d){
+  return isOpenReturnDate(d) ? 'brak terminu' : d;
+}
+function displayReturnInput(d){
+  return isOpenReturnDate(d) ? '' : (d || '');
+}
 
 function effectiveIssueFrom(dateFrom){
   if (ISSUE_TODAY && dateFrom > ISSUE_TODAY) return ISSUE_TODAY;
@@ -335,29 +360,39 @@ function effectiveIssueFrom(dateFrom){
 function openIssue(rid, code, dateFrom, dateTo, permanent, itemName, itemQty, deliveryDate){
   issueBulkMode = false;
   issueDateFrom = dateFrom || '';
+  issueAllowOpenReturn = !!IS_TCL_LIST;
   document.getElementById('im-heading').textContent = permanent ? 'Wydanie trwałe' : 'Wydanie';
   document.getElementById('im-code').textContent = code || '';
   let planned = permanent
     ? ('Odbiór: ' + (dateFrom || '–'))
-    : ('Odbiór: ' + (dateFrom || '–') + ' · Zwrot: ' + (dateTo || '–'));
+    : ('Odbiór: ' + (dateFrom || '–') + ' · Zwrot: ' + formatReturnLabel(dateTo));
   if (deliveryDate) planned += ' · Dostawa: ' + deliveryDate;
   document.getElementById('im-planned').textContent = planned;
   document.getElementById('im-perm-note').style.display = permanent ? 'block' : 'none';
   document.getElementById('im-date-wrap').style.display = permanent ? 'none' : 'block';
   document.getElementById('im-bulk-note').style.display = 'none';
   const inp = document.getElementById('im-date');
+  const reqMark = document.getElementById('im-date-req');
+  const hint = document.getElementById('im-date-hint');
+  const hintTcl = document.getElementById('im-date-hint-tcl');
   if (permanent) {
     inp.required = false;
     inp.disabled = true;
     inp.removeAttribute('name');
+    if (reqMark) reqMark.style.display = 'none';
+    if (hint) hint.style.display = 'none';
+    if (hintTcl) hintTcl.style.display = 'none';
   } else {
     inp.disabled = false;
     inp.name = 'date_to';
-    inp.required = true;
+    inp.required = !issueAllowOpenReturn;
+    if (reqMark) reqMark.style.display = issueAllowOpenReturn ? 'none' : '';
+    if (hint) hint.style.display = issueAllowOpenReturn ? 'none' : '';
+    if (hintTcl) hintTcl.style.display = issueAllowOpenReturn ? '' : 'none';
     const effFrom = effectiveIssueFrom(dateFrom);
     inp.min = effFrom || '';
     inp.removeAttribute('max');
-    inp.value = dateTo || '';
+    inp.value = displayReturnInput(dateTo);
   }
   document.getElementById('im-error').style.display = 'none';
   document.getElementById('im-submit').textContent = permanent ? 'Wydaj trwale' : 'Wydaj';
@@ -435,13 +470,13 @@ document.getElementById('issue-form').addEventListener('submit', function(e){
   }
   const inp = document.getElementById('im-date');
   if (inp.name === 'date_to') {
-    if (!inp.value) {
+    if (!inp.value && !issueAllowOpenReturn) {
       e.preventDefault();
       showIssueError('Podaj termin zwrotu.');
       return;
     }
     const minFrom = effectiveIssueFrom(issueDateFrom);
-    if (minFrom && inp.value < minFrom) {
+    if (inp.value && minFrom && inp.value < minFrom) {
       e.preventDefault();
       showIssueError('Termin zwrotu nie może być wcześniejszy niż start (' + minFrom + ').');
       return;
@@ -464,15 +499,22 @@ document.addEventListener('click', function(e){
   );
 });
 
-function openChangeReturn(rid, code, dateFrom, dateTo){
+function openChangeReturn(rid, code, dateFrom, dateTo, isTcl){
+  const allowOpen = !!(isTcl || IS_TCL_LIST);
   document.getElementById('cr-code').textContent = code;
   document.getElementById('cr-from').textContent = dateFrom;
-  document.getElementById('cr-old').textContent = dateTo;
+  document.getElementById('cr-old').textContent = formatReturnLabel(dateTo);
   const inp = document.getElementById('cr-date');
   inp.min = dateFrom;
-  inp.value = dateTo;
+  inp.value = displayReturnInput(dateTo);
+  inp.required = !allowOpen;
+  const reqMark = document.getElementById('cr-req-mark');
+  const hint = document.getElementById('cr-open-hint');
+  if (reqMark) reqMark.style.display = allowOpen ? 'none' : '';
+  if (hint) hint.style.display = allowOpen ? '' : 'none';
   document.getElementById('cr-error').style.display = 'none';
   document.getElementById('change-return-form').action = '/reservations/' + rid + '/change-return';
+  document.getElementById('change-return-form').dataset.allowOpen = allowOpen ? '1' : '0';
   document.getElementById('change-return-modal').style.display = 'flex';
 }
 function closeChangeReturn(){
@@ -487,11 +529,12 @@ document.getElementById('change-return-form').addEventListener('submit', functio
   e.preventDefault();
   const form = this;
   const inp = document.getElementById('cr-date');
-  if (!inp.value) {
+  const allowOpen = form.dataset.allowOpen === '1';
+  if (!inp.value && !allowOpen) {
     showChangeReturnError('Podaj nowy termin zwrotu.');
     return;
   }
-  if (inp.min && inp.value < inp.min) {
+  if (inp.value && inp.min && inp.value < inp.min) {
     showChangeReturnError('Data zwrotu nie może być wcześniejsza niż start (' + inp.min + ').');
     return;
   }

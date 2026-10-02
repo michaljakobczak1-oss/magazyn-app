@@ -1,17 +1,23 @@
 {% extends "base.html" %}
 {% from "_thumb.html" import thumb %}
-{% block title %}Archiwum – Magazyn{% endblock %}
+{% set catalog = catalog or 'main' %}
+{% set is_tcl_arch = catalog == 'tcl' %}
+{% block title %}{{ 'Archiwum TCL' if is_tcl_arch else 'Archiwum' }} – Magazyn{% endblock %}
 {% block content %}
-<h1>Archiwum sprzętu</h1>
+<h1>{% if is_tcl_arch %}Archiwum TCL <span class="badge tcl">TCL</span>{% else %}Archiwum sprzętu{% endif %}</h1>
+{% if is_tcl_arch %}
+<p style="color:#555;margin-top:-8px;">Osobne archiwum sprzętu TCL (Warrens).</p>
+{% endif %}
 
 <form method="get" class="filters" action="{{ url_for('archive_index') }}">
+  {% if is_tcl_arch %}<input type="hidden" name="catalog" value="tcl">{% endif %}
   <div class="filter-core">
     <label>Nazwa / kod</label>
     <input type="text" name="q" value="{{ q }}" placeholder="Szukaj…">
   </div>
   <div class="filter-actions-core">
     <button class="btn">Filtruj</button>
-    <a class="btn ghost" href="{{ url_for('archive_index') }}">Wyczyść</a>
+    <a class="btn ghost" href="{{ url_for('archive_index', catalog='tcl' if is_tcl_arch else None) }}">Wyczyść</a>
   </div>
 </form>
 

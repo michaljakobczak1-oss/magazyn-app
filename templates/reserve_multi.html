@@ -4,7 +4,11 @@
 {% block title %}Wspólna rezerwacja – Magazyn{% endblock %}
 {% block content %}
 {% set form = form or {} %}
-<h1>Wspólna rezerwacja ({{ items|length }} pozycji)</h1>
+{% set is_tcl = is_tcl or false %}
+<h1>Wspólna rezerwacja ({{ items|length }} pozycji){% if is_tcl %} <span class="badge tcl">TCL</span>{% endif %}</h1>
+{% if is_tcl %}
+<div class="flash" style="background:#eef6ff;border-color:#b6d4fe;">TCL: data wydania jest wymagana. Planowany zwrot możesz zostawić pusty, jeśli termin powrotu nie jest jeszcze znany.</div>
+{% endif %}
 {% if multi_warehouse %}
 <div class="flash warn"><strong>Uwaga:</strong> zaznaczone pozycje znajdują się w więcej niż jednym magazynie ({{ wh_names|join(', ') }}) – odbiór z kilku miejsc.</div>
 {% endif %}
@@ -42,14 +46,15 @@
       <span><strong>Wydanie trwałe</strong> – towar zostaje u odbiorcy (np. lokal, u klienta) i <strong>nie wraca</strong> do magazynu. Przy wydaniu zostanie odjęty ze stanu. Zaznacz datę <strong>Od</strong> (termin zwrotu nie dotyczy).</span>
     </label>
     <div id="date-fields">
-      <label>Odbiór z magazynu (planowany) *</label>
+      <label>{% if is_tcl %}Wydanie / odbiór z magazynu *{% else %}Odbiór z magazynu (planowany) *{% endif %}</label>
       <input name="date_from" id="date_from" type="date" value="{{ form.get('date_from', '') }}">
       <label>Data dostawy (planowana)</label>
       <input name="delivery_date" id="delivery_date" type="date" value="{{ form.get('delivery_date', '') }}">
       <p style="font-size:12px;color:#666;margin:4px 0 0;">Opcjonalnie – kiedy towar ma być u adresata (osobno od odbioru z magazynu).</p>
       <span id="date-to-wrap">
-        <label>Zwrot do magazynu (planowany) *</label>
-        <input name="date_to" id="date_to" type="date" value="{{ form.get('date_to', '') }}">
+        <label>{% if is_tcl %}Zwrot do magazynu (planowany, opcjonalnie){% else %}Zwrot do magazynu (planowany) *{% endif %}</label>
+        <input name="date_to" id="date_to" type="date" value="{{ form.get('date_to', '') }}" {% if not is_tcl %}required{% endif %}>
+        {% if is_tcl %}<p style="font-size:12px;color:#666;margin:4px 0 0;">Zostaw puste, jeśli nie znasz jeszcze terminu powrotu.</p>{% endif %}
       </span>
     </div>
     <label>Kto odbiera towar *</label>
@@ -75,7 +80,7 @@
     {{ recipient_fields(recipients, form) }}
     <div class="sticky-form-actions">
       <button class="btn" type="submit">Zarezerwuj wszystko</button>
-      <a class="btn ghost" href="{{ url_for('index') }}">Anuluj</a>
+      <a class="btn ghost" href="{{ url_for('tcl_index' if is_tcl else 'index') }}">Anuluj</a>
     </div>
     </div>
   </div>
@@ -96,11 +101,15 @@ function removeRow(btn){
   const toWrap = document.getElementById('date-to-wrap');
   const from = document.getElementById('date_from');
   const to = document.getElementById('date_to');
+  const isTcl = {{ (is_tcl or false)|tojson }};
   function sync(){
     const on = !!(perm && perm.checked);
     if (toWrap) toWrap.style.display = on ? 'none' : '';
     if (from) from.required = true;
-    if (to) { to.required = !on; if (on) to.value = ''; }
+    if (to) {
+      to.required = !on && !isTcl;
+      if (on) to.value = '';
+    }
   }
   if (perm) perm.addEventListener('change', sync);
   sync();

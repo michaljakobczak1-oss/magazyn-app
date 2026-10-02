@@ -243,7 +243,7 @@ def _ensure_event_reservation(con, eid, qty, receiver, event_return, notes, admi
              AND status IN ('rezerwacja','wydane')""",
         (eid,),
     )
-    date_to = today + timedelta(days=90)
+    date_to = None
     ev = _cell_str(event_return)
     if ev:
         for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
@@ -256,6 +256,8 @@ def _ensure_event_reservation(con, eid, qty, receiver, event_return, notes, admi
                     break
                 except ValueError:
                     pass
+    # Marek: data wyjścia znana, zwrot często nie – bez daty z Excela: otwarty termin
+    date_to_s = date_to.isoformat() if date_to else "9999-12-31"
     note = "[import TCL Stan Magazynowy] Pozycja oznaczona jako EVENT / poza magazynem."
     if notes:
         note += "\n" + notes
@@ -266,7 +268,7 @@ def _ensure_event_reservation(con, eid, qty, receiver, event_return, notes, admi
            VALUES (?,?,?,?,?,?,'wydane',?,?,?,?,?)""",
         (
             eid, admin_id, "TCL / EVENT (import)",
-            today.isoformat(), date_to.isoformat(), qty,
+            today.isoformat(), date_to_s, qty,
             (receiver or "")[:120] or None,
             (receiver or "")[:120] or None,
             note,

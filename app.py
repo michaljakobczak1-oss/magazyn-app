@@ -125,7 +125,11 @@ def tcl_required(f):
 
 @app.context_processor
 def inject_acl_flags():
-    return {"can_manage_tcl": can_manage_tcl()}
+    return {
+        "can_manage_tcl": can_manage_tcl(),
+        "is_open_return": is_open_return,
+        "OPEN_RETURN_DATE": OPEN_RETURN_DATE,
+    }
 
 
 def _normalize_brand_key(brand):
@@ -220,6 +224,42 @@ def valid_pickup_date(d_from):
         return False
 
 
+# Termin zwrotu nieznany (TCL EVENT) – trzymamy sentinel, żeby SQL/availability działały
+OPEN_RETURN_DATE = "9999-12-31"
+
+
+def is_open_return(date_to):
+    s = (str(date_to or "").strip())[:10]
+    return (not s) or s >= "9999-01-01"
+
+
+def reservation_dates_from_form(form, allow_open_return=False):
+    """Przy wydaniu trwałym wymagana jest data Od (bez terminu zwrotu).
+    Dla TCL (allow_open_return): data zwrotu opcjonalna → OPEN_RETURN_DATE.
+    """
+    permanent = 1 if form.get("permanent") else 0
+    d_from = (form.get("date_from") or "").strip()
+    d_to = (form.get("date_to") or "").strip()
+    if permanent:
+        return d_from, d_from, permanent
+    if allow_open_return and (not d_to or is_open_return(d_to)):
+        return d_from, OPEN_RETURN_DATE, permanent
+    return d_from, d_to, permanent
+
+
+def _reservations_redirect(**kwargs):
+    """Redirect na listę rezerwacji z zachowaniem katalogu TCL (form / query / Referer)."""
+    cat = (request.form.get("catalog") or request.args.get("catalog") or "").strip().lower()
+    if cat != "tcl":
+        ref = request.referrer or ""
+        if "catalog=tcl" in ref:
+            cat = "tcl"
+    if cat == "tcl":
+        kwargs["catalog"] = "tcl"
+    clean = {k: v for k, v in kwargs.items() if v is not None}
+    return redirect(url_for("reservations", **clean))
+
+
 SELF_PICKUP_VALUE = "__self__"
 
 
@@ -249,16 +289,6 @@ def resolve_returner(raw):
         name = _session_person_name()
         return f"Zwrot własny ({name})" if name else "Zwrot własny"
     return v
-
-
-def reservation_dates_from_form(form):
-    """Przy wydaniu trwałym wymagana jest data Od (bez terminu zwrotu)."""
-    permanent = 1 if form.get("permanent") else 0
-    d_from = (form.get("date_from") or "").strip()
-    d_to = (form.get("date_to") or "").strip()
-    if permanent:
-        return d_from, d_from, permanent
-    return d_from, d_to, permanent
 
 
 def delivery_date_from_form(form):
@@ -506,6 +536,7 @@ def dashboard():
     def _out(start_s, end_s):
         return con.execute(
             base_sql + """ WHERE r.status='rezerwacja'
+                           AND IFNULL(e.catalog,'main')='main'
                            AND r.date_from>=? AND r.date_from<=?
                            ORDER BY r.date_from, e.code""",
             (start_s, end_s)).fetchall()
@@ -513,7 +544,9 @@ def dashboard():
     def _back(start_s, end_s):
         return con.execute(
             base_sql + """ WHERE r.status='wydane'
+                           AND IFNULL(e.catalog,'main')='main'
                            AND r.date_to>=? AND r.date_to<=?
+                           AND r.date_to < '9999-01-01'
                            ORDER BY r.date_to, e.code""",
             (start_s, end_s)).fetchall()
 
@@ -534,7 +567,9 @@ def dashboard():
     out_next = _out(next_start_s, next_end_s)
     back_next = _back(next_start_s, next_end_s)
     overdue = con.execute(
-        base_sql + " WHERE r.status='wydane' AND r.date_to<? ORDER BY r.date_to",
+        base_sql + """ WHERE r.status='wydane' AND IFNULL(e.catalog,'main')='main'
+                       AND r.date_to<? AND r.date_to < '9999-01-01'
+                       ORDER BY r.date_to""",
         (today_s,)).fetchall()
     checks_week = _checks(week_start_s, week_end_s)
     checks_next = _checks(next_start_s, next_end_s)
@@ -1807,6 +1842,13 @@ def reservations():
     mine = request.args.get("mine", "")
     overdue = request.args.get("overdue", "")
     done = request.args.get("done", "")
+    catalog = (request.args.get("catalog") or "main").strip().lower()
+    if catalog == "tcl":
+        if not can_manage_tcl():
+            flash("Brak dostępu do rezerwacji TCL.", "error")
+            return redirect(url_for("reservations"))
+    else:
+        catalog = "main"
     today = local_today().isoformat()
     con = get_db()
     sql = """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
@@ -1817,7 +1859,7 @@ def reservations():
              JOIN users u ON u.id=r.user_id JOIN equipment e ON e.id=r.equipment_id
              LEFT JOIN warehouses w ON w.id=e.warehouse_id
              LEFT JOIN warehouses iw ON iw.id=r.issue_warehouse_id"""
-    where, params = [], []
+    where, params = ["IFNULL(e.catalog,'main')=?"], [catalog]
     if f:
         where.append("r.status=?"); params.append(f)
     elif overdue != "1" and done != "1":
@@ -1826,9 +1868,10 @@ def reservations():
     if mine == "1":
         where.append("r.user_id=?"); params.append(session["user_id"])
     if overdue == "1":
-        where.append("r.status='wydane' AND r.date_to<?"); params.append(today)
-    if where:
-        sql += " WHERE " + " AND ".join(where)
+        # bez otwartych terminów zwrotu (TCL)
+        where.append("r.status='wydane' AND r.date_to<? AND r.date_to < '9999-01-01'")
+        params.append(today)
+    sql += " WHERE " + " AND ".join(where)
     if mine == "1":
         order = " ORDER BY IFNULL(r.created_at, r.date_from) DESC, r.id DESC"
     else:
@@ -1842,7 +1885,8 @@ def reservations():
                            overdue=overdue, done=done, today=today, dn=display_name,
                            warehouses=warehouses, receivers=receivers,
                            manage_ids=manage_ids,
-                           self_pickup_value=SELF_PICKUP_VALUE)
+                           self_pickup_value=SELF_PICKUP_VALUE,
+                           catalog=catalog)
 
 
 @app.route("/equipment/<int:eid>/reserve", methods=["GET", "POST"])
@@ -1861,10 +1905,13 @@ def reserve(eid):
         flash("Rezerwacje sprzętu TCL może tworzyć tylko dział Warrens lub admin.", "error")
         return redirect(url_for("equipment_detail", eid=eid))
     form_data = None
+    is_tcl = equipment_catalog(eq) == "tcl"
     if request.method == "POST":
         form_data = request.form
         try:
-            d_from, d_to, permanent = reservation_dates_from_form(request.form)
+            d_from, d_to, permanent = reservation_dates_from_form(
+                request.form, allow_open_return=is_tcl and not request.form.get("permanent")
+            )
             qty = max(1, int(request.form.get("quantity") or 1))
         except Exception as exc:
             flash(f"Nieprawidłowe dane formularza: {exc}", "error")
@@ -1872,6 +1919,8 @@ def reserve(eid):
             permanent = 0
             qty = 1
         proj = (request.form.get("project_number") or "").strip()
+        if is_tcl and not proj:
+            proj = "TCL"
         receiver = resolve_receiver(request.form.get("receiver", ""))
         if not proj:
             flash("Podaj numer projektu.", "error")
@@ -1879,9 +1928,13 @@ def reserve(eid):
             flash("Wybierz, kto odbiera towar.", "error")
         elif permanent and not valid_pickup_date(d_from):
             flash("Podaj datę Od.", "error")
-        elif not permanent and not valid_dates(d_from, d_to):
+        elif is_tcl and not permanent and not valid_pickup_date(d_from):
+            flash("Podaj datę wydania / odbioru z magazynu.", "error")
+        elif (not is_tcl) and not permanent and not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
-        elif not permanent and handoff_conflict(con, eid, d_from, d_to):
+        elif is_tcl and not permanent and d_to and not is_open_return(d_to) and not valid_dates(d_from, d_to):
+            flash("Nieprawidłowy zakres dat.", "error")
+        elif not permanent and not is_open_return(d_to) and handoff_conflict(con, eid, d_from, d_to):
             # znajdź konflikt, żeby podać konkretną datę
             row = con.execute(
                 """SELECT date_to FROM reservations
@@ -1927,6 +1980,8 @@ def reserve(eid):
                         con.commit()
                         con.close()
                         flash("Rezerwacja utworzona.", "ok")
+                        if is_tcl:
+                            return redirect(url_for("reservations", catalog="tcl"))
                         return redirect(url_for("equipment_detail", eid=eid))
                     except Exception as exc:
                         flash(f"Nie udało się zapisać rezerwacji: {exc}. Spróbuj ponownie.", "error")
@@ -1936,7 +1991,8 @@ def reserve(eid):
     con.close()
     return render_template("reserve.html", eq=eq, receivers=receivers,
                            recipients=recipients, projects=projects, form=form_data,
-                           self_pickup_value=SELF_PICKUP_VALUE)
+                           self_pickup_value=SELF_PICKUP_VALUE,
+                           is_tcl=is_tcl)
 
 
 @app.route("/reserve-multi", methods=["GET", "POST"])
@@ -1982,8 +2038,13 @@ def reserve_multi():
             or request.form.get("permanent")):
         # POST z formularza wspólnej rezerwacji (daty opcjonalne przy trwałym)
         form_data = request.form
-        d_from, d_to, permanent = reservation_dates_from_form(request.form)
+        is_tcl_multi = catalogs == {"tcl"}
+        d_from, d_to, permanent = reservation_dates_from_form(
+            request.form, allow_open_return=is_tcl_multi and not request.form.get("permanent")
+        )
         proj = (request.form.get("project_number") or "").strip()
+        if is_tcl_multi and not proj:
+            proj = "TCL"
         receiver = resolve_receiver(request.form.get("receiver", ""))
         if not proj:
             flash("Podaj numer projektu.", "error")
@@ -1991,7 +2052,11 @@ def reserve_multi():
             flash("Wybierz, kto odbiera towar.", "error")
         elif permanent and not valid_pickup_date(d_from):
             flash("Podaj datę Od.", "error")
-        elif not permanent and not valid_dates(d_from, d_to):
+        elif is_tcl_multi and not permanent and not valid_pickup_date(d_from):
+            flash("Podaj datę wydania / odbioru z magazynu.", "error")
+        elif (not is_tcl_multi) and not permanent and not valid_dates(d_from, d_to):
+            flash("Nieprawidłowy zakres dat.", "error")
+        elif is_tcl_multi and not permanent and d_to and not is_open_return(d_to) and not valid_dates(d_from, d_to):
             flash("Nieprawidłowy zakres dat.", "error")
         else:
             errors = []
@@ -2004,7 +2069,7 @@ def reserve_multi():
                     qty = 0
                 if qty <= 0:
                     continue  # pomiń pozycję (usunięta / ilość 0)
-                if not permanent and handoff_conflict(con, it["id"], d_from, d_to):
+                if not permanent and not is_open_return(d_to) and handoff_conflict(con, it["id"], d_from, d_to):
                     row = con.execute(
                         """SELECT date_to FROM reservations
                            WHERE equipment_id=? AND status IN ('rezerwacja','wydane')
@@ -2058,7 +2123,10 @@ def reserve_multi():
                     con.commit()
                     con.close()
                     flash(f"Utworzono wspólną rezerwację ({len(wanted)} pozycji).", "ok")
-                    return redirect(url_for("reservations"))
+                    return redirect(url_for(
+                        "reservations",
+                        catalog="tcl" if is_tcl_multi else None,
+                    ))
     receivers = active_partners(con)
     recipients = recent_recipients(con)
     projects = project_suggestions(con)
@@ -2072,7 +2140,8 @@ def reserve_multi():
                            multi_warehouse=multi_warehouse,
                            wh_names=sorted(wh_names), form=form_data,
                            default_project=default_proj,
-                           self_pickup_value=SELF_PICKUP_VALUE)
+                           self_pickup_value=SELF_PICKUP_VALUE,
+                           is_tcl=(catalogs == {"tcl"}))
 
 
 def _selected_reservations(con, rids):
@@ -2435,7 +2504,7 @@ def _redirect_after_issue(done_ids, xbs_meta):
     kw = {"auto_pdf": "wydanie", "pending": "1"}
     if xbs_meta:
         kw["xbs_hint"] = "1"
-    return redirect(url_for("reservations", **kw))
+    return _reservations_redirect(**kw)
 
 
 def _finalize_one_return(con, r, user_id, form, files=None, damage=False, damage_notes=""):
@@ -2646,7 +2715,9 @@ def _apply_issue(con, r, user_id, permanent=None, date_to=None):
     date_from = _effective_issue_date_from(r)
     if date_to is None:
         date_to = r["date_to"]
-    if not valid_dates(date_from, date_to):
+    if is_open_return(date_to):
+        date_to = OPEN_RETURN_DATE
+    elif not valid_dates(date_from, date_to):
         return False
     status = "wydane trwale" if permanent else "wydane"
     if permanent:
@@ -2971,7 +3042,7 @@ def pdf_group(kind):
 def _get_reservation(con, rid):
     r = con.execute(
         """SELECT r.*, u.username, u.first_name, u.last_name, u.department AS owner_department,
-                  e.code, e.name
+                  e.code, e.name, IFNULL(e.catalog,'main') AS catalog
            FROM reservations r
            JOIN users u ON u.id=r.user_id JOIN equipment e ON e.id=r.equipment_id
            WHERE r.id=?""", (rid,)).fetchone()
@@ -3127,8 +3198,12 @@ def _issue_post(rid):
         con.close()
         flash("Można wydać tylko aktywną rezerwację.", "error")
         return redirect(request.referrer or url_for("reservations"))
-    new_to = (request.form.get("date_to") or "").strip() or r["date_to"]
-    if new_to != r["date_to"]:
+    new_to = (request.form.get("date_to") or "").strip()
+    if not new_to:
+        new_to = r["date_to"]
+    elif is_open_return(new_to) and equipment_catalog(r) == "tcl":
+        new_to = OPEN_RETURN_DATE
+    if new_to != r["date_to"] and not is_open_return(new_to):
         ok_to, to_err = _validate_return_date(con, r, new_to)
         if not ok_to:
             con.close()
@@ -3168,14 +3243,14 @@ def _issue_post(rid):
         msg = "Oznaczono jako wydane trwale (towar nie wraca). Dokumenty pobiorą się za chwilę."
     else:
         msg = "Oznaczono jako wydane. Dokumenty pobiorą się za chwilę."
-    if new_to != r["date_to"]:
+    if new_to != r["date_to"] and not is_open_return(new_to):
         msg = f"Termin zwrotu {new_to}. " + msg
     flash(msg, "ok")
     if xbs_meta:
         _store_xbs_session([rid], xbs_meta)
         flash("Awizacja XBS: Excel pobierze się zaraz po PDF (lub link w kolumnie Dokumenty).", "ok")
-        return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid, xbs_hint="1"))
-    return redirect(url_for("reservations", auto_pdf="wydanie", rid=rid))
+        return _reservations_redirect(auto_pdf="wydanie", rid=rid, xbs_hint="1")
+    return _reservations_redirect(auto_pdf="wydanie", rid=rid)
 
 
 @app.route("/reservations/<int:rid>/return", methods=["POST"])
@@ -3378,20 +3453,31 @@ def change_return_date(rid):
         return respond(False, "Termin zwrotu można zmienić tylko dla wydanego sprzętu.", 400)
 
     new_to = (request.form.get("date_to") or "").strip()
-    if new_to == r["date_to"]:
+    is_tcl = equipment_catalog(r) == "tcl"
+    if not new_to and is_tcl:
+        new_to = OPEN_RETURN_DATE
+    if new_to == r["date_to"] or (is_open_return(new_to) and is_open_return(r["date_to"])):
         con.close()
         return respond(True, "Termin zwrotu bez zmian.")
-    ok_to, to_err = _validate_return_date(con, r, new_to)
-    if not ok_to:
-        con.close()
-        return respond(False, to_err, 409)
+    if is_open_return(new_to):
+        if not is_tcl:
+            con.close()
+            return respond(False, "Podaj datę zwrotu.", 400)
+        new_to = OPEN_RETURN_DATE
+    else:
+        ok_to, to_err = _validate_return_date(con, r, new_to)
+        if not ok_to:
+            con.close()
+            return respond(False, to_err, 409)
 
     eq = con.execute("SELECT code FROM equipment WHERE id=?", (r["equipment_id"],)).fetchone()
     old_to = r["date_to"]
     con.execute("UPDATE reservations SET date_to=? WHERE id=?", (new_to, rid))
     con.commit()
     con.close()
-    return respond(True, f"Zmieniono termin zwrotu {eq['code']}: {old_to} → {new_to}.")
+    old_lbl = "brak terminu" if is_open_return(old_to) else old_to
+    new_lbl = "brak terminu" if is_open_return(new_to) else new_to
+    return respond(True, f"Zmieniono termin zwrotu {eq['code']}: {old_lbl} → {new_lbl}.")
 
 
 @app.route("/reservations/<int:rid>/pdf/<kind>")
@@ -3419,14 +3505,23 @@ def reservation_pdf(rid, kind):
 
 @app.route("/archive")
 @login_required
-@admin_required
 def archive_index():
+    catalog = (request.args.get("catalog") or "main").strip().lower()
+    if catalog == "tcl":
+        if not can_manage_tcl():
+            flash("Brak dostępu do archiwum TCL.", "error")
+            return redirect(url_for("dashboard"))
+    else:
+        catalog = "main"
+        if session.get("role") != "admin":
+            flash("Wymagane uprawnienia administratora.", "error")
+            return redirect(url_for("dashboard"))
     q = request.args.get("q", "").strip()
     con = get_db()
     sql = """SELECT e.*, w.name AS warehouse_name FROM equipment e
              LEFT JOIN warehouses w ON w.id=e.warehouse_id
-             WHERE IFNULL(e.archived,0)=1"""
-    params = []
+             WHERE IFNULL(e.archived,0)=1 AND IFNULL(e.catalog,'main')=?"""
+    params = [catalog]
     if q:
         sql += " AND (e.code LIKE ? OR e.name LIKE ?)"
         params += [f"%{q}%", f"%{q}%"]
@@ -3434,22 +3529,32 @@ def archive_index():
     items = con.execute(sql, params).fetchall()
     warehouses = active_warehouses(con)
     con.close()
-    return render_template("archive.html", items=items, q=q, warehouses=warehouses)
+    return render_template("archive.html", items=items, q=q, warehouses=warehouses,
+                           catalog=catalog)
 
 
 @app.route("/equipment/<int:eid>/restore", methods=["POST"])
 @login_required
-@admin_required
 def equipment_restore(eid):
     con = get_db()
     eq = con.execute("SELECT * FROM equipment WHERE id=?", (eid,)).fetchone()
     if not eq:
         con.close()
         abort(404)
+    cat = equipment_catalog(eq)
+    if cat == "tcl":
+        if not can_manage_tcl():
+            con.close()
+            flash("Brak uprawnień do przywracania sprzętu TCL.", "error")
+            return redirect(url_for("archive_index", catalog="tcl"))
+    elif session.get("role") != "admin":
+        con.close()
+        flash("Wymagane uprawnienia administratora.", "error")
+        return redirect(url_for("archive_index"))
     if not (eq["archived"] if "archived" in eq.keys() else 0):
         con.close()
         flash("Ten sprzęt nie jest w archiwum.", "error")
-        return redirect(url_for("archive_index"))
+        return redirect(url_for("archive_index", catalog=cat if cat == "tcl" else None))
     try:
         qty = max(1, int(request.form.get("quantity") or 1))
     except (TypeError, ValueError):

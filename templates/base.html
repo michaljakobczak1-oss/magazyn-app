@@ -73,6 +73,51 @@ nav .right a { font-size:13px; }
   font-size:13px; font-weight:500; border:0;
 }
 .user-menu-dropdown a:hover { background:#1c1c1c; color:var(--hg-lime); }
+
+/* Nav dropdown (Rezerwacje / Archiwum) */
+.nav-drop { position:relative; }
+.nav-drop > button.nav-drop-btn {
+  display:inline-flex; align-items:center; gap:5px;
+  background:transparent; border:0; margin:0;
+  padding:8px 4px;
+  color:rgba(255,255,255,.82);
+  font-family:inherit;
+  font-size:14px;
+  font-weight:500;
+  line-height:inherit;
+  letter-spacing:inherit;
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  -webkit-appearance:none; appearance:none;
+}
+.nav-drop > button.nav-drop-btn:hover,
+.nav-drop.open > button.nav-drop-btn {
+  color:var(--hg-white);
+}
+.nav-drop > button.nav-drop-btn.active {
+  color:var(--hg-white); border-bottom-color:var(--hg-lime);
+}
+.nav-drop-btn .nav-drop-caret {
+  display:inline-block; width:0; height:0;
+  border-left:4px solid transparent; border-right:4px solid transparent;
+  border-top:5px solid currentColor; opacity:.85;
+  transition:transform .15s ease;
+}
+.nav-drop.open > button.nav-drop-btn .nav-drop-caret { transform:rotate(180deg); }
+.nav-drop-menu {
+  display:none; position:absolute; left:0; top:calc(100% + 8px);
+  min-width:200px; background:#111; border:1px solid #333;
+  border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.35);
+  padding:6px 0; z-index:80;
+}
+.nav-drop.open > .nav-drop-menu { display:block; }
+.nav-drop-menu a {
+  display:block; padding:10px 14px; color:#fff; text-decoration:none;
+  font-size:13px; font-weight:500; border:0; white-space:nowrap;
+}
+.nav-drop-menu a:hover { background:#1c1c1c; color:var(--hg-lime); }
+.nav-drop-menu a.active { color:var(--hg-lime); }
+
 .wrap { max-width:1200px; margin:24px auto; padding:0 16px; flex:1 0 auto; width:100%; }
 h1 { font-size:26px; margin:0 0 16px; }
 h2 { font-size:18px; }
@@ -471,6 +516,23 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     padding:12px 4px; border-bottom:1px solid #222; font-size:15px;
   }
   .nav-links > a.active { border-bottom-color:var(--hg-lime); }
+  .nav-drop {
+    border-bottom:1px solid #222;
+  }
+  .nav-drop > button.nav-drop-btn {
+    width:100%; justify-content:space-between;
+    padding:12px 4px; font-size:15px; border-bottom:0;
+  }
+  .nav-drop > button.nav-drop-btn.active { color:var(--hg-lime); }
+  .nav-drop-menu {
+    position:static; display:none; box-shadow:none; border:0;
+    border-radius:0; background:transparent; padding:0 0 8px 12px;
+    min-width:0;
+  }
+  .nav-drop.open > .nav-drop-menu { display:block; }
+  .nav-drop-menu a {
+    padding:10px 4px; border-bottom:1px solid #222; font-size:14px;
+  }
   .nav-links .right {
     width:100%; margin:8px 0 0; justify-content:flex-start;
     padding-top:8px; border-top:1px solid #2a2a2a;
@@ -752,11 +814,45 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   {% if can_manage_tcl %}
   <a href="{{ url_for('tcl_index') }}" class="{{ 'active' if request.endpoint in ('tcl_index', 'tcl_import') }}">Sprzęt TCL</a>
   {% endif %}
-  <a href="{{ url_for('reservations') }}" class="{{ 'active' if request.endpoint == 'reservations' and not request.args.get('mine') }}">Rezerwacje</a>
+  {% set res_active = request.endpoint == 'reservations' and not request.args.get('mine') %}
+  {% set res_main_active = res_active and request.args.get('catalog') != 'tcl' %}
+  {% set res_tcl_active = res_active and request.args.get('catalog') == 'tcl' %}
+  {% if can_manage_tcl %}
+  <div class="nav-drop" data-nav-drop>
+    <button type="button" class="nav-drop-btn {{ 'active' if res_active }}" aria-expanded="false" aria-haspopup="true">
+      Rezerwacje <span class="nav-drop-caret" aria-hidden="true"></span>
+    </button>
+    <div class="nav-drop-menu" role="menu">
+      <a href="{{ url_for('reservations') }}" class="{{ 'active' if res_main_active }}" role="menuitem">Rezerwacje ogólne</a>
+      <a href="{{ url_for('reservations', catalog='tcl') }}" class="{{ 'active' if res_tcl_active }}" role="menuitem">Rezerwacje TCL</a>
+    </div>
+  </div>
+  {% else %}
+  <a href="{{ url_for('reservations') }}" class="{{ 'active' if res_main_active }}">Rezerwacje</a>
+  {% endif %}
   <a href="{{ url_for('reservations', mine=1) }}" class="{{ 'active' if request.endpoint == 'reservations' and request.args.get('mine') }}">Moje rezerwacje</a>
   <a href="{{ url_for('billing_index') }}" class="{{ 'active' if request.endpoint in ('billing_index', 'billing_detail', 'billing_edit', 'billing_new', 'billing_delete', 'billing_export') }}">Rozliczenia</a>
+  {% if session.role == 'admin' or can_manage_tcl %}
+  {% set arch_active = request.endpoint == 'archive_index' %}
+  {% set arch_main_active = arch_active and request.args.get('catalog') != 'tcl' %}
+  {% set arch_tcl_active = arch_active and request.args.get('catalog') == 'tcl' %}
+  {% if session.role == 'admin' and can_manage_tcl %}
+  <div class="nav-drop" data-nav-drop>
+    <button type="button" class="nav-drop-btn {{ 'active' if arch_active }}" aria-expanded="false" aria-haspopup="true">
+      Archiwum <span class="nav-drop-caret" aria-hidden="true"></span>
+    </button>
+    <div class="nav-drop-menu" role="menu">
+      <a href="{{ url_for('archive_index') }}" class="{{ 'active' if arch_main_active }}" role="menuitem">Archiwum ogólne</a>
+      <a href="{{ url_for('archive_index', catalog='tcl') }}" class="{{ 'active' if arch_tcl_active }}" role="menuitem">Archiwum TCL</a>
+    </div>
+  </div>
+  {% elif session.role == 'admin' %}
+  <a href="{{ url_for('archive_index') }}" class="{{ 'active' if arch_main_active }}">Archiwum</a>
+  {% else %}
+  <a href="{{ url_for('archive_index', catalog='tcl') }}" class="{{ 'active' if arch_tcl_active }}">Archiwum TCL</a>
+  {% endif %}
+  {% endif %}
   {% if session.role == 'admin' %}
-  <a href="{{ url_for('archive_index') }}" class="{{ 'active' if request.endpoint == 'archive_index' }}">Archiwum</a>
   <a href="{{ url_for('dictionaries') }}" class="{{ 'active' if request.endpoint == 'dictionaries' }}">Słowniki</a>
   <a href="{{ url_for('catalog_import') }}" class="{{ 'active' if request.endpoint in ('catalog_import', 'admin_export_db') }}">Zarządzanie katalogiem</a>
   <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Użytkownicy</a>
@@ -840,11 +936,48 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       menu.classList.toggle('open');
+      document.querySelectorAll('[data-nav-drop].open').forEach(function(el){
+        el.classList.remove('open');
+        const b = el.querySelector('.nav-drop-btn');
+        if (b) b.setAttribute('aria-expanded', 'false');
+      });
     });
     document.addEventListener('click', function(e){
       if (!menu.contains(e.target)) menu.classList.remove('open');
     });
   }
+})();
+(function(){
+  const drops = document.querySelectorAll('[data-nav-drop]');
+  if (!drops.length) return;
+  drops.forEach(function(drop){
+    const btn = drop.querySelector('.nav-drop-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      const willOpen = !drop.classList.contains('open');
+      drops.forEach(function(other){
+        other.classList.remove('open');
+        const ob = other.querySelector('.nav-drop-btn');
+        if (ob) ob.setAttribute('aria-expanded', 'false');
+      });
+      const um = document.getElementById('user-menu');
+      if (um) um.classList.remove('open');
+      if (willOpen) {
+        drop.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  document.addEventListener('click', function(e){
+    drops.forEach(function(drop){
+      if (!drop.contains(e.target)) {
+        drop.classList.remove('open');
+        const b = drop.querySelector('.nav-drop-btn');
+        if (b) b.setAttribute('aria-expanded', 'false');
+      }
+    });
+  });
 })();
 (function(){
   const nav = document.querySelector('nav');
