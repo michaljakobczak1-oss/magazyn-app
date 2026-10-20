@@ -195,6 +195,7 @@ MIGRATIONS = {
         "first_name": "TEXT",
         "last_name": "TEXT",
         "department": "TEXT",
+        "can_tcl": "INTEGER NOT NULL DEFAULT 0",
     },
     "equipment": {
         "owner": "TEXT",

@@ -106,8 +106,10 @@ def equipment_catalog(eq):
 
 
 def can_manage_tcl():
-    """Admin albo dział Warrens / Warren's – zarządzanie katalogiem TCL."""
+    """Admin, dział Warrens / Warren's, albo indywidualna flaga can_tcl."""
     if session.get("role") == "admin":
+        return True
+    if session.get("can_tcl"):
         return True
     dept = _norm_dept(session.get("department") or "")
     return dept == _norm_dept(TCL_DEPT_NAME) or dept == "warrens"
@@ -117,10 +119,30 @@ def tcl_required(f):
     @wraps(f)
     def wrapper(*a, **kw):
         if not can_manage_tcl():
-            flash("Brak dostępu do modułu TCL (wymagany dział Warrens lub admin).", "error")
+            flash("Brak dostępu do modułu TCL (wymagany dział Warrens, uprawnienie TCL lub admin).", "error")
             return redirect(url_for("dashboard"))
         return f(*a, **kw)
     return wrapper
+
+
+def _user_can_tcl(u):
+    """Czy rekord użytkownika ma indywidualny dostęp TCL."""
+    try:
+        return bool(u["can_tcl"])
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+def _session_set_user(u):
+    """Ustawia pola sesji po logowaniu / aktualizacji własnego konta."""
+    session.update(
+        user_id=u["id"],
+        username=u["username"],
+        role=u["role"],
+        full_name=display_name(u),
+        department=(u["department"] or "") if "department" in u.keys() else "",
+        can_tcl=1 if _user_can_tcl(u) else 0,
+    )
 
 
 @app.context_processor
@@ -381,9 +403,7 @@ def login():
                         (request.form["username"].strip(),)).fetchone()
         con.close()
         if u and check_password_hash(u["password_hash"], request.form["password"]):
-            session.update(user_id=u["id"], username=u["username"], role=u["role"],
-                           full_name=display_name(u),
-                           department=(u["department"] or "") if "department" in u.keys() else "")
+            _session_set_user(u)
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("Błędny login lub hasło.", "error")
     return render_template("login.html")
@@ -3766,11 +3786,12 @@ def users():
                 flash(pw_err, "error")
             else:
                 try:
+                    can_tcl = 1 if request.form.get("can_tcl") else 0
                     con.execute("""INSERT INTO users (username, password_hash, role,
-                                   first_name, last_name, department) VALUES (?,?,?,?,?,?)""",
+                                   first_name, last_name, department, can_tcl) VALUES (?,?,?,?,?,?,?)""",
                                 (request.form["username"].strip(),
                                  generate_password_hash(request.form["password"], method="pbkdf2:sha256"),
-                                 request.form.get("role", "user"), fn, ln, dept or None))
+                                 request.form.get("role", "user"), fn, ln, dept or None, can_tcl))
                     con.commit()
                     flash("Użytkownik dodany.", "ok")
                 except Exception:
@@ -3831,6 +3852,7 @@ def user_name(uid):
     dept = request.form.get("department", "").strip()
     username = request.form.get("username", "").strip()
     role = request.form.get("role", "user").strip()
+    can_tcl = 1 if request.form.get("can_tcl") else 0
     if role not in ("user", "admin"):
         role = "user"
     if not fn or not ln:
@@ -3844,14 +3866,15 @@ def user_name(uid):
         try:
             con.execute(
                 """UPDATE users SET username=?, first_name=?, last_name=?,
-                   department=?, role=? WHERE id=?""",
-                (username, fn, ln, dept or None, role, uid))
+                   department=?, role=?, can_tcl=? WHERE id=?""",
+                (username, fn, ln, dept or None, role, can_tcl, uid))
             con.commit()
             if uid == session["user_id"]:
                 session["username"] = username
                 session["department"] = dept
                 session["full_name"] = f"{fn} {ln}".strip()
                 session["role"] = role
+                session["can_tcl"] = can_tcl
             flash("Dane zaktualizowane.", "ok")
         except Exception:
             flash("Taki login już istnieje.", "error")
