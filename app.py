@@ -3768,11 +3768,20 @@ def department_edit(did):
 
 # ---------- użytkownicy (admin) ----------
 
+def _ensure_user_can_tcl_column(con):
+    """Dopina kolumnę can_tcl, jeśli jeszcze jej nie ma (np. stary dysk na Renderze)."""
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(users)")}
+    if "can_tcl" not in cols:
+        con.execute("ALTER TABLE users ADD COLUMN can_tcl INTEGER NOT NULL DEFAULT 0")
+        con.commit()
+
+
 @app.route("/users", methods=["GET", "POST"])
 @login_required
 @admin_required
 def users():
     con = get_db()
+    _ensure_user_can_tcl_column(con)
     f_dept = request.args.get("department", "").strip()
     if request.method == "POST":
         fn = request.form.get("first_name", "").strip()
@@ -3794,8 +3803,8 @@ def users():
                                  request.form.get("role", "user"), fn, ln, dept or None, can_tcl))
                     con.commit()
                     flash("Użytkownik dodany.", "ok")
-                except Exception:
-                    flash("Taki login już istnieje.", "error")
+                except Exception as exc:
+                    flash(f"Nie udało się dodać użytkownika: {exc}", "error")
     sql = "SELECT * FROM users"
     params = []
     if f_dept == "__none__":
@@ -3804,7 +3813,9 @@ def users():
         sql += " WHERE department=?"
         params.append(f_dept)
     sql += " ORDER BY IFNULL(department, 'żżż'), last_name, username"
-    rows = con.execute(sql, params).fetchall()
+    rows = [dict(r) for r in con.execute(sql, params).fetchall()]
+    for r in rows:
+        r["can_tcl"] = int(r.get("can_tcl") or 0)
     departments = active_departments(con)
     con.close()
     return render_template("users.html", rows=rows, dn=display_name,
@@ -3864,6 +3875,7 @@ def user_name(uid):
     else:
         con = get_db()
         try:
+            _ensure_user_can_tcl_column(con)
             con.execute(
                 """UPDATE users SET username=?, first_name=?, last_name=?,
                    department=?, role=?, can_tcl=? WHERE id=?""",
@@ -3876,8 +3888,8 @@ def user_name(uid):
                 session["role"] = role
                 session["can_tcl"] = can_tcl
             flash("Dane zaktualizowane.", "ok")
-        except Exception:
-            flash("Taki login już istnieje.", "error")
+        except Exception as exc:
+            flash(f"Nie udało się zapisać: {exc}", "error")
         con.close()
     return redirect(url_for("users"))
 
