@@ -35,12 +35,13 @@
       <select name="role"><option value="user">użytkownik</option><option value="admin">admin</option></select>
     </div>
     <div>
-      <label class="chk-row" style="margin-top:22px;">
-        <input type="checkbox" name="can_tcl" value="1" style="width:auto;">
-        <span>Dostęp TCL (bez zmiany działu)</span>
-      </label>
+      <label>Dostęp TCL</label>
+      <select name="can_tcl">
+        <option value="0">nie</option>
+        <option value="1">tak</option>
+      </select>
     </div>
-    <button class="btn">Dodaj</button>
+    <button class="btn" type="submit">Dodaj</button>
   </form>
 </div>
 
@@ -96,15 +97,25 @@
           <option value="admin" {{ 'selected' if u.role == 'admin' }}>admin</option>
         </select>
       </div>
-      <div style="min-width:140px;">
-        <label style="display:flex; align-items:center; gap:8px; margin-top:22px; font-weight:600;">
-          <input type="checkbox" name="can_tcl" value="1" style="width:auto; margin:0;" {% if u.can_tcl %}checked{% endif %}>
-          Dostęp TCL
-        </label>
+      <div>
+        <label>Dostęp TCL</label>
+        <select name="can_tcl">
+          <option value="0" {{ 'selected' if not u.can_tcl }}>nie</option>
+          <option value="1" {{ 'selected' if u.can_tcl }}>tak</option>
+        </select>
       </div>
       <button class="btn small ghost" type="submit">Zapisz</button>
     </form>
     <div class="dict-meta user-item-actions">
+      <form method="post" action="{{ url_for('user_tcl', uid=u.id) }}">
+        {% if u.can_tcl %}
+        <input type="hidden" name="can_tcl" value="0">
+        <button class="btn small ghost" type="submit">Odbierz TCL</button>
+        {% else %}
+        <input type="hidden" name="can_tcl" value="1">
+        <button class="btn small ok" type="submit">Nadaj TCL</button>
+        {% endif %}
+      </form>
       {% if u.id != session.user_id %}
       <form method="post" action="{{ url_for('user_toggle', uid=u.id) }}">
         <button class="btn small {{ 'danger' if u.active else 'ok' }}">{{ 'Dezaktywuj' if u.active else 'Aktywuj' }}</button>

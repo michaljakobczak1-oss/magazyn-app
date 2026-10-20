@@ -3854,6 +3854,34 @@ def user_password(uid):
     return redirect(url_for("users"))
 
 
+@app.route("/users/<int:uid>/tcl", methods=["POST"])
+@login_required
+@admin_required
+def user_tcl(uid):
+    """Szybkie nadanie / odebranie dostępu TCL (osobny formularz – pewniejszy niż checkbox)."""
+    raw = (request.form.get("can_tcl") or "").strip().lower()
+    can_tcl = 1 if raw in ("1", "on", "true", "tak", "yes") else 0
+    con = get_db()
+    try:
+        _ensure_user_can_tcl_column(con)
+        u = con.execute("SELECT id, username FROM users WHERE id=?", (uid,)).fetchone()
+        if not u:
+            flash("Nie znaleziono użytkownika.", "error")
+        else:
+            con.execute("UPDATE users SET can_tcl=? WHERE id=?", (can_tcl, uid))
+            con.commit()
+            if uid == session["user_id"]:
+                session["can_tcl"] = can_tcl
+            flash(
+                f"{'Nadano' if can_tcl else 'Odebrano'} dostęp TCL dla {u['username']}.",
+                "ok",
+            )
+    except Exception as exc:
+        flash(f"Nie udało się zmienić dostępu TCL: {exc}", "error")
+    con.close()
+    return redirect(url_for("users"))
+
+
 @app.route("/users/<int:uid>/name", methods=["POST"])
 @login_required
 @admin_required
@@ -3863,7 +3891,9 @@ def user_name(uid):
     dept = request.form.get("department", "").strip()
     username = request.form.get("username", "").strip()
     role = request.form.get("role", "user").strip()
-    can_tcl = 1 if request.form.get("can_tcl") else 0
+    # select "1"/"0" albo stary checkbox
+    raw_tcl = request.form.get("can_tcl")
+    can_tcl = 1 if str(raw_tcl or "").strip() in ("1", "on", "true", "tak") else 0
     if role not in ("user", "admin"):
         role = "user"
     if not fn or not ln:
