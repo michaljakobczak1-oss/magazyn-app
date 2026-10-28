@@ -1137,9 +1137,6 @@ def material_checks():
              JOIN users u ON u.id=v.user_id
              WHERE 1=1"""
     params = []
-    if session.get("role") != "admin":
-        sql += " AND v.user_id=?"
-        params.append(session["user_id"])
     if status:
         sql += " AND v.status=?"
         params.append(status)
