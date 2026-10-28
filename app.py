@@ -554,17 +554,18 @@ def dashboard():
                   LEFT JOIN warehouses w ON w.id=e.warehouse_id"""
 
     def _out(start_s, end_s):
+        # Wydania z katalogu głównego i TCL – widok tygodnia dla wszystkich
+        # (TCL w menu nadal tylko dla Warrens / can_tcl).
         return con.execute(
             base_sql + """ WHERE r.status='rezerwacja'
-                           AND IFNULL(e.catalog,'main')='main'
                            AND r.date_from>=? AND r.date_from<=?
                            ORDER BY r.date_from, e.code""",
             (start_s, end_s)).fetchall()
 
     def _back(start_s, end_s):
+        # Zwroty z datą (bez otwartego terminu TCL 9999-…)
         return con.execute(
             base_sql + """ WHERE r.status='wydane'
-                           AND IFNULL(e.catalog,'main')='main'
                            AND r.date_to>=? AND r.date_to<=?
                            AND r.date_to < '9999-01-01'
                            ORDER BY r.date_to, e.code""",
@@ -587,7 +588,7 @@ def dashboard():
     out_next = _out(next_start_s, next_end_s)
     back_next = _back(next_start_s, next_end_s)
     overdue = con.execute(
-        base_sql + """ WHERE r.status='wydane' AND IFNULL(e.catalog,'main')='main'
+        base_sql + """ WHERE r.status='wydane'
                        AND r.date_to<? AND r.date_to < '9999-01-01'
                        ORDER BY r.date_to""",
         (today_s,)).fetchall()
