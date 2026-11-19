@@ -26,6 +26,19 @@ HEADERS = [
     "Ilość",
 ]
 
+HEADERS_TCL = [
+    "Etykieta",
+    "Miniatura",
+    "Model",
+    "Kategoria",
+    "Podkategoria",
+    "Lokalizacja",
+    "Rząd",
+    "S/N",
+    "Magazyn",
+    "Ilość",
+]
+
 IMPORT_HEADERS = [
     "Kod",
     "Nazwa produktu",
@@ -49,6 +62,10 @@ COL_WIDTHS = {
     "A": 12, "B": 17, "C": 36, "D": 14, "E": 16,
     "F": 14, "G": 16, "H": 16, "I": 14, "J": 16,
     "K": 12, "L": 10,
+}
+COL_WIDTHS_TCL = {
+    "A": 12, "B": 17, "C": 28, "D": 16, "E": 18,
+    "F": 14, "G": 10, "H": 18, "I": 14, "J": 10,
 }
 
 
@@ -76,45 +93,65 @@ def _make_thumb_bytes(path: Path):
         return None
 
 
-def build_catalog_miniatures_xlsx(rows, upload_dir):
+def build_catalog_miniatures_xlsx(rows, upload_dir, catalog="main"):
     """
     rows: iterable of mapping-like objects with keys:
       code, name, project_number, dimensions, warehouse_name, location,
       owner, brand, material_type, condition, quantity, storage_instructions, photo
+      (+ dla TCL: tcl_category, tcl_subcategory, tcl_aisle, serial_number)
     upload_dir: Path do static/uploads
+    catalog: "main" | "tcl"
     Zwraca BytesIO z plikiem .xlsx.
     """
     upload_dir = Path(upload_dir)
+    is_tcl = (catalog or "main") == "tcl"
+    headers = HEADERS_TCL if is_tcl else HEADERS
+    widths = COL_WIDTHS_TCL if is_tcl else COL_WIDTHS
+
     wb = Workbook()
     ws = wb.active
-    ws.title = "Import (miniatury)"
+    ws.title = "Sprzęt TCL" if is_tcl else "Import (miniatury)"
 
     header_font = Font(bold=True)
-    for col, title in enumerate(HEADERS, start=1):
+    for col, title in enumerate(headers, start=1):
         cell = ws.cell(1, col, title)
         cell.font = header_font
         cell.alignment = Alignment(vertical="center", wrap_text=True)
     ws.row_dimensions[1].height = 28
-    for letter, width in COL_WIDTHS.items():
+    for letter, width in widths.items():
         ws.column_dimensions[letter].width = width
 
     keep_alive = []
 
     for i, row in enumerate(rows, start=2):
-        values = [
-            row["code"],
-            None,
-            row["name"],
-            row["project_number"] or "",
-            row["dimensions"] or "",
-            row["warehouse_name"] or "",
-            row["location"] or "",
-            row["owner"] or "",
-            row["brand"] or "",
-            material_label(row["material_type"]),
-            row["condition"] or "sprawny",
-            row["quantity"] if row["quantity"] is not None else "",
-        ]
+        if is_tcl:
+            values = [
+                row["code"],
+                None,
+                row["name"] or "",
+                row["tcl_category"] or "",
+                row["tcl_subcategory"] or "",
+                row["location"] or "",
+                row["tcl_aisle"] or "",
+                row["serial_number"] or "",
+                row["warehouse_name"] or "",
+                row["quantity"] if row["quantity"] is not None else "",
+            ]
+        else:
+            values = [
+                row["code"],
+                None,
+                row["name"],
+                row["project_number"] or "",
+                row["dimensions"] or "",
+                row["warehouse_name"] or "",
+                row["location"] or "",
+                row["owner"] or "",
+                row["brand"] or "",
+                material_label(row["material_type"]),
+                row["condition"] or "sprawny",
+                row["quantity"] if row["quantity"] is not None else "",
+            ]
         for col, val in enumerate(values, start=1):
             cell = ws.cell(i, col, val)
             cell.alignment = Alignment(vertical="center", wrap_text=True)

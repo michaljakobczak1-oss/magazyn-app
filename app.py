@@ -4216,7 +4216,7 @@ def _catalog_export_response(catalog="main"):
         flash("Brak pozycji do eksportu.", "error")
         return redirect(url_for("tcl_index" if catalog == "tcl" else "index"))
 
-    buf = build_catalog_miniatures_xlsx(rows, UPLOAD_DIR)
+    buf = build_catalog_miniatures_xlsx(rows, UPLOAD_DIR, catalog=catalog)
     stamp = local_now().strftime("%Y%m%d_%H%M")
     cat_label = "tcl" if catalog == "tcl" else "katalog"
     name = f"export_{cat_label}_{suffix}_{stamp}.xlsx"
