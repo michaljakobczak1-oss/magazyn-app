@@ -106,13 +106,25 @@ def equipment_catalog(eq):
 
 
 def can_manage_tcl():
-    """Admin, dział Warrens / Warren's, albo indywidualna flaga can_tcl."""
+    """Admin, dział Warrens / Warren's, albo indywidualna flaga can_tcl (pełny dostęp)."""
     if session.get("role") == "admin":
         return True
     if session.get("can_tcl"):
         return True
     dept = _norm_dept(session.get("department") or "")
     return dept == _norm_dept(TCL_DEPT_NAME) or dept == "warrens"
+
+
+def is_tcl_viewer_only():
+    """Konto tylko do podglądu/eksportu TCL (bez rezerwacji i reszty apki)."""
+    if session.get("role") == "admin" or can_manage_tcl():
+        return False
+    return bool(session.get("tcl_viewer"))
+
+
+def can_view_tcl():
+    """Pełny TCL albo tryb tylko-podgląd."""
+    return can_manage_tcl() or bool(session.get("tcl_viewer"))
 
 
 def tcl_required(f):
@@ -125,12 +137,30 @@ def tcl_required(f):
     return wrapper
 
 
-def _user_can_tcl(u):
-    """Czy rekord użytkownika ma indywidualny dostęp TCL."""
+def tcl_view_required(f):
+    """Dostęp do listy/eksportu TCL: zarządzanie albo viewer."""
+    @wraps(f)
+    def wrapper(*a, **kw):
+        if not can_view_tcl():
+            flash("Brak dostępu do katalogu TCL.", "error")
+            return redirect(url_for("login") if not session.get("user_id") else url_for("dashboard"))
+        return f(*a, **kw)
+    return wrapper
+
+
+def _user_flag(u, key):
     try:
-        return bool(u["can_tcl"])
+        return bool(u[key])
     except (KeyError, IndexError, TypeError):
         return False
+
+
+def _user_can_tcl(u):
+    return _user_flag(u, "can_tcl")
+
+
+def _user_tcl_viewer(u):
+    return _user_flag(u, "tcl_viewer")
 
 
 def _session_set_user(u):
@@ -142,16 +172,52 @@ def _session_set_user(u):
         full_name=display_name(u),
         department=(u["department"] or "") if "department" in u.keys() else "",
         can_tcl=1 if _user_can_tcl(u) else 0,
+        tcl_viewer=1 if _user_tcl_viewer(u) else 0,
     )
+
+
+def _home_endpoint():
+    """Domyślna strona po logowaniu / dla brandu."""
+    if is_tcl_viewer_only():
+        return "tcl_index"
+    return "dashboard"
 
 
 @app.context_processor
 def inject_acl_flags():
+    ep = request.endpoint or ""
+    # Motyw Warren's × TCL na zakładce TCL (i na całym UI kont viewer-only).
+    theme_tcl = bool(
+        is_tcl_viewer_only()
+        or ep.startswith("tcl_")
+        or (
+            ep in ("reservations", "archive_index")
+            and request.args.get("catalog") == "tcl"
+        )
+    )
     return {
         "can_manage_tcl": can_manage_tcl(),
+        "can_view_tcl": can_view_tcl(),
+        "is_tcl_viewer_only": is_tcl_viewer_only(),
+        "theme_tcl": theme_tcl,
         "is_open_return": is_open_return,
         "OPEN_RETURN_DATE": OPEN_RETURN_DATE,
     }
+
+
+@app.before_request
+def _restrict_tcl_viewer_routes():
+    """Viewer TCL: tylko lista/eksport/szczegół TCL + konto."""
+    if not session.get("user_id") or not is_tcl_viewer_only():
+        return None
+    ep = request.endpoint or ""
+    if ep in (None, "static", "logout", "login", "account_password"):
+        return None
+    allowed = {"tcl_index", "tcl_export", "equipment_detail"}
+    if ep in allowed:
+        return None
+    flash("To konto ma dostęp tylko do podglądu sprzętu TCL.", "error")
+    return redirect(url_for("tcl_index"))
 
 
 def _normalize_brand_key(brand):
@@ -404,6 +470,8 @@ def login():
         con.close()
         if u and check_password_hash(u["password_hash"], request.form["password"]):
             _session_set_user(u)
+            if is_tcl_viewer_only():
+                return redirect(url_for("tcl_index"))
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("Błędny login lub hasło.", "error")
     return render_template("login.html")
@@ -433,7 +501,7 @@ def account_password():
         con.commit()
         flash("Hasło zmienione.", "ok")
     con.close()
-    default = "dashboard"
+    default = _home_endpoint()
     return redirect(request.referrer or url_for(default))
 
 
@@ -1561,7 +1629,7 @@ def index():
 
 @app.route("/tcl")
 @login_required
-@tcl_required
+@tcl_view_required
 def tcl_index():
     return _render_equipment_index("tcl")
 
@@ -1730,6 +1798,15 @@ def equipment_detail(eid):
                         WHERE e.id=?""", (eid,)).fetchone()
     if not eq:
         abort(404)
+    cat = equipment_catalog(eq)
+    if is_tcl_viewer_only() and cat != "tcl":
+        con.close()
+        flash("To konto ma dostęp tylko do sprzętu TCL.", "error")
+        return redirect(url_for("tcl_index"))
+    if cat == "tcl" and not can_view_tcl():
+        con.close()
+        flash("Brak dostępu do sprzętu TCL.", "error")
+        return redirect(url_for("dashboard"))
     photo_rows = list(equipment_photo_rows(con, eid))
     if not photo_rows and eq["photo"]:
         photo_rows = [{"filename": eq["photo"], "kind": "normal"}]
@@ -3766,11 +3843,17 @@ def department_edit(did):
 
 # ---------- użytkownicy (admin) ----------
 
-def _ensure_user_can_tcl_column(con):
-    """Dopina kolumnę can_tcl, jeśli jeszcze jej nie ma (np. stary dysk na Renderze)."""
+def _ensure_user_acl_columns(con):
+    """Dopina kolumny ACL TCL na users (can_tcl, tcl_viewer)."""
     cols = {r["name"] for r in con.execute("PRAGMA table_info(users)")}
+    changed = False
     if "can_tcl" not in cols:
         con.execute("ALTER TABLE users ADD COLUMN can_tcl INTEGER NOT NULL DEFAULT 0")
+        changed = True
+    if "tcl_viewer" not in cols:
+        con.execute("ALTER TABLE users ADD COLUMN tcl_viewer INTEGER NOT NULL DEFAULT 0")
+        changed = True
+    if changed:
         con.commit()
 
 
@@ -3779,7 +3862,7 @@ def _ensure_user_can_tcl_column(con):
 @admin_required
 def users():
     con = get_db()
-    _ensure_user_can_tcl_column(con)
+    _ensure_user_acl_columns(con)
     f_dept = request.args.get("department", "").strip()
     if request.method == "POST":
         fn = request.form.get("first_name", "").strip()
@@ -3793,12 +3876,17 @@ def users():
                 flash(pw_err, "error")
             else:
                 try:
-                    can_tcl = 1 if request.form.get("can_tcl") else 0
+                    can_tcl = 1 if str(request.form.get("can_tcl") or "").strip() in ("1", "on", "true", "tak") else 0
+                    tcl_viewer = 1 if str(request.form.get("tcl_viewer") or "").strip() in ("1", "on", "true", "tak") else 0
+                    if can_tcl:
+                        tcl_viewer = 0  # pełny TCL wygrywa z trybem tylko-podgląd
                     con.execute("""INSERT INTO users (username, password_hash, role,
-                                   first_name, last_name, department, can_tcl) VALUES (?,?,?,?,?,?,?)""",
+                                   first_name, last_name, department, can_tcl, tcl_viewer)
+                                   VALUES (?,?,?,?,?,?,?,?)""",
                                 (request.form["username"].strip(),
                                  generate_password_hash(request.form["password"], method="pbkdf2:sha256"),
-                                 request.form.get("role", "user"), fn, ln, dept or None, can_tcl))
+                                 request.form.get("role", "user"), fn, ln, dept or None,
+                                 can_tcl, tcl_viewer))
                     con.commit()
                     flash("Użytkownik dodany.", "ok")
                 except Exception as exc:
@@ -3814,6 +3902,7 @@ def users():
     rows = [dict(r) for r in con.execute(sql, params).fetchall()]
     for r in rows:
         r["can_tcl"] = int(r.get("can_tcl") or 0)
+        r["tcl_viewer"] = int(r.get("tcl_viewer") or 0)
     departments = active_departments(con)
     con.close()
     return render_template("users.html", rows=rows, dn=display_name,
@@ -3861,7 +3950,7 @@ def user_tcl(uid):
     can_tcl = 1 if raw in ("1", "on", "true", "tak", "yes") else 0
     con = get_db()
     try:
-        _ensure_user_can_tcl_column(con)
+        _ensure_user_acl_columns(con)
         u = con.execute("SELECT id, username FROM users WHERE id=?", (uid,)).fetchone()
         if not u:
             flash("Nie znaleziono użytkownika.", "error")
@@ -3892,6 +3981,10 @@ def user_name(uid):
     # select "1"/"0" albo stary checkbox
     raw_tcl = request.form.get("can_tcl")
     can_tcl = 1 if str(raw_tcl or "").strip() in ("1", "on", "true", "tak") else 0
+    raw_viewer = request.form.get("tcl_viewer")
+    tcl_viewer = 1 if str(raw_viewer or "").strip() in ("1", "on", "true", "tak") else 0
+    if can_tcl:
+        tcl_viewer = 0
     if role not in ("user", "admin"):
         role = "user"
     if not fn or not ln:
@@ -3903,11 +3996,11 @@ def user_name(uid):
     else:
         con = get_db()
         try:
-            _ensure_user_can_tcl_column(con)
+            _ensure_user_acl_columns(con)
             con.execute(
                 """UPDATE users SET username=?, first_name=?, last_name=?,
-                   department=?, role=?, can_tcl=? WHERE id=?""",
-                (username, fn, ln, dept or None, role, can_tcl, uid))
+                   department=?, role=?, can_tcl=?, tcl_viewer=? WHERE id=?""",
+                (username, fn, ln, dept or None, role, can_tcl, tcl_viewer, uid))
             con.commit()
             if uid == session["user_id"]:
                 session["username"] = username
@@ -3915,6 +4008,7 @@ def user_name(uid):
                 session["full_name"] = f"{fn} {ln}".strip()
                 session["role"] = role
                 session["can_tcl"] = can_tcl
+                session["tcl_viewer"] = tcl_viewer
             flash("Dane zaktualizowane.", "ok")
         except Exception as exc:
             flash(f"Nie udało się zapisać: {exc}", "error")
@@ -4142,7 +4236,7 @@ def catalog_export():
 
 @app.route("/tcl/export", methods=["GET", "POST"])
 @login_required
-@tcl_required
+@tcl_view_required
 def tcl_export():
     """Eksport katalogu TCL (filtry lub zaznaczenie)."""
     return _catalog_export_response("tcl")

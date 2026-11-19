@@ -135,7 +135,7 @@
     {% elif not is_tcl and session.role == 'admin' %}
     <a class="btn" href="{{ url_for('equipment_new') }}">+ Dodaj sprzęt</a>
     {% endif %}
-    {% if total %}
+    {% if total and ((is_tcl and can_view_tcl) or (not is_tcl)) %}
     <a class="btn ghost" href="{{ url_for(export_ep, **export_qs) }}" title="Eksportuje wszystkie pozycje spełniające filtry (nie tylko bieżącą stronę)">Eksportuj wg filtrów</a>
     {% endif %}
   </div>
@@ -169,9 +169,13 @@
 <form method="get" action="{{ url_for('reserve_multi') }}" id="equip-multi-form">
 <div id="equip-cart-hidden"></div>
 <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  {% if not is_tcl_viewer_only %}
   <button class="btn" id="reserve-selected-btn" type="submit">Zarezerwuj zaznaczone razem</button>
+  {% endif %}
+  {% if (is_tcl and can_view_tcl) or (not is_tcl) %}
   <button class="btn ghost" id="export-selected-btn" type="submit"
           formaction="{{ url_for(export_ep) }}" formmethod="post">Eksportuj zaznaczone</button>
+  {% endif %}
   <span class="desktop-only" style="font-size:13px; color:#666;">– zaznacz pozycje (zostają w koszyku przy kolejnym wyszukiwaniu)</span>
 </div>
 <div id="equip-cart" class="equip-cart" aria-live="polite">
@@ -196,7 +200,7 @@
     <th>S/N</th>
     <th>Status</th>
     <th>Dostępne dziś</th>
-    <th></th>
+    {% if not is_tcl_viewer_only %}<th></th>{% endif %}
   </tr>
   {% else %}
   <tr><th></th><th></th><th>Kod</th><th>Nazwa</th><th>Nr projektu</th><th>Magazyn / miejsce</th><th>Własność</th><th>Brand</th><th>Stan</th><th>Dostępne dziś</th><th></th></tr>
@@ -226,7 +230,9 @@
       {% else %}<span class="badge avail-ok">MAG</span>{% endif %}
     </td>
     <td data-label="Dostępne dziś"><span class="badge {{ 'avail-ok' if availability[it.id] > 0 else 'avail-no' }}">{{ availability[it.id] }} szt.</span></td>
+    {% if not is_tcl_viewer_only %}
     <td class="card-actions" data-label="Akcja"><a class="btn small" href="{{ url_for('reserve', eid=it.id) }}">Rezerwuj</a></td>
+    {% endif %}
     {% else %}
     <td class="card-main" data-label="Kod">
       <div><a href="{{ url_for('equipment_detail', eid=it.id) }}"><strong>{{ it.code }}</strong></a></div>
@@ -294,8 +300,12 @@
 {% endif %}
 
 <div id="float-bulk-rail" class="float-rail" aria-label="Akcje zbiorcze">
+  {% if not is_tcl_viewer_only %}
   <button type="button" class="float-rail-btn dark" id="float-reserve-selected" title="Zarezerwuj zaznaczone razem">Zarezerwuj zaznaczone razem</button>
+  {% endif %}
+  {% if (is_tcl and can_view_tcl) or (not is_tcl) %}
   <button type="button" class="float-rail-btn" id="float-export-selected" title="Eksportuj zaznaczone">Eksportuj zaznaczone</button>
+  {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}

@@ -184,6 +184,179 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 .badge.damaged { background:#fde8e8; color:var(--err); border:1px solid var(--err); }
 .badge.ok { background:#e6f4ea; color:var(--ok); border:1px solid var(--ok); }
 .badge.own { background:#f0f0f0; color:#111; }
+.badge.tcl { background:#e8f1ff; color:#1e40af; border:1px solid #93c5fd; }
+
+/* —— Motyw Warren's × TCL (zakładka TCL / konta viewer) —— */
+body.theme-tcl {
+  --warrens:#3000C8;
+  --warrens-soft:#F4F2FC;
+  --tcl-red:#F80000;
+  --hg-lime:var(--warrens);
+  --p:var(--warrens);
+  --p2:#240099;
+  --bg:#F5F6FA;
+  --text:#1A1A22;
+  background:var(--bg);
+}
+/* ciemny pasek jak warrens.pl + biała apla z logami */
+body.theme-tcl nav {
+  background:#111111;
+  color:#fff;
+  border-bottom:0;
+  min-height:72px;
+  padding:0 16px 0 0;
+  gap:12px;
+  align-items:stretch;
+}
+body.theme-tcl nav a {
+  color:rgba(255,255,255,.78);
+}
+body.theme-tcl nav a:hover { color:#fff; }
+body.theme-tcl nav a.active {
+  color:#fff;
+  border-bottom:2px solid var(--warrens);
+}
+body.theme-tcl .nav-drop > button.nav-drop-btn {
+  color:rgba(255,255,255,.78);
+}
+body.theme-tcl .nav-drop > button.nav-drop-btn:hover,
+body.theme-tcl .nav-drop.open > button.nav-drop-btn,
+body.theme-tcl .nav-drop > button.nav-drop-btn.active {
+  color:#fff;
+}
+body.theme-tcl .nav-drop > button.nav-drop-btn.active {
+  border-bottom-color:var(--warrens);
+}
+body.theme-tcl .nav-toggle {
+  color:#fff; border-color:rgba(255,255,255,.35); margin-left:8px;
+}
+body.theme-tcl .brand-lockup {
+  display:flex; align-items:center; align-self:stretch;
+  text-decoration:none; margin:0 8px 0 0; padding:0;
+  background:#fff;
+  border-radius:0 0 10px 0;
+  box-shadow:0 6px 18px rgba(0,0,0,.22);
+}
+body.theme-tcl .brand-lockup .brand-logos {
+  display:flex; align-items:center; gap:12px;
+  padding:14px 18px;
+}
+body.theme-tcl .brand-lockup img { display:block; height:28px; width:auto; }
+body.theme-tcl .brand-lockup .brand-sep {
+  width:1px; height:26px; background:#D8D4EC;
+}
+body.theme-tcl .brand-lockup .brand-sub { display:none; }
+body.theme-tcl .user-menu-btn {
+  border-color:rgba(255,255,255,.35); color:#fff; background:transparent;
+}
+body.theme-tcl .user-menu-btn:hover,
+body.theme-tcl .user-menu.open .user-menu-btn {
+  border-color:var(--warrens); color:#fff; background:rgba(48,0,200,.25);
+}
+body.theme-tcl .user-menu-dropdown {
+  background:#1a1a1a; border:1px solid #333;
+  box-shadow:0 10px 28px rgba(0,0,0,.4);
+}
+body.theme-tcl .user-menu-name {
+  color:rgba(255,255,255,.55); border-bottom-color:#2a2a2a;
+}
+body.theme-tcl .user-menu-dropdown a { color:#fff; }
+body.theme-tcl .user-menu-dropdown a:hover {
+  background:#222; color:#cbb8ff;
+}
+body.theme-tcl .nav-drop-menu {
+  background:#1a1a1a; border:1px solid #333;
+  box-shadow:0 10px 28px rgba(0,0,0,.4);
+}
+body.theme-tcl .nav-drop-menu a { color:#fff; }
+body.theme-tcl .nav-drop-menu a:hover,
+body.theme-tcl .nav-drop-menu a.active {
+  background:#222; color:#cbb8ff;
+}
+body.theme-tcl .nav-links {
+  align-items:center;
+  padding-left:8px;
+}
+/* przyciski: niebieskie tło, biała czcionka */
+body.theme-tcl .btn,
+body.theme-tcl a.btn,
+body.theme-tcl button.btn {
+  background:var(--warrens) !important;
+  color:#ffffff !important;
+  border:1px solid var(--warrens) !important;
+}
+body.theme-tcl .btn:hover,
+body.theme-tcl a.btn:hover,
+body.theme-tcl button.btn:hover {
+  background:var(--p2) !important;
+  border-color:var(--p2) !important;
+  color:#ffffff !important;
+  filter:none;
+}
+body.theme-tcl .btn.secondary,
+body.theme-tcl a.btn.secondary,
+body.theme-tcl button.btn.secondary {
+  background:#ffffff !important;
+  color:var(--warrens) !important;
+  border:1px solid #C9C4E4 !important;
+}
+body.theme-tcl .btn.secondary:hover,
+body.theme-tcl a.btn.secondary:hover {
+  background:var(--warrens-soft) !important;
+  color:var(--warrens) !important;
+}
+body.theme-tcl .float-rail-btn {
+  background:var(--warrens) !important; color:#fff !important; border-color:var(--warrens) !important;
+}
+body.theme-tcl .float-rail-btn:hover {
+  background:var(--p2) !important; color:#fff !important;
+}
+body.theme-tcl .float-rail-btn.dark {
+  background:var(--p2) !important; color:#fff !important;
+}
+body.theme-tcl .float-rail-btn.dark:hover {
+  background:#1a0070 !important; color:#fff !important;
+}
+body.theme-tcl a { color:var(--warrens); }
+body.theme-tcl .badge.tcl {
+  background:#FFF1F1; color:var(--tcl-red); border:1px solid #FFC9C9;
+}
+body.theme-tcl .tcl-partner-bar {
+  display:flex; align-items:center; justify-content:space-between;
+  gap:20px; flex-wrap:wrap;
+  margin:0 0 20px; padding:16px 18px;
+  background:#ffffff;
+  border:1px solid #E6E4F0;
+  border-left:4px solid var(--warrens);
+  border-radius:12px;
+}
+body.theme-tcl .tcl-partner-bar .partner-logos {
+  display:flex; align-items:center; gap:14px;
+}
+body.theme-tcl .tcl-partner-bar .partner-logos img {
+  display:block; height:38px; width:auto;
+}
+body.theme-tcl .tcl-partner-bar .partner-sep {
+  width:1px; height:30px; background:#D8D4EC;
+}
+body.theme-tcl .tcl-partner-bar .partner-copy {
+  font-size:13px; color:#555566; max-width:440px; line-height:1.45;
+}
+body.theme-tcl .tcl-partner-bar .partner-copy strong {
+  color:var(--warrens); font-weight:700;
+}
+@media (max-width:700px) {
+  body.theme-tcl nav { padding:0; min-height:64px; }
+  body.theme-tcl .brand-lockup { border-radius:0; }
+  body.theme-tcl .brand-lockup .brand-logos { padding:12px 14px; gap:10px; }
+  body.theme-tcl .brand-lockup img { height:22px; }
+  body.theme-tcl .tcl-partner-bar .partner-logos img { height:30px; }
+  body.theme-tcl .tcl-partner-bar .partner-copy { font-size:12px; }
+  body.theme-tcl.nav-open .nav-links,
+  body.theme-tcl nav.nav-open .nav-links {
+    background:#111;
+  }
+}
 .badge.sprawdzenie { background:#e0f2fe; color:#0369a1; border:1px solid #7dd3fc; }
 .term-cell { vertical-align:top; }
 .date-cell { white-space:nowrap; }
@@ -796,11 +969,22 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
 }
 </style>
 </head>
-<body>
+<body class="{% if theme_tcl %}theme-tcl{% endif %}">
 <nav>
-  <a class="brand" href="{{ url_for('dashboard') if session.user_id else url_for('login') }}">
+  {% if theme_tcl %}
+  <a class="brand-lockup" href="{% if session.user_id %}{{ url_for('tcl_index') }}{% else %}{{ url_for('login') }}{% endif %}">
+    <span class="brand-logos">
+      <img src="{{ url_for('static', filename='brand/warrens-nav-color.png') }}" alt="Warren's">
+      <span class="brand-sep" aria-hidden="true"></span>
+      <img src="{{ url_for('static', filename='brand/tcl-nav.png') }}" alt="TCL">
+    </span>
+    <span class="brand-sub">Magazyn TCL</span>
+  </a>
+  {% else %}
+  <a class="brand" href="{% if session.user_id %}{{ url_for('tcl_index' if is_tcl_viewer_only else 'dashboard') }}{% else %}{{ url_for('login') }}{% endif %}">
     <span class="brand-text">Magazyn</span>
   </a>
+  {% endif %}
   {% if session.user_id %}
   <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false">
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -808,6 +992,9 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
     </svg>
   </button>
   <div class="nav-links" id="nav-links">
+  {% if is_tcl_viewer_only %}
+  <a href="{{ url_for('tcl_index') }}" class="{{ 'active' if request.endpoint in ('tcl_index', 'tcl_export') }}">Sprzęt TCL</a>
+  {% else %}
   <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Tydzień w magazynie</a>
   <a href="{{ url_for('material_checks') }}" class="{{ 'active' if request.endpoint in ('material_checks', 'material_check_new') }}">Wizyty w magazynie</a>
   <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Sprzęt</a>
@@ -856,6 +1043,7 @@ label { display:block; margin:12px 0 4px; font-weight:600; font-size:13px; }
   <a href="{{ url_for('dictionaries') }}" class="{{ 'active' if request.endpoint == 'dictionaries' }}">Słowniki</a>
   <a href="{{ url_for('catalog_import') }}" class="{{ 'active' if request.endpoint in ('catalog_import', 'admin_export_db') }}">Zarządzanie katalogiem</a>
   <a href="{{ url_for('users') }}" class="{{ 'active' if request.endpoint == 'users' }}">Użytkownicy</a>
+  {% endif %}
   {% endif %}
   <div class="right">
     <div class="user-menu" id="user-menu">
