@@ -26,17 +26,24 @@ HEADERS = [
     "Ilość",
 ]
 
+# Jak katalog główny + pola TCL (kategoria / podkategoria / rząd / S/N).
 HEADERS_TCL = [
-    "Etykieta",
+    "Kod",
     "Miniatura",
-    "Model",
+    "Nazwa produktu",
     "Kategoria",
     "Podkategoria",
-    "Lokalizacja",
+    "Nr projektu",
+    "Wymiary",
+    "Magazyn",
+    "Miejsce",
+    "Własność",
+    "Brand",
+    "Rodzaj materiału",
+    "Stan techn.",
+    "Ilość",
     "Rząd",
     "S/N",
-    "Magazyn",
-    "Ilość",
 ]
 
 IMPORT_HEADERS = [
@@ -65,7 +72,8 @@ COL_WIDTHS = {
 }
 COL_WIDTHS_TCL = {
     "A": 12, "B": 17, "C": 28, "D": 16, "E": 18,
-    "F": 14, "G": 10, "H": 18, "I": 14, "J": 10,
+    "F": 14, "G": 16, "H": 14, "I": 16, "J": 16,
+    "K": 14, "L": 16, "M": 12, "N": 10, "O": 10, "P": 18,
 }
 
 
@@ -131,11 +139,17 @@ def build_catalog_miniatures_xlsx(rows, upload_dir, catalog="main"):
                 row["name"] or "",
                 row["tcl_category"] or "",
                 row["tcl_subcategory"] or "",
+                row["project_number"] or "",
+                row["dimensions"] or "",
+                row["warehouse_name"] or "",
                 row["location"] or "",
+                row["owner"] or "",
+                row["brand"] or "",
+                material_label(row["material_type"]),
+                row["condition"] or "sprawny",
+                row["quantity"] if row["quantity"] is not None else "",
                 row["tcl_aisle"] or "",
                 row["serial_number"] or "",
-                row["warehouse_name"] or "",
-                row["quantity"] if row["quantity"] is not None else "",
             ]
         else:
             values = [
