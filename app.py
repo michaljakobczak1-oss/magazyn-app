@@ -211,7 +211,8 @@ def _restrict_tcl_viewer_routes():
     if not session.get("user_id") or not is_tcl_viewer_only():
         return None
     ep = request.endpoint or ""
-    if ep in (None, "static", "logout", "login", "account_password"):
+    # static + zdjęcia z dysku trwałego (Render DATA_DIR → persistent_upload)
+    if ep in (None, "static", "persistent_upload", "logout", "login", "account_password"):
         return None
     allowed = {"tcl_index", "tcl_export", "equipment_detail"}
     if ep in allowed:
