@@ -57,6 +57,34 @@ app.jinja_env.auto_reload = True
 init_db()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def apply_tcl_category_renames(con=None):
+    """Jednorazowe / idempotentne zmiany nazw kategorii i podkategorii TCL."""
+    own = con is None
+    if own:
+        con = get_db()
+    # najpierw podkategorie, potem kategorie
+    con.execute(
+        """UPDATE equipment SET tcl_subcategory='Branding'
+           WHERE IFNULL(catalog,'main')='tcl'
+             AND tcl_subcategory IN ('MATERIAŁ', 'ROLLUP')""")
+    con.execute(
+        """UPDATE equipment SET tcl_subcategory='Znaki LED'
+           WHERE IFNULL(catalog,'main')='tcl'
+             AND UPPER(TRIM(IFNULL(tcl_subcategory,'')))='LED LETTERS'""")
+    con.execute(
+        """UPDATE equipment SET tcl_category='Akcesoria Eventowe'
+           WHERE IFNULL(catalog,'main')='tcl' AND tcl_category='BRANDING'""")
+    con.execute(
+        """UPDATE equipment SET tcl_category='POSM'
+           WHERE IFNULL(catalog,'main')='tcl' AND tcl_category='Elektronika'""")
+    con.commit()
+    if own:
+        con.close()
+
+
+apply_tcl_category_renames()
+
 if os.environ.get("DATA_DIR"):
     @app.route("/static/uploads/<path:filename>")
     def persistent_upload(filename):
@@ -266,8 +294,17 @@ def _photos_for_pdf(con, equipment_id, fallback_photo=None):
 
 
 def can_manage_reservation(r):
-    """Admin, własne rezerwacje, albo ten sam dział co rezerwujący."""
+    """Admin, własne rezerwacje, ten sam dział, albo pełny dostęp TCL (dla rezerwacji TCL)."""
     if session.get("role") == "admin":
+        return True
+    # can_tcl / Warrens: wydania i zwroty wszystkich rezerwacji TCL (nie tylko swój dział)
+    cat = ""
+    try:
+        if "catalog" in r.keys():
+            cat = (r["catalog"] or "main").strip().lower()
+    except (TypeError, AttributeError):
+        cat = ""
+    if cat == "tcl" and can_manage_tcl():
         return True
     if r["user_id"] == session.get("user_id"):
         return True
